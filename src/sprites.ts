@@ -16,9 +16,9 @@ export interface Sprite {
 
 type Pal = { outline: string; dark: string; mid: string; light: string; hi: string };
 // Farben nach der Vorlage: sehr dunkles Laub, nur oben links heller
-const TREE: Pal = { outline: '#0a2410', dark: '#163e20', mid: '#245c2c', light: '#357a3a', hi: '#5a9e4e' };
-const BUSH: Pal = { outline: '#0a2410', dark: '#22582a', mid: '#347a34', light: '#4c9a40', hi: '#72bc58' };
-const STONE: Pal = { outline: '#24222a', dark: '#5c5966', mid: '#86838f', light: '#aeabb6', hi: '#d6d4dc' };
+const TREE: Pal = { outline: '#08200e', dark: '#163c1e', mid: '#2a6630', light: '#3f8640', hi: '#68a85a' };
+const BUSH: Pal = { outline: '#0a2410', dark: '#2a6a2e', mid: '#3e8a3a', light: '#56a648', hi: '#7cc460' };
+const STONE: Pal = { outline: '#2a2830', dark: '#7a7884', mid: '#a4a2ac', light: '#c8c6ce', hi: '#eceaf0' };
 const BROWN: Pal = { outline: '#24140a', dark: '#6a4628', mid: '#8c6440', light: '#ad8458', hi: '#cba676' };
 
 function canvas(w: number, h: number) {
@@ -59,7 +59,7 @@ function blob(g: CanvasRenderingContext2D, w: number, h: number, circles: [numbe
       const ny = (y + 0.5 - gcy) / gr;
       // Kante unten/rechts dunkler, Rand allgemein etwas dunkler
       const edge = isIn(x, y + 2) && isIn(x + 2, y) && isIn(x - 1, y) && isIn(x, y - 1) ? 0 : -0.25;
-      shade[y * w + x] = -nx * 0.6 - ny * 0.9 + edge;
+      shade[y * w + x] = -nx * 0.75 - ny * 1.05 + edge;
     }
   for (let k = 0; k < (w * h) / 9; k++) {
     const x = Math.floor(r() * w);
@@ -120,20 +120,22 @@ function lumps(cx: number, cy: number, rx: number, ry: number, n: number, rr: nu
 }
 
 function fruitTree(v: number): Sprite {
-  const w = 64;
-  const h = 70;
+  // rechter Baum der Vorlage: Krone höher, langer sichtbarer Stamm; die anderen fast ohne Stamm
+  const h = v === 1 ? 62 : 56;
+  const w = 56;
   const c = canvas(w, h);
   const g = c.getContext('2d')!;
-  trunk(g, 32, 42, 68, 5);
-  const circles = lumps(32, 26, 27, 22, 9, 11, 17 + v * 5);
-  blob(g, w, 54, circles, TREE, 11 + v * 7);
+  trunk(g, 28, v === 1 ? 26 : 34, h - 2, 4);
+  const [rx, ry, cy] = v === 1 ? [20, 17, 20] : [24, 21, 26];
+  const circles = lumps(28, cy, rx, ry, 9, 9.5, 17 + v * 5);
+  blob(g, w, v === 1 ? 40 : 54, circles, TREE, 11 + v * 7);
   const r = rng(91 + v);
   const inCanopy = (x: number, y: number) => circles.some(([cx, cy, cr]) => (x - cx) ** 2 + (y - cy) ** 2 < (cr - 3) ** 2);
   if (v === 0) {
     // blassgrüne runde Früchte
     for (let k = 0; k < 12; k++) {
-      const x = 10 + Math.floor(r() * 44);
-      const y = 8 + Math.floor(r() * 34);
+      const x = 8 + Math.floor(r() * 40);
+      const y = 6 + Math.floor(r() * 34);
       if (!inCanopy(x, y)) continue;
       px(g, '#0e2a12', [[x - 1, y], [x + 2, y], [x, y - 1], [x + 1, y - 1], [x, y + 2], [x + 1, y + 2]]);
       px(g, '#a8d47c', [[x, y], [x + 1, y], [x, y + 1], [x + 1, y + 1]]);
@@ -141,7 +143,7 @@ function fruitTree(v: number): Sprite {
     }
   } else if (v === 1) {
     // Bananen-Stauden (gelb) seitlich
-    for (const [bx, by] of [[42, 38], [47, 31]] as const) {
+    for (const [bx, by] of [[19, 40], [32, 46]] as const) {
       // gebogene Bananen-Hand
       for (let k = 0; k < 3; k++) {
         const x = bx + k * 2;
@@ -154,96 +156,120 @@ function fruitTree(v: number): Sprite {
   } else {
     // kleine gelbe Früchte
     for (let k = 0; k < 10; k++) {
-      const x = 10 + Math.floor(r() * 44);
-      const y = 10 + Math.floor(r() * 32);
+      const x = 8 + Math.floor(r() * 40);
+      const y = 8 + Math.floor(r() * 32);
       if (!inCanopy(x, y)) continue;
       px(g, '#061a0c', [[x - 1, y], [x + 2, y], [x, y + 2], [x + 1, y + 2], [x, y - 1], [x + 1, y - 1]]);
       px(g, '#f0c838', [[x, y], [x + 1, y], [x, y + 1], [x + 1, y + 1]]);
       px(g, '#fff2a0', [[x, y]]);
     }
   }
-  return { img: c, ox: 32, oy: 68, split: 46 };
+  return { img: c, ox: 28, oy: h - 2, split: 40 };
 }
 
 function palm(v: number): Sprite {
-  const w = 64;
-  const h = 70;
+  const w = 48;
+  const h = 56;
   const c = canvas(w, h);
   const g = c.getContext('2d')!;
   const bend = v ? -1 : 1;
-  // gebogener, geringelter Stamm
-  for (let y = 20; y < 69; y++) {
-    const k = (69 - y) / 49;
-    const x = Math.round(32 + bend * Math.sin(k * 1.6) * 10);
-    const ring = y % 4 === 0;
-    for (let d = -4; d <= 4; d++) {
-      const edge = Math.abs(d) === 4;
-      g.fillStyle = edge ? '#1e1008' : ring ? '#7a5434' : d < -1 ? '#d8aa70' : d < 2 ? '#b88654' : '#8a6038';
+  // dicker, hell-brauner, gebogener Stamm
+  for (let y = 22; y < 55; y++) {
+    const k = (55 - y) / 33;
+    const x = Math.round(24 + bend * Math.sin(k * 1.5) * 6);
+    for (let d = -3; d <= 3; d++) {
+      const edge = Math.abs(d) === 3;
+      g.fillStyle = edge ? '#2a170c' : y % 5 === 0 ? '#8a6038' : d < 0 ? '#c99a62' : d < 2 ? '#a87a4a' : '#7c5432';
       g.fillRect(x + d, y, 1, 1);
     }
   }
-  const topX = Math.round(32 + bend * Math.sin(1.6) * 10);
-  const fronds: [number, number][] = [
-    [-0.35, 13], [0.35, 13], [-1.0, 17], [1.0, 17], [-2.9, 15], [2.9, 15], [-1.7, 20], [1.7, 20], [-2.35, 20], [2.35, 20], [-1.25, 19], [1.25, 19],
-  ];
-  // hintere Wedel dunkler, vordere heller (wie Vorlage: blaugrün)
-  for (const [a, len] of fronds) {
-    const back = Math.abs(a) < 1.1;
-    const [ol, mid, rib, light2] = back ? ['#0a2414', '#1f5a3e', '#3a7a56', '#2a6a48'] : ['#0a2414', '#2f7650', '#6ab07a', '#47915e'];
-    for (let s = 0; s < len; s++) {
-      const t = s / len;
-      const x = topX + Math.sin(a) * s * 1.15;
-      const y = 19 - Math.cos(a) * s * 0.55 + t * t * 15;
-      const thick = Math.max(0, Math.round(Math.sin(Math.min(1, t * 1.3 + 0.15) * Math.PI) * 4 + 0.6));
-      for (let d = -thick; d <= thick; d++) {
-        g.fillStyle = Math.abs(d) === thick ? ol : d === 0 ? rib : d < 0 ? light2 : mid;
-        g.fillRect(Math.round(x), Math.round(y + d), 1, 1);
+  const cx = Math.round(24 + bend * Math.sin(1.5) * 6);
+  const cy = 18;
+  // Kuppel aus hängenden Wedeln: erst hinten (dunkel), dann vorne (hell)
+  const fronds: number[] = [];
+  for (let k = 0; k < 11; k++) fronds.push(Math.PI + (k / 10) * Math.PI); // obere Hälfte (hinten)
+  for (let k = 0; k < 6; k++) fronds.push(0.25 + (k / 5) * (Math.PI - 0.5)); // untere Hälfte (vorne)
+  const col = ['', '#24452c', '#3c6440', '#5a8a5c', '#86ae84'];
+  fronds.forEach((a, i) => {
+    const front = Math.sin(a) > 0;
+    const len = front ? 13 : 15 + (i % 2) * 2;
+    const fill = new Map<number, number>();
+    for (let s2 = 0; s2 <= len; s2++) {
+      const t = s2 / len;
+      const x = cx + Math.cos(a) * s2;
+      const y = cy + Math.sin(a) * s2 * 0.55 + t * t * 11;
+      const half = Math.max(0.6, (1 - t) * 3.2);
+      for (let d = -Math.ceil(half); d <= Math.ceil(half); d++) {
+        const xx = Math.round(x - Math.sin(a) * d * 0.4);
+        const yy = Math.round(y + d * 0.8);
+        if (xx < 1 || yy < 1 || xx >= w - 1 || yy >= h - 1) continue;
+        const tone = d === 0 && s2 % 2 === 0 ? 4 : d < 0 ? (front ? 3 : 2) : front ? 2 : 1;
+        fill.set(yy * w + xx, tone);
       }
-      if (s % 3 === 1 && t > 0.15) px(g, ol, [[Math.round(x), Math.round(y + thick + 1)]]);
     }
-  }
-  return { img: c, ox: 32, oy: 69, split: 26 };
+    // erst die Kante dieses Wedels, dann seine Füllung → Wedel heben sich voneinander ab
+    g.fillStyle = '#0c2a14';
+    for (const k of fill.keys()) {
+      const x = k % w;
+      const y = (k / w) | 0;
+      for (const n of [k - 1, k + 1, k - w, k + w]) if (!fill.has(n)) g.fillRect(n % w, (n / w) | 0, 1, 1);
+      void x;
+      void y;
+    }
+    for (const [k, tone] of fill) {
+      g.fillStyle = col[tone];
+      g.fillRect(k % w, (k / w) | 0, 1, 1);
+    }
+  });
+  return { img: c, ox: 24, oy: 55, split: 28 };
 }
 
 function bush(v: number): Sprite {
-  const w = 42;
-  const h = 32;
+  const w = 34;
+  const h = 26;
   const c = canvas(w, h);
   const g = c.getContext('2d')!;
   // breite Hecke mit buckeliger Oberkante
   const circles: [number, number, number][] = [
-    [21, 19, 13],
-    [9, 16, 7.5], [16, 11, 8], [25, 10, 8.5], [33, 15, 7.5],
-    [11, 23, 8], [21, 24, 8.5], [31, 23, 8],
+    [17, 15, 10.5],
+    [7, 13, 6], [13, 9, 6.5], [20, 8, 7], [27, 12, 6],
+    [9, 19, 6.5], [17, 19.5, 7], [25, 19, 6.5],
   ];
   blob(g, w, h, circles, BUSH, 31 + v, 0.25);
-  return { img: c, ox: 21, oy: 31, split: 10 };
+  return { img: c, ox: 17, oy: 25, split: 8 };
 }
 
-/** spitzes hohes Gras (dunkle Blätter mit hellen Spitzen) */
+/** Farn-Büschel: spitze Blätter fächern vom Boden aus (dunkel, mit hellen Spitzen) */
 function tallGrass(v: number): Sprite {
-  const w = 16;
-  const h = 14;
+  const w = 22;
+  const h = 17;
   const c = canvas(w, h);
   const g = c.getContext('2d')!;
-  const r = rng(61 + v);
-  const leaves: { x: number; top: number; lean: number }[] = [];
-  for (let b = 0; b < 4 + v; b++) leaves.push({ x: 3 + Math.floor(r() * 10), top: 2 + Math.floor(r() * 5), lean: (r() - 0.5) * 0.7 });
-  // erst Umriss, dann Füllung → jedes Blatt hat eine schwarze Kante
-  for (const pass of [0, 1])
-    for (const l of leaves)
-      for (let y = l.top; y <= 13; y++) {
-        const t = (y - l.top) / (13 - l.top);
-        const half = Math.round(t * 2.2);
-        const cx = Math.round(l.x + l.lean * (13 - y));
-        for (let x = cx - half - 1; x <= cx + half + 1; x++) {
-          const edge = x === cx - half - 1 || x === cx + half + 1;
-          if (pass === 0 && edge) px(g, '#061a0c', [[x, y]]);
-          if (pass === 1 && !edge) px(g, t < 0.3 ? '#6aa84c' : x < cx ? '#3f7a30' : '#285a24', [[x, y]]);
-        }
-        if (pass === 0) px(g, '#061a0c', [[cx, l.top - 1]]);
+  const angles = v === 0 ? [-1.2, -0.6, 0, 0.6, 1.2] : v === 1 ? [-1.0, -0.35, 0.3, 0.95, -1.45, 1.4] : [-0.8, -0.1, 0.55, 1.2];
+  const fill = new Uint8Array(w * h);
+  angles.forEach((a, i) => {
+    const len = 11 + ((i * 3 + v) % 4);
+    for (let s2 = 0; s2 < len; s2++) {
+      const t = s2 / len;
+      const x = 11 + Math.sin(a) * s2;
+      const y = 16 - Math.cos(a) * s2 * 0.9;
+      const half = Math.sin(Math.min(1, t * 1.2 + 0.1) * Math.PI) * 2.2;
+      for (let d = -Math.ceil(half); d <= Math.ceil(half); d++) {
+        const px2 = Math.round(x + Math.cos(a) * d);
+        const py2 = Math.round(y + Math.sin(a) * d * 0.6);
+        if (px2 < 0 || py2 < 0 || px2 >= w || py2 >= h) continue;
+        fill[py2 * w + px2] = t > 0.65 ? 3 : d < 0 ? 2 : 1;
       }
-  return { img: c, ox: 8, oy: 13, split: 7 };
+    }
+  });
+  const col = ['', '#163e18', '#2a6224', '#4f8e3a'];
+  for (let y = 0; y < h; y++)
+    for (let x = 0; x < w; x++) {
+      const f = fill[y * w + x];
+      if (f) px(g, col[f], [[x, y]]);
+      else if (fill[y * w + x - 1] || fill[y * w + x + 1] || (y > 0 && fill[(y - 1) * w + x]) || (y < h - 1 && fill[(y + 1) * w + x])) px(g, '#08200e', [[x, y]]);
+    }
+  return { img: c, ox: 11, oy: 16, split: 7 };
 }
 
 function rock(v: number): Sprite {
@@ -252,8 +278,8 @@ function rock(v: number): Sprite {
   const c = canvas(w, h);
   const g = c.getContext('2d')!;
   const layouts: [number, number, number][][] = [
-    [[6, 7, 4], [11, 8, 3.5], [14, 9, 2.5]],
-    [[7, 7, 4.2], [12, 8, 3.2]],
+    [[4, 8, 2.6], [9, 6, 2.8], [13, 9, 2.4], [8, 10, 2]],
+    [[5, 7, 2.8], [10, 9, 2.6], [14, 7, 2.2]],
   ];
   blob(g, w, h, layouts[v % 2], STONE, 51 + v, 0.1);
   return { img: c, ox: 9, oy: 11, split: 99 };
@@ -264,22 +290,18 @@ function boulder(): Sprite {
   const h = 22;
   const c = canvas(w, h);
   const g = c.getContext('2d')!;
-  blob(g, w, h, [[11, 11, 8.5], [22, 13, 8], [16, 15, 6]], BROWN, 71, 0.15);
-  return { img: c, ox: 17, oy: 21, split: 99 };
+  blob(g, w, h, [[10, 10, 6.5], [19, 14, 6.5]], BROWN, 71, 0.12);
+  return { img: c, ox: 15, oy: 21, split: 99 };
 }
 
+/** kleiner brauner Stein im Gras */
 function stump(): Sprite {
-  const w = 18;
-  const h = 14;
+  const w = 10;
+  const h = 9;
   const c = canvas(w, h);
   const g = c.getContext('2d')!;
-  trunk(g, 9, 4, 13, 4);
-  g.fillStyle = '#1e1008';
-  g.fillRect(4, 2, 11, 4);
-  g.fillStyle = '#d2ae76';
-  g.fillRect(5, 3, 9, 2);
-  px(g, '#9c7444', [[7, 3], [8, 4], [9, 3], [10, 4], [11, 3]]);
-  return { img: c, ox: 9, oy: 13, split: 99 };
+  blob(g, w, h, [[5, 4.5, 3.6]], BROWN, 81, 0.08);
+  return { img: c, ox: 5, oy: 8, split: 99 };
 }
 
 export type SpriteSet = Record<'tree' | 'palm' | 'bush' | 'rock' | 'boulder' | 'grass' | 'stump', Sprite[]>;

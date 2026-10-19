@@ -49,12 +49,12 @@ const flies = (() => {
 
 // ---------- Kamera ----------
 /** sichtbarer Teil der Insel (Welt-Pixel) */
-const VIEW = { w: 310, h: 280 };
+const VIEW = { w: 300, h: 270 };
 let cw = 0;
 let ch = 0;
 let zoom = 0;
 let minZoom = 1;
-const cam = { x: W / 2, y: H / 2 - 8 };
+const cam = { x: W / 2, y: H / 2 };
 function resize() {
   const dpr = Math.min(3, window.devicePixelRatio || 1);
   cw = screen.width = Math.round(innerWidth * dpr);
@@ -139,7 +139,7 @@ function frame(now: number) {
   const oy = Math.round(ch / 2 - cam.y * zoom);
   ctx.setTransform(zoom, 0, 0, zoom, ox, oy);
   // Meer: Wellenmuster treibt langsam schräg
-  const drift = Math.floor(t * 2) % 8;
+  const drift = Math.floor(t * 2) % 24;
   sea.setTransform(new DOMMatrix([1, 0, 0, 1, drift, 0]));
   ctx.fillStyle = sea;
   ctx.fillRect(-ox / zoom - 16, -oy / zoom - 16, cw / zoom + 32, ch / zoom + 32);

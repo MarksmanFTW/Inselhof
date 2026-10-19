@@ -17,10 +17,12 @@ const C = {
   sandHi: rgba('#e4c696'),
   sandShade: rgba('#bf9a64'),
   sandEdge: rgba('#ccad7c'),
-  grass: rgba('#489030'),
+  grass: rgba('#4f9733'),
   grassAlt: rgba('#4c9634'),
-  outline: rgba('#1f4e14'),
-  rimLight: rgba('#6fb043'),
+  outline: rgba('#3e5e12'),
+  outline2: rgba('#4c7a22'),
+  rimHi: rgba('#86c45e'),
+  rimLight: rgba('#64ac46'),
   rimDark: rgba('#2f6a22'),
 };
 
@@ -65,19 +67,19 @@ export function paintLand(isl: Island): HTMLCanvasElement {
         px[i] = col;
         continue;
       }
-      // Wiese wie ein erhöhtes Beet: schwarze Kante, oben/links heller Rand, unten/rechts dunkler
-      if (at(x - 1, y) !== Ground.Grass || at(x + 1, y) !== Ground.Grass || at(x, y - 1) !== Ground.Grass || at(x, y + 1) !== Ground.Grass) {
-        px[i] = C.outline;
-        continue;
+      // Wiese wie auf der Vorlage: olivgrüne Kante, dann heller Saum (rundum), dann Gras
+      let edge = 9;
+      for (let d = 1; d <= 5 && edge === 9; d++)
+        if (at(x - d, y) !== Ground.Grass || at(x + d, y) !== Ground.Grass || at(x, y - d) !== Ground.Grass || at(x, y + d) !== Ground.Grass) edge = d;
+      if (edge === 1) px[i] = C.outline;
+      else if (edge === 2) px[i] = C.outline2;
+      else if (edge === 3) px[i] = C.rimHi;
+      else if (edge === 4) px[i] = (x + y) % 3 ? C.rimHi : C.rimLight;
+      else if (edge === 5) px[i] = (x + y) % 2 ? C.rimLight : C.grass;
+      else {
+        const n = smooth(x / 16, y / 16) + ((x + y) % 2 ? 0.05 : -0.05);
+        px[i] = n > 0.78 ? C.rimLight : n > 0.66 ? C.grassAlt : C.grass;
       }
-      let rim = 0;
-      for (let d = 2; d <= 3 && !rim; d++) {
-        if (at(x, y - d) !== Ground.Grass || at(x - d, y) !== Ground.Grass) rim = 1;
-        else if (at(x, y + d) !== Ground.Grass || at(x + d, y) !== Ground.Grass) rim = 2;
-      }
-      if (rim === 1) px[i] = C.rimLight;
-      else if (rim === 2) px[i] = C.rimDark;
-      else px[i] = smooth(x / 18, y / 18) + ((x + y) % 2 ? 0.05 : -0.05) > 0.72 ? C.grassAlt : C.grass;
     }
   g.putImageData(img, 0, 0);
 
@@ -123,6 +125,21 @@ export function paintLand(isl: Island): HTMLCanvasElement {
         dots(x, y, '#ff8a4a', [[0, -1], [-1, 0], [1, 0], [0, 0], [-1, 1], [1, 1]]);
         break;
       case 'bone':
+        if (v === 0) {
+          // großes, ausgeblichenes Treibholz schräg im Sand
+          for (let k = 0; k < 22; k++) {
+            const yy = y - Math.round(k * 0.45);
+            dot(x + k, yy - 2, '#3e3a34');
+            dot(x + k, yy + 3, '#3e3a34');
+            for (let d = -1; d <= 2; d++) dot(x + k, yy + d, d < 0 ? '#e4e0d4' : d < 2 ? '#c4beb0' : '#9a9488');
+            dot(x + k, yy - 2, '#3e3a34');
+            if (k % 5 === 2) dot(x + k, yy, '#a8a296');
+          }
+          // Astgabeln an den Enden
+          dots(x, y, '#3e3a34', [[-2, -3], [-1, -4], [-2, 2], [-3, 3], [22, -13], [23, -14], [21, -7], [23, -7]]);
+          dots(x, y, '#e4e0d4', [[-1, -3], [-2, -2], [-1, 2], [-2, 3], [22, -12], [21, -12], [22, -8], [21, -8]]);
+          break;
+        }
         // Knochen schräg im Sand
         for (let k = 0; k < 9; k++) {
           dot(x + k, y - Math.round(k * 0.4) + 1, '#7a7466');
@@ -146,18 +163,18 @@ export function paintLand(isl: Island): HTMLCanvasElement {
 
 /** Schatten unter Bäumen & Co (pixelige Ellipsen) */
 export function paintShadows(g: CanvasRenderingContext2D, isl: Island) {
-  const size: Record<string, [number, number]> = { tree: [22, 6], palm: [13, 4], bush: [19, 4.5], rock: [8, 2.5], boulder: [15, 3.5], grass: [0, 0], stump: [8, 2.5] };
+  const size: Record<string, [number, number]> = { tree: [20, 7], palm: [11, 5], bush: [15, 4], rock: [7, 2.2], boulder: [12, 3], grass: [0, 0], stump: [6, 2] };
   for (const d of isl.decor) {
     const [rx, ry] = size[d.kind];
     if (!rx) continue;
-    const sx = d.kind === 'palm' ? d.x + (d.flip ? -6 : 6) : d.x + 2;
+    const sx = d.kind === 'palm' ? d.x : d.x + 2;
     for (let y = -Math.ceil(ry); y <= ry; y++)
       for (let x = -rx; x <= rx; x++) {
         if ((x / rx) ** 2 + (y / ry) ** 2 > 1) continue;
         const gx = sx + x;
         const gy = d.y + y;
         const onGrass = isl.ground[gy * W + gx] === Ground.Grass;
-        g.fillStyle = onGrass ? 'rgba(8,40,10,0.45)' : 'rgba(100,70,35,0.38)';
+        g.fillStyle = onGrass ? 'rgba(8,40,10,0.5)' : 'rgba(100,70,35,0.4)';
         g.fillRect(gx, gy, 1, 1);
       }
   }
@@ -173,35 +190,43 @@ export function paintDock(g: CanvasRenderingContext2D, isl: Island) {
   // Schatten aufs Wasser
   rect('rgba(6,40,46,0.45)', x + 3, y + 4, w, h);
   rect('#1e0c04', x - 1, y, w + 2, h);
-  for (let row = 0; row + 6 <= h; row += 6) {
-    rect('#5e4430', x, y + row + 1, w, 5);
-    rect('#7e624a', x, y + row + 1, w, 3);
-    rect('#9c846c', x, y + row + 1, w, 1);
-    // Fugen zwischen zwei Brettern versetzt
-    rect('#3a2618', x + ((row / 6) % 2 ? 9 : 19), y + row + 1, 1, 5);
+  for (let row = 0; row + 4 <= h; row += 4) {
+    rect('#6a4c34', x, y + row + 1, w, 3);
+    rect('#8a6a4c', x, y + row + 1, w, 2);
+    rect('#b09070', x + ((row * 7) % 9), y + row + 1, 6, 1);
+    rect('#3a2618', x + ((row * 5) % 17) + 3, y + row + 2, 4, 1);
   }
+  // Längsbalken links und rechts
+  rect('#2a180c', x + 2, y, 1, h);
+  rect('#2a180c', x + w - 3, y, 1, h);
   // Pfosten oben und unten
   for (const px of [x - 3, x + w - 1])
-    for (const py of [y - 2, y + h - 8]) {
-      rect('#1e0c04', px, py, 5, 9);
-      rect('#6c543c', px + 1, py + 1, 3, 7);
+    for (const py of [y - 3, y + h - 7]) {
+      rect('#1e0c04', px, py, 5, 8);
+      rect('#5e4430', px + 1, py + 1, 3, 6);
       rect('#9c846c', px + 1, py + 1, 3, 1);
     }
 }
 
 /** Wassermuster (8×8 Kachel): schräg versetzte helle Striche wie gewebt */
 export function waveTile(): HTMLCanvasElement {
+  // 24×12 Kachel: kurze helle Striche, reihenweise versetzt wie Ziegel → schräges Mosaik
   const c = document.createElement('canvas');
-  c.width = 8;
-  c.height = 8;
+  c.width = 24;
+  c.height = 12;
   const g = c.getContext('2d')!;
-  // Netz aus hellen Zickzack-Linien um dunklere Zellen (Licht im Wasser)
-  const rows = ['LL....LL', '..L..L..', '...LL...', 'dd.ss.dd', '..LLLL..'.replace(/L/g, '.').replace('....', '.LL.'), '.L....L.', 'L......L', '.s.dd.s.'];
-  const col: Record<string, string> = { L: '#7cd0d8', s: '#4fb0ba', d: '#1a7480', '.': '#2b8e99' };
-  rows.forEach((r, y) => [...r].forEach((ch, x) => {
-    g.fillStyle = col[ch];
-    g.fillRect(x, y, 1, 1);
-  }));
+  const cols = ['#0c606c', '#186c78', '#247884', '#54a8b4', '#6cc0cc'];
+  for (let y = 0; y < 12; y++)
+    for (let x = 0; x < 24; x++) {
+      const row = y >> 1;
+      const cell = Math.floor((x + (row % 2) * 3 + ((row >> 1) % 2)) / 3);
+      const light = cell % 2 === 0;
+      // obere Zeile eines hellen Strichs am hellsten, Ränder etwas dunkler
+      let v = light ? (y % 2 === 0 ? 3.8 : 3.1) : y % 2 === 0 ? 1.5 : 1.0;
+      v += (hash(x, y, 41) - 0.5) * 1.5;
+      g.fillStyle = cols[Math.max(0, Math.min(4, Math.round(v)))];
+      g.fillRect(x, y, 1, 1);
+    }
   return c;
 }
 
@@ -233,7 +258,7 @@ export class Shore {
 
   update(t: number) {
     const { px, idx, dist } = this;
-    const edge = rgba('#7ccdd4');
+    const edge = rgba('#86d2d8');
     px.fill(0);
     for (let k = 0; k < idx.length; k++) {
       const i = idx[k];
@@ -244,8 +269,9 @@ export class Shore {
       const reach = 1 + Math.round(0.8 + Math.sin(t * 1.3 + (x + y) * 0.04));
       if (d <= reach) px[i] = edge;
       else {
-        const a = Math.max(0, Math.round(150 * (1 - d / 22)));
-        px[i] = rgba('#9fe0e4', a);
+        // breiter heller Ring wie auf der Vorlage, nach außen auslaufend
+        const a = Math.max(0, Math.round(150 * Math.min(1, 1.25 - d / 18)));
+        px[i] = rgba('#56bcc4', d > 16 && (x + y) % 2 ? Math.round(a * 0.5) : a);
       }
     }
     this.g.putImageData(this.img, 0, 0);
