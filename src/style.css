@@ -1,0 +1,33 @@
+html,
+body {
+  margin: 0;
+  height: 100%;
+  overflow: hidden;
+  background: #2a7fbd;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+#screen {
+  display: block;
+  image-rendering: pixelated;
+  cursor: grab;
+}
+.hint {
+  position: fixed;
+  left: 50%;
+  bottom: calc(env(safe-area-inset-bottom, 0px) + 22px);
+  transform: translateX(-50%);
+  margin: 0;
+  padding: 8px 14px;
+  border-radius: 10px;
+  background: rgba(20, 40, 60, 0.55);
+  color: #fff;
+  font: 700 14px/1.2 system-ui, sans-serif;
+  white-space: nowrap;
+  pointer-events: none;
+  transition: opacity 1s;
+}
+.hint.gone {
+  opacity: 0;
+}
