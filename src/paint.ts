@@ -1,35 +1,42 @@
 /**
- * Boden einmal malen (Strand, Wiese, Details, Schatten) und das Wasser
- * jedes Bild neu: Wellen laufen zum Strand, Schaum pulsiert, Glitzern.
+ * Boden einmal malen (Strand, Wiese mit dunkler Kante, Kleinkram, Schatten, Steg).
+ * Meer: Wellenmuster als Kachel, die langsam treibt; am Ufer ein heller Saum
+ * mit pulsierendem Schaum (jedes Bild neu).
  */
-import { GRASS, H, MEADOW, SAND, W, fbm, type Island } from './island';
-
-const BAYER = [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5].map((v) => v / 16 - 0.5);
-const bayer = (x: number, y: number) => BAYER[(y & 3) * 4 + (x & 3)];
+import { Ground, H, W, hash, type Island } from './island';
 
 /** '#rrggbb' → Pixelwert für Uint32 (ABGR, little endian) */
 function rgba(hex: string, a = 255) {
   const n = parseInt(hex.slice(1), 16);
   return ((a << 24) | ((n & 0xff) << 16) | (n & 0xff00) | (n >> 16)) >>> 0;
 }
-const hash = (x: number, y: number, s = 0) => {
-  let h = (x * 73856093) ^ (y * 19349663) ^ (s * 83492791);
-  h = Math.imul(h ^ (h >>> 13), 1274126177);
-  return ((h ^ (h >>> 16)) >>> 0) / 4294967296;
-};
 
 const C = {
-  wetSand: rgba('#dcc185'),
-  sand: rgba('#f2dca0'),
-  sandDot: rgba('#e3c98a'),
-  sandHi: rgba('#fff2c8'),
-  sandShade: rgba('#cfb172'),
-  lip: rgba('#4f9a3e'),
-  lipHi: rgba('#63b14c'),
-  grass: [rgba('#71c152'), rgba('#7fcf5b'), rgba('#8edb66')],
-  meadow: [rgba('#64b54c'), rgba('#70c055'), rgba('#7fcb5e')],
-  grassDot: rgba('#5ead45'),
+  sand: rgba('#d9be87'),
+  sandDot: rgba('#c9ac74'),
+  sandHi: rgba('#e9d4a2'),
+  sandShade: rgba('#c2a26b'),
+  sandWet: rgba('#cdb27c'),
+  grass: rgba('#4d9331'),
+  grassLight: rgba('#58a038'),
+  grassDark: rgba('#43852b'),
+  rim: rgba('#2c6222'),
+  rim2: rgba('#3c7a29'),
 };
+
+/** glattes Rauschen 0..1 */
+function smooth(x: number, y: number) {
+  const xi = Math.floor(x);
+  const yi = Math.floor(y);
+  const sm = (t: number) => t * t * (3 - 2 * t);
+  const u = sm(x - xi);
+  const v = sm(y - yi);
+  const a = hash(xi, yi, 21);
+  const b = hash(xi + 1, yi, 21);
+  const c = hash(xi, yi + 1, 21);
+  const d = hash(xi + 1, yi + 1, 21);
+  return a + (b - a) * u + (c - a) * v + (a - b - c + d) * u * v;
+}
 
 export function paintLand(isl: Island): HTMLCanvasElement {
   const c = document.createElement('canvas');
@@ -38,73 +45,95 @@ export function paintLand(isl: Island): HTMLCanvasElement {
   const g = c.getContext('2d')!;
   const img = g.createImageData(W, H);
   const px = new Uint32Array(img.data.buffer);
-  const patch = fbm(99);
-  const { height } = isl;
+  const gr = isl.ground;
+  const at = (x: number, y: number) => (x < 0 || y < 0 || x >= W || y >= H ? Ground.Water : gr[y * W + x]);
   for (let y = 0; y < H; y++)
     for (let x = 0; x < W; x++) {
       const i = y * W + x;
-      const h = height[i];
-      if (h < SAND) continue;
-      if (h < GRASS) {
-        // Strand: nass am Wasser, Schatten unter der Graskante, Sandkörner
-        let col = h < SAND + 0.012 + bayer(x, y) * 0.008 ? C.wetSand : C.sand;
-        if (h > GRASS - 0.006) col = C.sandShade;
+      const k = gr[i];
+      if (k === Ground.Water) continue;
+      if (k === Ground.Sand) {
+        let col = C.sand;
+        // Schatten direkt unter der Graskante
+        if (at(x, y - 1) === Ground.Grass || at(x, y - 2) === Ground.Grass || at(x, y - 3) === Ground.Grass) col = C.sandShade;
+        else if (at(x - 1, y) === Ground.Water || at(x + 1, y) === Ground.Water || at(x, y + 1) === Ground.Water || at(x, y - 1) === Ground.Water) col = C.sandWet;
         else {
           const r = hash(x, y);
-          if (r < 0.05) col = C.sandDot;
-          else if (r < 0.07) col = C.sandHi;
+          if (r < 0.04) col = C.sandDot;
+          else if (r < 0.06) col = C.sandHi;
         }
         px[i] = col;
         continue;
       }
-      // Graskante zum Strand
-      if (h < GRASS + 0.007) {
-        px[i] = h < GRASS + 0.0035 ? C.lip : C.lipHi;
-        continue;
+      // Wiese: dunkle Umrandung (2 px), innen ruhig mit leichten Flecken
+      let edge = 9;
+      for (let d = 1; d <= 3 && edge === 9; d++)
+        if (at(x - d, y) !== Ground.Grass || at(x + d, y) !== Ground.Grass || at(x, y - d) !== Ground.Grass || at(x, y + d) !== Ground.Grass) edge = d;
+      if (edge === 1) px[i] = C.rim;
+      else if (edge === 2) px[i] = at(x, y + 2) !== Ground.Grass ? C.rim : C.rim2;
+      else {
+        // weiche, runde Flecken statt Kacheln; am Rand gerastert
+        const p = smooth(x / 22, y / 22) + ((x + y) % 2 ? 0.04 : -0.04);
+        px[i] = p > 0.7 ? C.grassLight : p < 0.27 ? C.grassDark : C.grass;
       }
-      // Wiese mit weichen hellen/dunklen Flecken (gerastert wie Pixel-Art)
-      const p = patch(x / 38, y / 38) * 2.2 + bayer(x, y) * 0.5;
-      const pal = h > MEADOW ? C.meadow : C.grass;
-      px[i] = p < -0.25 ? pal[0] : p > 0.3 ? pal[2] : pal[1];
-      if (hash(x, y, 3) < 0.025) px[i] = C.grassDot;
     }
   g.putImageData(img, 0, 0);
 
-  // Details
   const dot = (x: number, y: number, col: string) => {
     g.fillStyle = col;
     g.fillRect(x, y, 1, 1);
   };
-  const FLOWER = ['#ffffff', '#ffe066', '#ff8fb8', '#c9a3ff'];
+  const dots = (x: number, y: number, col: string, pts: [number, number][]) => pts.forEach(([a, b]) => dot(x + a, y + b, col));
   for (const d of isl.details) {
     const { x, y, variant: v } = d;
-    if (d.kind === 'tuft') {
-      dot(x, y, '#4e9c3d');
-      dot(x + 2, y, '#4e9c3d');
-      dot(x + 1, y + 1, '#4e9c3d');
-      dot(x + 1, y, '#9be27a');
-    } else if (d.kind === 'clover') {
-      dot(x, y, '#5aa84a');
-      dot(x + 1, y, '#5aa84a');
-      dot(x, y + 1, '#5aa84a');
-    } else if (d.kind === 'flower') {
-      const c2 = FLOWER[v];
-      dot(x, y - 1, c2);
-      dot(x - 1, y, c2);
-      dot(x + 1, y, c2);
-      dot(x, y + 1, c2);
-      dot(x, y, v === 1 ? '#f08a24' : '#ffd23f');
-    } else if (d.kind === 'shell') {
-      dot(x, y, '#ffd6e0');
-      dot(x + 1, y, '#ffffff');
-      dot(x, y + 1, '#e8a9b8');
-      dot(x + 1, y + 1, '#ffd6e0');
-    } else if (d.kind === 'star') {
-      for (const [a, b] of [[0, 0], [-1, 0], [1, 0], [0, -1], [-1, 1], [1, 1]]) dot(x + a, y + b, '#ff9a4a');
-      dot(x, y, '#ffcf8a');
-    } else {
-      dot(x, y, '#a9a7a0');
-      dot(x + 1, y, '#8d8b85');
+    switch (d.kind) {
+      case 'blade':
+        dots(x, y, '#2f6a24', [[0, 0], [2, -1], [1, 0]]);
+        dot(x + 1, y - 1, '#6fb84a');
+        break;
+      case 'clover':
+        dots(x, y, '#3a7a28', [[0, 0], [1, 0], [0, 1], [1, 1]]);
+        dot(x, y, '#64ad44');
+        break;
+      case 'flower': {
+        const col = ['#ffffff', '#ffe066', '#ff9fc4', '#ffffff'][v];
+        dots(x, y, col, [[0, -1], [-1, 0], [1, 0], [0, 1]]);
+        dot(x, y, '#f0a020');
+        break;
+      }
+      case 'shell':
+        dots(x, y, '#6b4a3a', [[-1, 1], [2, 1], [0, 2], [1, 2]]);
+        dots(x, y, '#f4c6c8', [[0, 0], [1, 0], [0, 1], [1, 1]]);
+        dot(x, y, '#ffffff');
+        break;
+      case 'pebble':
+        dots(x, y, '#8a8070', [[0, 0], [1, 0]]);
+        dot(x, y - 1, '#b5ab98');
+        break;
+      case 'stick':
+        for (let k = 0; k < 9; k++) dot(x + k, y + Math.round(k * (v ? -0.4 : 0.35)), k % 3 ? '#7a5230' : '#4e321c');
+        break;
+      case 'star':
+        dots(x, y, '#9a3c1c', [[0, -2], [-2, 0], [2, 0], [-1, 2], [1, 2]]);
+        dots(x, y, '#ff8a4a', [[0, -1], [-1, 0], [1, 0], [0, 0], [-1, 1], [1, 1]]);
+        break;
+      case 'bone':
+        // Knochen schräg im Sand
+        for (let k = 0; k < 9; k++) {
+          dot(x + k, y - Math.round(k * 0.4) + 1, '#7a7466');
+          dot(x + k, y - Math.round(k * 0.4), '#f2efe2');
+        }
+        dots(x, y, '#f2efe2', [[-1, -1], [-1, 1], [9, -5], [9, -3]]);
+        dots(x, y, '#7a7466', [[-2, 0], [-1, 2], [10, -4], [9, -2]]);
+        break;
+      case 'skull':
+        g.fillStyle = '#7a7466';
+        g.fillRect(x - 1, y - 1, 8, 7);
+        g.fillStyle = '#f2efe2';
+        g.fillRect(x, y, 6, 4);
+        g.fillRect(x + 1, y + 4, 4, 1);
+        dots(x, y, '#3a352c', [[1, 1], [4, 1], [2, 3], [3, 3]]);
+        break;
     }
   }
   return c;
@@ -112,29 +141,86 @@ export function paintLand(isl: Island): HTMLCanvasElement {
 
 /** Schatten unter Bäumen & Co (pixelige Ellipsen) */
 export function paintShadows(g: CanvasRenderingContext2D, isl: Island) {
-  const size: Record<string, [number, number]> = { oak: [11, 4], pine: [8, 3], palm: [9, 3], bush: [8, 2.5], rock: [7, 2.2] };
-  g.fillStyle = 'rgba(25,60,45,0.28)';
+  const size: Record<string, [number, number]> = { tree: [17, 5], palm: [12, 4], bush: [14, 4], rock: [8, 2.5], boulder: [13, 3], grass: [0, 0], stump: [8, 2.5] };
   for (const d of isl.decor) {
     const [rx, ry] = size[d.kind];
-    // Palmen werfen den Schatten der Krone etwas zur Seite
-    const sx = d.kind === 'palm' ? d.x + (d.variant ? -4 : 4) : d.x + 1;
+    if (!rx) continue;
+    const sx = d.kind === 'palm' ? d.x + (d.flip ? -6 : 6) : d.x + 2;
     for (let y = -Math.ceil(ry); y <= ry; y++)
-      for (let x = -rx; x <= rx; x++) if ((x / rx) ** 2 + (y / ry) ** 2 <= 1) g.fillRect(sx + x, d.y + y, 1, 1);
+      for (let x = -rx; x <= rx; x++) {
+        if ((x / rx) ** 2 + (y / ry) ** 2 > 1) continue;
+        const gx = sx + x;
+        const gy = d.y + y;
+        const onGrass = isl.ground[gy * W + gx] === Ground.Grass;
+        g.fillStyle = onGrass ? 'rgba(20,55,20,0.38)' : 'rgba(110,80,40,0.32)';
+        g.fillRect(gx, gy, 1, 1);
+      }
   }
 }
 
-/** Wasser: Grundfarben fest, Schaum und Glitzern jedes Bild */
-export class Water {
+/** Holzsteg ins Wasser */
+export function paintDock(g: CanvasRenderingContext2D, isl: Island) {
+  const { x, y, w, h } = isl.dock;
+  // Pfosten unten im Wasser
+  for (const px of [x - 1, x + w - 3])
+    for (const py of [y + h - 10, y + h - 1]) {
+      g.fillStyle = '#2a170c';
+      g.fillRect(px, py, 4, 5);
+      g.fillStyle = '#5a381e';
+      g.fillRect(px + 1, py, 2, 4);
+    }
+  // Seitenbalken
+  g.fillStyle = '#2a170c';
+  g.fillRect(x - 1, y, 1, h);
+  g.fillRect(x + w, y, 1, h);
+  // Bretter quer
+  for (let row = 0; row < h; row += 5) {
+    g.fillStyle = '#2a170c';
+    g.fillRect(x, y + row, w, 1);
+    g.fillStyle = (row / 5) % 2 ? '#9a6a3a' : '#a8763f';
+    g.fillRect(x, y + row + 1, w, 3);
+    g.fillStyle = '#c99357';
+    g.fillRect(x, y + row + 1, w, 1);
+    g.fillStyle = '#6e4524';
+    g.fillRect(x, y + row + 4, w, 1);
+    // Nägel
+    g.fillStyle = '#3a2a1e';
+    g.fillRect(x + 2, y + row + 2, 1, 1);
+    g.fillRect(x + w - 3, y + row + 2, 1, 1);
+  }
+}
+
+/** Wellenmuster (16×16 Kachel): helle Bögen wie Fischschuppen */
+export function waveTile(): HTMLCanvasElement {
+  const c = document.createElement('canvas');
+  c.width = 16;
+  c.height = 16;
+  const g = c.getContext('2d')!;
+  g.fillStyle = '#1c737a';
+  g.fillRect(0, 0, 16, 16);
+  const arc = [3, 2, 2, 1, 1, 0, 0, 0, 0, 0, 0, 1, 1, 2, 2, 3];
+  for (let row = 0; row < 2; row++)
+    for (let u = 0; u < 16; u++) {
+      const x = (u + row * 8) % 16;
+      const y = row * 8 + arc[u] + 2;
+      g.fillStyle = '#6ec5cc';
+      g.fillRect(x, y, 1, 1);
+      g.fillStyle = '#2d8a91';
+      g.fillRect(x, y + 1, 1, 1);
+      g.fillStyle = '#146b72';
+      if (u > 3 && u < 12) g.fillRect(x, y + 3, 1, 1);
+    }
+  return c;
+}
+
+/** Ufersaum: heller Streifen und Schaum, der vor und zurück atmet */
+export class Shore {
   readonly canvas = document.createElement('canvas');
   private g: CanvasRenderingContext2D;
   private img: ImageData;
   private px: Uint32Array;
-  private base: Uint32Array;
-  private near: Int32Array;
-  private nearD: Float32Array;
-  private nearN: Float32Array;
-  private deep: Int32Array;
-  readonly deepColor = '#2a7fbd';
+  private idx: Int32Array;
+  private dist: Uint8Array;
 
   constructor(isl: Island) {
     this.canvas.width = W;
@@ -142,64 +228,34 @@ export class Water {
     this.g = this.canvas.getContext('2d')!;
     this.img = this.g.createImageData(W, H);
     this.px = new Uint32Array(this.img.data.buffer);
-    this.base = new Uint32Array(W * H);
-    const bands = ['#93e8dc', '#64d2d6', '#45b9d1', '#339bc8', '#2a7fbd'].map((c) => rgba(c));
-    const edges = [0.035, 0.12, 0.27, 0.46];
-    const near: number[] = [];
-    const deep: number[] = [];
-    const nd: number[] = [];
-    const nn: number[] = [];
-    const wob = fbm(7);
-    for (let y = 0; y < H; y++)
-      for (let x = 0; x < W; x++) {
-        const i = y * W + x;
-        const h = isl.height[i];
-        if (h >= SAND) continue;
-        const d = Math.min(1, (SAND - h) / 0.62);
-        const dd = d + bayer(x, y) * 0.035;
-        let b = 0;
-        while (b < edges.length && dd > edges[b]) b++;
-        this.base[i] = bands[b];
-        if (d < 0.2) {
-          near.push(i);
-          nd.push(d);
-          nn.push(wob(x / 30, y / 30) * 6);
-        } else deep.push(i);
+    const idx: number[] = [];
+    const dist: number[] = [];
+    for (let i = 0; i < isl.shore.length; i++)
+      if (isl.shore[i] <= 12) {
+        idx.push(i);
+        dist.push(isl.shore[i]);
       }
-    this.near = Int32Array.from(near);
-    this.nearD = Float32Array.from(nd);
-    this.nearN = Float32Array.from(nn);
-    this.deep = Int32Array.from(deep);
+    this.idx = Int32Array.from(idx);
+    this.dist = Uint8Array.from(dist);
   }
 
   update(t: number) {
-    const { px, base, near, nearD, nearN } = this;
-    px.set(base);
-    const foam = rgba('#ffffff');
-    const crest = rgba('#d6fbf5');
-    const shine = rgba('#b8f2ec');
-    for (let k = 0; k < near.length; k++) {
-      const i = near[k];
-      const d = nearD[k];
+    const { px, idx, dist } = this;
+    const foam = rgba('#e8fbf6');
+    const light = rgba('#6ec5cc');
+    const mid = rgba('#3d9ea5');
+    px.fill(0);
+    for (let k = 0; k < idx.length; k++) {
+      const i = idx[k];
+      const d = dist[k];
       const x = i % W;
       const y = (i / W) | 0;
-      // Schaumsaum am Ufer: atmet langsam vor und zurück
-      const reach = 0.012 + 0.01 * Math.sin(t * 1.3 + nearN[k] * 0.6);
-      if (d < reach) {
-        px[i] = foam;
-        continue;
-      }
-      // Wellenkämme, die zum Strand laufen
-      const w = Math.sin(d * 85 + t * 2.1 + nearN[k]);
-      if (w > 0.94 && d < 0.16 && bayer(x, y) > -0.3) px[i] = d < 0.08 ? crest : shine;
-    }
-    // Glitzern auf dem tiefen Wasser
-    const tick = Math.floor(t * 5);
-    const deep = this.deep;
-    for (let k = 0; k < 90; k++) {
-      const i = deep[Math.floor(hash(k, tick, 5) * deep.length)];
-      px[i] = foam;
-      if (hash(k, tick, 6) < 0.5 && i + 1 < px.length) px[i + 1] = shine;
+      // Schaum kommt und geht (je Uferstück leicht versetzt)
+      const reach = Math.round(1 + Math.sin(t * 1.4 + (x + y) * 0.05));
+      if (d <= reach && (d < reach || (x + y) % 2 === 0)) px[i] = foam;
+      else if (d <= 6) px[i] = light;
+      else if (d <= 9) px[i] = (x + y) % 2 ? mid : light;
+      else if ((x + y) % 2 === 0 && (x % 4 === 0 || y % 4 === 0)) px[i] = mid;
     }
     this.g.putImageData(this.img, 0, 0);
   }
