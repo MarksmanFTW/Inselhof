@@ -6,28 +6,25 @@
  */
 export const TILE = 16;
 const MAP = [
-  '~~~~~~~~~~~~~~~~~~~~~~~~~~',
-  '~~~~~~~~~~~~~~~~~~~~~~~~~~',
-  '~~~~~~~~~ssssssss~~~~~~~~~',
-  '~~~~~~ssssssssssssssss~~~~',
-  '~~~~~sssggggggggggggss~~~~',
-  '~~~~ssgggggggggggggggss~~~',
-  '~~~~ssgggggggggggggggss~~~',
-  '~~~sssggggggggggggggggss~~',
-  '~~~ssgggggggggggggggggss~~',
-  '~~~ssggggggggggggggggsss~~',
-  '~~~ssggggggggggggggggss~~~',
-  '~~~sssgggggggggggggggss~~~',
-  '~~~~ssgggggggggggggggsss~~',
-  '~~~~ssggggggggggggggggss~~',
-  '~~~sssgggggggggggggggsss~~',
-  '~~~ssssggggggggggggssss~~~',
-  '~~~~sssssggggggggsssss~~~~',
-  '~~~~~ssssssssssssssss~~~~~',
-  '~~~~~~~sssssssssss~~~~~~~~',
-  '~~~~~~~~~~~~~~~~~~~~~~~~~~',
-  '~~~~~~~~~~~~~~~~~~~~~~~~~~',
-  '~~~~~~~~~~~~~~~~~~~~~~~~~~',
+  '~~~~~~~~~~~~~~~~~~~~~~',
+  '~~~~~~~~~~~~~~~~~~~~~~',
+  '~~~~~~~~sssssssss~~~~~',
+  '~~~~~~~sssgggggssss~~~',
+  '~~~sssssgggggggggsss~~',
+  '~~~ssggggggggggggggs~~',
+  '~~sssggggggggggggggss~',
+  '~~ssggggggggggggggggs~',
+  '~~ssgggggggggggggggss~',
+  '~~ssggggggggggggggss~~',
+  '~~ssssggggggggggggss~~',
+  '~~~sssgggggggggggggs~~',
+  '~~~sssggggggggggggss~~',
+  '~~~sssgggggggggggsss~~',
+  '~~~~ssssgggggggsssss~~',
+  '~~~~ssssssssssssssss~~',
+  '~~~~~sssssssssssss~~~~',
+  '~~~~~~~~~~~~~~~~~~~~~~',
+  '~~~~~~~~~~~~~~~~~~~~~~',
 ];
 export const COLS = MAP[0].length;
 export const ROWS = MAP.length;
@@ -60,7 +57,7 @@ export interface Detail {
 
 export interface Island {
   ground: Uint8Array;
-  /** Abstand (px, grob) vom Wasser zum Strand – für die helle Uferzone */
+  /** Abstand (px, grob) vom Wasser zum Strand (bis 22) – für die helle Uferzone */
   shore: Uint8Array;
   decor: Decor[];
   details: Detail[];
@@ -108,7 +105,7 @@ export function generate(seed = 7): Island {
       const sy = y - (y % 2);
       // über Nachbarpunkte gemittelt → runde Ecken wie auf der Vorlage
       const f =
-        (field(sx, sy) * 2 + field(sx - 7, sy - 7) + field(sx + 7, sy - 7) + field(sx - 7, sy + 7) + field(sx + 7, sy + 7)) / 6 +
+        (field(sx, sy) * 2 + field(sx - 4, sy - 4) + field(sx + 4, sy - 4) + field(sx - 4, sy + 4) + field(sx + 4, sy + 4)) / 6 +
         (hash(sx >> 2, sy >> 2, seed) - 0.5) * 0.12;
       ground[y * W + x] = f > 1.5 ? Ground.Grass : f > 0.5 ? Ground.Sand : Ground.Water;
     }
@@ -118,8 +115,8 @@ export function generate(seed = 7): Island {
     for (let x = 0; x < W; x++) {
       if (ground[y * W + x] !== Ground.Water) continue;
       let best = 255;
-      for (let dy = -12; dy <= 12; dy += 2)
-        for (let dx = -12; dx <= 12; dx += 2) {
+      for (let dy = -22; dy <= 22; dy += 2)
+        for (let dx = -22; dx <= 22; dx += 2) {
           const xx = x + dx;
           const yy = y + dy;
           if (xx < 0 || yy < 0 || xx >= W || yy >= H || ground[yy * W + xx] === Ground.Water) continue;
@@ -129,45 +126,44 @@ export function generate(seed = 7): Island {
     }
 
   const decor: Decor[] = [];
-  const add = (kind: DecorKind, c: number, r: number, variant = 0, flip = false, ox = 0, oy = 0) => {
-    decor.push({ kind, x: c * TILE + 8 + ox, y: r * TILE + 8 + oy, variant, phase: hash(c, r, 3 + decor.length) * 6.28, flip });
-  };
+  /** Platzieren in Welt-Pixeln (wie auf der Vorlage) */
+  const put = (kind: DecorKind, x: number, y: number, variant = 0, flip = false) =>
+    decor.push({ kind, x, y, variant, phase: hash(x, y, 3) * 6.28, flip });
   // drei große Obstbäume
-  add('tree', 11, 5, 0, false, 0, 4);
-  add('tree', 18, 7, 1, true, 0, 2);
-  add('tree', 8, 11, 0, false, 0, 4);
-  // Palmen am Rand
-  add('palm', 5, 8, 0, false, 0, 8);
-  add('palm', 11, 15, 1, true, 4, 6);
-  add('palm', 19, 13, 0, true, 2, 8);
+  put('tree', 166, 96, 0);
+  put('tree', 236, 130, 1, true);
+  put('tree', 130, 188, 2);
   // runde Büsche
-  add('bush', 8, 6, 0, false, 0, 0);
-  add('bush', 14, 6, 1, false, 0, 2);
-  add('bush', 6, 10, 0, true, 2, 0);
-  add('bush', 15, 10, 1, false, 0, 0);
-  add('bush', 7, 14, 1, false, 0, 0);
-  // Steine
-  add('boulder', 5, 16, 0, false, 0, -2);
-  add('rock', 20, 10, 1);
-  add('rock', 15, 16, 2);
-  add('stump', 16, 13, 0);
-  // hohes Gras in Büscheln
+  put('bush', 128, 100, 0);
+  put('bush', 204, 104, 1);
+  put('bush', 104, 122, 0, true);
+  put('bush', 150, 160, 1, true);
+  // Palmen
+  put('palm', 84, 146, 0);
+  put('palm', 182, 228, 1, true);
+  put('palm', 252, 210, 0, true);
+  // Steine & Fundstücke
+  put('boulder', 112, 210);
+  put('rock', 112, 258, 0);
+  put('rock', 236, 250, 1);
+  put('stump', 128, 156);
+  // hohes Gras (wie die dunklen Büschel auf der Vorlage)
   const rr = rng(seed + 11);
   const tufts: [number, number][] = [
-    [9, 8], [13, 8], [12, 12], [17, 11], [10, 13], [14, 14], [6, 12], [16, 5], [19, 9], [9, 4], [7, 9], [13, 13],
+    [110, 96], [118, 132], [152, 140], [178, 166], [214, 146], [226, 172], [140, 204], [206, 196], [106, 176], [190, 128], [96, 196], [160, 118],
   ];
-  for (const [c, r] of tufts)
-    for (let k = 0; k < 2 + Math.floor(rr() * 3); k++) add('grass', c, r, Math.floor(rr() * 3), rr() < 0.5, Math.round((rr() - 0.5) * 14), Math.round((rr() - 0.5) * 10));
+  for (const [x, y] of tufts)
+    for (let k = 0; k < 2 + Math.floor(rr() * 2); k++) put('grass', x + Math.round((rr() - 0.5) * 16), y + Math.round((rr() - 0.5) * 10), Math.floor(rr() * 3), rr() < 0.5);
   decor.sort((a, b) => a.y - b.y);
 
   // Steg unten links
-  const dock = { x: 9 * TILE + 2, y: 17 * TILE + 6, w: 26, h: 44 };
+  const dock = { x: 126, y: 256, w: 30, h: 44 };
 
   // Kleinkram
   const details: Detail[] = [];
   const r = rng(seed * 13 + 1);
   const gAt = (x: number, y: number) => (x < 0 || y < 0 || x >= W || y >= H ? Ground.Water : ground[(y | 0) * W + (x | 0)]);
-  for (let k = 0; k < 2600; k++) {
+  for (let k = 0; k < 1500; k++) {
     const x = Math.floor(r() * W);
     const y = Math.floor(r() * H);
     const g = gAt(x, y);
@@ -186,12 +182,12 @@ export function generate(seed = 7): Island {
     }
   }
   // fest platzierte Fundstücke am Strand
-  details.push({ kind: 'bone', x: 19 * TILE + 4, y: 15 * TILE + 6, variant: 0 });
-  details.push({ kind: 'skull', x: 4 * TILE + 10, y: 11 * TILE + 2, variant: 0 });
-  details.push({ kind: 'stick', x: 12 * TILE, y: 17 * TILE + 4, variant: 0 });
-  details.push({ kind: 'stick', x: 6 * TILE + 4, y: 3 * TILE + 10, variant: 1 });
-  details.push({ kind: 'star', x: 16 * TILE + 6, y: 18 * TILE + 2, variant: 0 });
-  details.push({ kind: 'shell', x: 3 * TILE + 12, y: 14 * TILE + 8, variant: 2 });
+  details.push({ kind: 'bone', x: 274, y: 214, variant: 0 });
+  details.push({ kind: 'skull', x: 284, y: 206, variant: 0 });
+  details.push({ kind: 'shell', x: 70, y: 168, variant: 2 });
+  details.push({ kind: 'shell', x: 222, y: 252, variant: 1 });
+  details.push({ kind: 'stick', x: 196, y: 246, variant: 0 });
+  details.push({ kind: 'star', x: 280, y: 128, variant: 0 });
   return { ground, shore, decor, details, dock };
 }
 

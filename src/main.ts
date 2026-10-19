@@ -34,7 +34,7 @@ function mirror(img: HTMLCanvasElement) {
 
 // ---------- Möwen & Schmetterlinge ----------
 const gullImg = gull();
-const gulls = [0, 1].map((i) => ({ r: 150 + i * 30, speed: 0.12 + i * 0.04, ph: i * 2.6, dir: i % 2 ? -1 : 1 }));
+const gulls = [0, 1].map((i) => ({ r: 140 + i * 20, speed: 0.12 + i * 0.04, ph: i * 2.6, dir: i % 2 ? -1 : 1 }));
 const bfImgs = ['#ffffff', '#ffd23f', '#ff9fc4'].map(butterfly);
 const flies = (() => {
   const r = rng(77);
@@ -49,7 +49,7 @@ const flies = (() => {
 
 // ---------- Kamera ----------
 /** sichtbarer Teil der Insel (Welt-Pixel) */
-const VIEW = { w: 360, h: 300 };
+const VIEW = { w: 310, h: 280 };
 let cw = 0;
 let ch = 0;
 let zoom = 0;
@@ -139,8 +139,8 @@ function frame(now: number) {
   const oy = Math.round(ch / 2 - cam.y * zoom);
   ctx.setTransform(zoom, 0, 0, zoom, ox, oy);
   // Meer: Wellenmuster treibt langsam schräg
-  const drift = Math.floor(t * 3) % 16;
-  sea.setTransform(new DOMMatrix([1, 0, 0, 1, drift, Math.round(Math.sin(t * 0.8) * 1.5)]));
+  const drift = Math.floor(t * 2) % 8;
+  sea.setTransform(new DOMMatrix([1, 0, 0, 1, drift, 0]));
   ctx.fillStyle = sea;
   ctx.fillRect(-ox / zoom - 16, -oy / zoom - 16, cw / zoom + 32, ch / zoom + 32);
   ctx.drawImage(shore.canvas, 0, 0);
