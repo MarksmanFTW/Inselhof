@@ -65,7 +65,7 @@ export function hideUI() {
 }
 
 /** Hauptmenü */
-export function showMenu(save: Save, on: { play: () => void; look: () => void }) {
+export function showMenu(save: Save, on: { play: () => void; look: () => void; coop: () => void; leave?: () => void; coopText?: string }) {
   clear();
   ui.className = 'ui-menu';
   ui.innerHTML = `
@@ -79,6 +79,8 @@ export function showMenu(save: Save, on: { play: () => void; look: () => void })
       ${save.created && save.name ? `<p class="hello">Hallo, <b>${esc(save.name)}</b>!</p>` : ''}
       <button class="pbtn green" data-act="play">${save.created ? 'Weiterspielen' : 'Spielen'}</button>
       <button class="pbtn" data-act="look">Aussehen</button>
+      ${on.leave ? `<button class="pbtn blue" data-act="leave">Koop beenden</button>` : `<button class="pbtn blue" data-act="coop">Mit Freund spielen</button>`}
+      ${on.coopText ? `<p class="coop-note">${esc(on.coopText)}</p>` : ''}
     </div>
     <p class="foot">Im Aufbau · bald: farmen, bauen, überleben</p>
     </div>`;
@@ -96,6 +98,48 @@ export function showMenu(save: Save, on: { play: () => void; look: () => void })
   }, 2200);
   ui.querySelector('[data-act=play]')!.addEventListener('click', on.play);
   ui.querySelector('[data-act=look]')!.addEventListener('click', on.look);
+  ui.querySelector('[data-act=coop]')?.addEventListener('click', on.coop);
+  if (on.leave) ui.querySelector('[data-act=leave]')!.addEventListener('click', on.leave);
+}
+
+/** Koop: Raum öffnen oder mit Code beitreten */
+export function showCoop(on: { host: () => void; join: (code: string) => void; back: () => void }, code = '') {
+  clear();
+  ui.className = 'ui-custom';
+  ui.innerHTML = `
+    <div class="panel coop-panel">
+      <h2>Mit Freund spielen</h2>
+      <p>Dein Freund besucht deine Insel. Ihr teilt Holz, Samen und Rüben und könnt zusammen fällen, farmen und bauen.</p>
+      <button class="pbtn green" data-act="host">Meine Insel öffnen</button>
+      <div class="or">oder</div>
+      <label class="name-row">Code <input class="name code" maxlength="4" placeholder="ABCD" value="${esc(code)}" autocomplete="off" autocapitalize="characters" /></label>
+      <button class="pbtn" data-act="join">Freund besuchen</button>
+      <button class="pbtn small ghost" data-act="back">Zurück</button>
+    </div>`;
+  const input = ui.querySelector<HTMLInputElement>('.code')!;
+  input.addEventListener('input', () => (input.value = input.value.toUpperCase().replace(/[^A-Z]/g, '').slice(0, 4)));
+  ui.querySelector('[data-act=host]')!.addEventListener('click', on.host);
+  ui.querySelector('[data-act=back]')!.addEventListener('click', on.back);
+  const join = () => (input.value.length === 4 ? on.join(input.value) : input.focus());
+  ui.querySelector('[data-act=join]')!.addEventListener('click', join);
+  input.addEventListener('keydown', (e) => e.key === 'Enter' && join());
+}
+
+/** Wartefenster (Raum öffnet / verbinde …) */
+export function showWait(title: string, html: string, on: { back: () => void; share?: () => void; play?: () => void }) {
+  clear();
+  ui.className = 'ui-custom';
+  ui.innerHTML = `
+    <div class="panel coop-panel">
+      <h2>${esc(title)}</h2>
+      <div class="wait-body">${html}</div>
+      ${on.share ? `<button class="pbtn blue" data-act="share">Link schicken</button>` : ''}
+      ${on.play ? `<button class="pbtn green" data-act="play">Schon mal spielen</button>` : ''}
+      <button class="pbtn small ghost" data-act="back">Abbrechen</button>
+    </div>`;
+  ui.querySelector('[data-act=back]')!.addEventListener('click', on.back);
+  if (on.share) ui.querySelector('[data-act=share]')!.addEventListener('click', on.share);
+  if (on.play) ui.querySelector('[data-act=play]')!.addEventListener('click', on.play);
 }
 
 /** Aussehen anpassen; done wird mit dem fertigen Stand aufgerufen */
@@ -207,6 +251,8 @@ export interface Hud {
   setAction(on: boolean, icon?: string): void;
   setGoal(text: string | null): void;
   setPlacing(on: boolean, valid?: boolean): void;
+  /** Koop-Anzeige unter dem Menü-Knopf */
+  setCoop(text: string | null): void;
   openBuild(wood: number): void;
   toast(text: string): void;
 }
@@ -224,6 +270,7 @@ export function showHud(on: HudActions, icons: HudIcons, cost: number): Hud {
       <div class="panel wood"><img class="turnip" src="${icons.turnip}" alt="" /><b class="n-turnip">0</b></div>
     </div>
     <p class="goal" hidden></p>
+    <p class="coop-chip" hidden></p>
     <div class="hotbar panel">
       ${slot('axe', icons.axe)}${slot('hoe', icons.hoe)}${slot('seeds', icons.seeds)}${slot('water', icons.bucket)}
     </div>
@@ -288,6 +335,11 @@ export function showHud(on: HudActions, icons: HudIcons, cost: number): Hud {
         actionIcon = icon;
         use.querySelector('img')!.src = icon;
       }
+    },
+    setCoop(text) {
+      const c = $('.coop-chip');
+      c.hidden = !text;
+      if (text) c.textContent = text;
     },
     setGoal(text) {
       const g = $('.goal');

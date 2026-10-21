@@ -67,6 +67,15 @@ export class World {
     }
   }
 
+  /** Stand vom Gastgeber übernehmen (Koop) */
+  apply(save: Partial<WorldSave>) {
+    const w = new World(this.isl, save);
+    this.wood = w.wood;
+    this.felled = w.felled;
+    this.houses = w.houses;
+    this.version++;
+  }
+
   toSave(): WorldSave {
     return { wood: this.wood, felled: Object.fromEntries(this.felled), houses: this.houses.map((h) => ({ ...h })) };
   }

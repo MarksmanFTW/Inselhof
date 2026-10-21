@@ -1,7 +1,7 @@
 import '@fontsource/pixelify-sans/latin-500.css';
 import '@fontsource/pixelify-sans/latin-700.css';
 import './style.css';
-import { CH, CW, Dir, FOOT_X, FOOT_Y, makeCharacter } from './character';
+import { CH, CW, Dir, FOOT_X, FOOT_Y, makeCharacter, type CharSheet, type Look } from './character';
 import { Ground, H, TILE, W, generate, rng } from './island';
 import { Shore, paintDock, paintLand, paintShadows, waveTile } from './paint';
 import { Player } from './player';
@@ -9,7 +9,8 @@ import { CAN_GOAL, Farm, RIPE } from './farm';
 import { axe, bucket, cropStage, hoe, house, logIcon, sapling, seedBag, soilTile, toUrl, treeStump, turnipIcon, wateringCan } from './props';
 import { loadSave, writeSave, type Save } from './save';
 import { butterfly, gull, makeSprites } from './sprites';
-import { showCustomize, showHud, showMenu, type Hud, type ToolId } from './ui';
+import { Room, cleanCode, type Action, type Fx, type Msg, type PlayerState } from './net/room';
+import { showCoop, showCustomize, showHud, showMenu, showWait, type Hud, type ToolId } from './ui';
 import { HOUSE_COST, HOUSE_FOOT, World } from './world';
 
 const screen = document.querySelector<HTMLCanvasElement>('#screen')!;
@@ -143,20 +144,78 @@ function burst(x: number, y: number, z: number, n: number, cols: string[], speed
     bits.push({ x, y, z, vx: Math.cos(a) * v, vy: Math.sin(a) * v * 0.5, vz: 20 + Math.random() * 40, life: 0.6 + Math.random() * 0.6, col: cols[i % cols.length] });
   }
 }
-function hit() {
-  const i = chopTarget;
-  if (i < 0) return;
-  const d = island.decor[i];
-  const res = world.chop(i);
-  shake.set(i, 1);
-  burst(d.x + (player.x < d.x ? -3 : 3), d.y - 2, 6, 6, ['#c8925a', '#8c6440', '#e8c890']);
-  if (res.felled) {
+// ---------- Aktionen (allein oder als Gastgeber ausgeführt, Effekte auch beim Gast) ----------
+const CHIPS = ['#c8925a', '#8c6440', '#e8c890'];
+const LEAVES = ['#2a6630', '#3f8640', '#68a85a', '#163c1e'];
+function playFx(fx: Fx) {
+  if (fx.k === 'chop') {
+    if (fx.tree !== undefined) shake.set(fx.tree, 1);
+    burst(fx.x, fx.y, 6, 6, CHIPS);
+  } else if (fx.k === 'fell') {
     // Blätter rieseln, Holz fliegt in den Rucksack
-    burst(d.x, d.y - 26, 24, 26, ['#2a6630', '#3f8640', '#68a85a', '#163c1e'], 40);
-    floats.push({ x: d.x, y: d.y - 20, text: `+${res.wood} Holz`, life: 1.4 });
-    syncHud();
-    persist();
+    burst(fx.x, fx.y, 24, 26, LEAVES, 40);
+  } else if (fx.k === 'till') burst(fx.x, fx.y, 2, 10, ['#8a5e3a', '#6a4428', '#a87a50']);
+  else if (fx.k === 'seed') burst(fx.x, fx.y, 3, 5, ['#e8c890', '#f4dcb0']);
+  else if (fx.k === 'water') burst(fx.x, fx.y, 6, 12, ['#4a8ad0', '#9fd8f0', '#e6f7ff'], 18);
+  else if (fx.k === 'refill') burst(fx.x, fx.y, 2, 8, ['#9fd8f0', '#e6f7ff'], 25);
+  else if (fx.k === 'harvest') burst(fx.x, fx.y, 4, 10, ['#4f9a44', '#8a5e3a', '#b05a9a']);
+  else if (fx.k === 'build') burst(fx.x, fx.y, 2, 30, ['#e8dcc8', '#c8b498', '#ffffff'], 45);
+  else if (fx.k === 'can') hud?.toast('Belohnung: Eisen-Gießkanne!');
+  if (fx.text) floats.push({ x: fx.x, y: fx.y - (fx.k === 'fell' ? -6 : 8), text: fx.text, life: fx.k === 'can' ? 2.2 : 1.5 });
+}
+function emit(fx: Fx) {
+  playFx(fx);
+  if (role === 'host') room?.send({ t: 'fx', fx });
+}
+/** Aktion ausführen (nur allein oder beim Gastgeber); liefert einen Hinweis bei Fehlschlag */
+function perform(a: Action, actor: { x: number; y: number }): string | null {
+  const c = a.c ?? 0;
+  const r = a.r ?? 0;
+  const cx = c * TILE + 4;
+  const cy = r * TILE + 4;
+  let err: string | null = null;
+  if (a.kind === 'axe') {
+    const d = island.decor[a.tree ?? -1];
+    if (!d) return null;
+    const res = world.chop(a.tree!);
+    emit({ k: 'chop', x: d.x + (actor.x < d.x ? -3 : 3), y: d.y - 2, tree: a.tree });
+    if (res.felled) emit({ k: 'fell', x: d.x, y: d.y - 26, text: `+${res.wood} Holz` });
+  } else if (a.kind === 'hoe') {
+    err = farm.till(c, r, tileFree(c, r, actor));
+    if (!err) emit({ k: 'till', x: cx, y: cy });
+  } else if (a.kind === 'seeds') {
+    err = farm.plant(c, r);
+    if (!err) emit({ k: 'seed', x: cx, y: cy });
+  } else if (a.kind === 'refill') {
+    farm.refill();
+    emit({ k: 'refill', x: actor.x, y: actor.y + 6, text: 'Voll!' });
+  } else if (a.kind === 'water') {
+    err = farm.pour(c, r, Date.now());
+    if (!err) emit({ k: 'water', x: cx, y: cy });
+  } else if (a.kind === 'harvest') {
+    const res = farm.harvest(c, r);
+    if (res) {
+      emit({ k: 'harvest', x: cx, y: cy, text: `+1 Rübe  +${res.seeds} Samen` });
+      if (res.gotCan) emit({ k: 'can', x: actor.x, y: actor.y - 18, text: 'Eisen-Gießkanne!' });
+    }
+  } else if (a.kind === 'build') {
+    const x = a.x ?? 0;
+    const y = a.y ?? 0;
+    if (farmUnder(x, y)) err = 'Hier ist ein Feld im Weg';
+    else if (world.build(x, y, actor)) emit({ k: 'build', x, y, text: 'Haus gebaut!' });
+    else err = world.wood < HOUSE_COST ? 'Zu wenig Holz' : 'Hier ist kein Platz';
   }
+  syncHud();
+  persist();
+  return err;
+}
+/** eigene Aktion: allein/Gastgeber gleich ausführen, als Gast an den Gastgeber schicken */
+function doAction(a: Action) {
+  if (role === 'guest') {
+    room?.send({ t: 'do', a });
+    return null;
+  }
+  return perform(a, player);
 }
 
 // ---------- Ackerbau ----------
@@ -166,10 +225,10 @@ function frontTile(): [number, number] {
   const [dx, dy] = off[player.dir];
   return Farm.tileAt(player.x + dx, player.y + dy);
 }
-const tileFree = (c: number, r: number) => {
+const tileFree = (c: number, r: number, actor: { x: number; y: number } = player) => {
   const cx = c * TILE + 4;
   const cy = r * TILE + 4;
-  return !world.blocked(cx, cy, 4, 4) && !(Math.abs(player.x - cx) < 4 && Math.abs(player.y - cy) < 4);
+  return !world.blocked(cx, cy, 4, 4) && !(Math.abs(actor.x - cx) < 4 && Math.abs(actor.y - cy) < 4);
 };
 /** Wasser vor der Figur (zum Auffüllen)? */
 function facingWater() {
@@ -205,40 +264,10 @@ const toolHint: Record<ToolId, string> = {
 };
 function useTool() {
   const [c, r] = swingTile;
-  const cx = c * TILE + 4;
-  const cy = r * TILE + 4;
-  let err: string | null = null;
-  if (swingTool === 'axe') return hit();
-  if (swingTool === 'hoe') {
-    err = farm.till(c, r, tileFree(c, r));
-    if (!err) burst(cx, cy, 2, 10, ['#8a5e3a', '#6a4428', '#a87a50']);
-  } else if (swingTool === 'seeds') {
-    err = farm.plant(c, r);
-    if (!err) burst(cx, cy, 3, 5, ['#e8c890', '#f4dcb0']);
-  } else if (swingTool === 'refill') {
-    actHeld = false;
-    farm.refill();
-    hud?.toast(farm.hasCan ? 'Gießkanne aufgefüllt' : 'Kübel aufgefüllt');
-    burst(player.x, player.y + 6, 2, 8, ['#9fd8f0', '#e6f7ff'], 25);
-  } else if (swingTool === 'water') {
-    err = farm.pour(c, r, Date.now());
-    if (!err) burst(cx, cy, 6, 12, ['#4a8ad0', '#9fd8f0', '#e6f7ff'], 18);
-  } else if (swingTool === 'harvest') {
-    // nach dem Ernten nicht gleich weiter gießen/säen – erst loslassen
-    actHeld = false;
-    const res = farm.harvest(c, r);
-    if (res) {
-      burst(cx, cy, 4, 10, ['#4f9a44', '#8a5e3a', '#b05a9a']);
-      floats.push({ x: cx, y: cy - 8, text: `+1 Rübe  +${res.seeds} Samen`, life: 1.6 });
-      if (res.gotCan) {
-        hud?.toast('Belohnung: Eisen-Gießkanne!');
-        floats.push({ x: player.x, y: player.y - 26, text: 'Eisen-Gießkanne!', life: 2.2 });
-      }
-    }
-  }
+  // nach Ernten/Auffüllen nicht gleich weitermachen – erst loslassen
+  if (swingTool === 'harvest' || swingTool === 'refill') actHeld = false;
+  const err = doAction({ kind: swingTool, c, r, tree: chopTarget });
   if (err) hud?.toast(err);
-  syncHud();
-  persist();
 }
 function syncHud() {
   if (!hud) return;
@@ -392,21 +421,32 @@ function input(): [number, number] {
 
 // ---------- Menüs ----------
 function persist() {
-  save.pos = { x: Math.round(player.x), y: Math.round(player.y) };
-  save.world = world.toSave();
-  save.farm = farm.toSave();
+  // als Gast gehört die Insel dem Freund – den eigenen Stand nicht überschreiben
+  if (role !== 'guest') {
+    save.pos = { x: Math.round(player.x), y: Math.round(player.y) };
+    save.world = world.toSave();
+    save.farm = farm.toSave();
+  }
   writeSave(save);
 }
 function openMenu() {
+  hud = null;
   if (mode === 'play') persist();
   mode = 'menu';
   stick = null;
   pointers.clear();
   hint.classList.add('gone');
   zoom = minZoom;
-  showMenu(save, { play: startPlay, look: () => openCustom(false) });
+  showMenu(save, {
+    play: startPlay,
+    look: () => openCustom(false),
+    coop: () => openCoop(),
+    leave: room ? () => (leaveCoop(), openMenu()) : undefined,
+    coopText: room ? (role === 'host' ? `Deine Insel ist offen – Code ${room.code}` : `Zu Besuch bei ${mate?.name || 'deinem Freund'}`) : undefined,
+  });
 }
 function openCustom(first: boolean) {
+  hud = null;
   mode = 'custom';
   showCustomize(
     save,
@@ -414,7 +454,12 @@ function openCustom(first: boolean) {
       save = s;
       sheet = makeCharacter(save.look);
       writeSave(save);
-      if (first) startPlay();
+      room?.send({ t: 'look', name: save.name, look: save.look });
+      if (pendingJoin) {
+        const code = pendingJoin;
+        pendingJoin = '';
+        joinRoom(code);
+      } else if (first) startPlay();
       else openMenu();
     },
     { first },
@@ -453,6 +498,7 @@ function startPlay() {
   );
   hud.setTool(tool);
   syncHud();
+  updateCoopChip();
   hint.classList.remove('gone');
   setTimeout(() => hint.classList.add('gone'), 6000);
 }
@@ -466,18 +512,241 @@ function farmUnder(x: number, y: number) {
 function confirmBuild() {
   if (!placing) return;
   if (farmUnder(ghost.x, ghost.y)) return hud?.toast('Hier ist ein Feld im Weg');
-  if (world.build(ghost.x, ghost.y, player)) {
-    placing = false;
-    hud?.setPlacing(false);
-    syncHud();
-    hud?.toast('Dein Haus steht!');
-    burst(ghost.x, ghost.y, 2, 30, ['#e8dcc8', '#c8b498', '#ffffff'], 45);
-    persist();
-  } else hud?.toast(world.wood < HOUSE_COST ? 'Zu wenig Holz' : 'Hier ist kein Platz');
+  if (!ghost.ok) return hud?.toast('Hier ist kein Platz');
+  if (world.wood < HOUSE_COST) return hud?.toast('Zu wenig Holz');
+  placing = false;
+  hud?.setPlacing(false);
+  const err = doAction({ kind: 'build', x: ghost.x, y: ghost.y });
+  if (err) hud?.toast(err);
+}
+
+// ---------- Koop ----------
+type Role = 'solo' | 'host' | 'guest';
+let role: Role = 'solo';
+let room: Room | null = null;
+let pendingJoin = '';
+interface Mate {
+  name: string;
+  sheet: CharSheet;
+  x: number;
+  y: number;
+  tx: number;
+  ty: number;
+  d: Dir;
+  f: number;
+  s: number;
+  tl: string;
+}
+let mate: Mate | null = null;
+let lastPos = 0;
+let lastState = 0;
+let sentVersion = '';
+const myState = (): PlayerState => ({
+  x: Math.round(player.x * 10) / 10,
+  y: Math.round(player.y * 10) / 10,
+  d: player.dir,
+  f: swing > 0 ? (swing > SWING / 2 ? 1 : 3) : player.frame,
+  s: swing > 0 ? Math.round((1 - swing / SWING) * 100) / 100 : 0,
+  tl: swing > 0 ? swingTool : '',
+});
+function makeMate(name: string, look: Look, p: PlayerState): Mate {
+  return { name: name || 'Freund', sheet: makeCharacter(look), x: p.x, y: p.y, tx: p.x, ty: p.y, d: p.d as Dir, f: p.f, s: p.s, tl: p.tl };
+}
+const islandState = () => ({ world: world.toSave(), farm: farm.toSave() });
+function updateCoopChip() {
+  if (!hud) return;
+  if (!room) return hud.setCoop(null);
+  if (role === 'host') hud.setCoop(mate ? `Koop: ${mate.name} ist da` : `Raum ${room.code} · wartet …`);
+  else hud.setCoop(`Zu Besuch bei ${mate?.name ?? '…'}`);
+}
+function coopLink(code: string) {
+  return `${location.origin}${location.pathname}?join=${code}`;
+}
+async function share(code: string) {
+  const url = coopLink(code);
+  const text = `Komm auf meine Insel in Cozy Island! Code: ${code}`;
+  try {
+    if (navigator.share) return await navigator.share({ title: 'Cozy Island', text, url });
+    await navigator.clipboard.writeText(`${text} ${url}`);
+    hud?.toast('Link kopiert');
+  } catch {
+    /* abgebrochen */
+  }
+}
+function openCoop(code = '') {
+  hud = null;
+  mode = 'custom';
+  showCoop({ host: hostRoom, join: (c) => joinRoom(c), back: openMenu }, code);
+}
+function newRoom(host: boolean) {
+  leaveCoop();
+  const r = new Room(host);
+  room = r;
+  role = host ? 'host' : 'guest';
+  r.onMsg = (m) => room === r && onNet(m);
+  r.onError = (text) => {
+    if (room !== r) return;
+    leaveCoop();
+    mode = 'custom';
+    hud = null;
+    showWait('Hoppla!', `<p>${text}</p>`, { back: openMenu });
+  };
+  r.onClose = () => {
+    if (room !== r) return;
+    if (role === 'host') {
+      if (mate) hud?.toast(`${mate.name} hat deine Insel verlassen`);
+      mate = null;
+      updateCoopChip();
+    } else {
+      leaveCoop();
+      hud?.toast('Die Verbindung zur Insel ist weg');
+      if (mode === 'play') startPlay();
+    }
+  };
+  return r;
+}
+function hostRoom() {
+  if (!save.created) return openCustom(true);
+  const r = newRoom(true);
+  mode = 'custom';
+  hud = null;
+  showWait('Insel wird geöffnet …', '<div class="code-big"><span>…</span></div>', { back: () => (leaveCoop(), openMenu()) });
+  void r.create().then((code) => {
+    if (room !== r || mode !== 'custom') return;
+    showWait(
+      'Deine Insel ist offen!',
+      `<div class="code-big">${[...code].map((ch) => `<span>${ch}</span>`).join('')}</div>
+       <p>Sag deinem Freund den Code oder schick ihm den Link. Du kannst schon spielen – er kommt dazu, sobald er beitritt.</p>`,
+      { share: () => void share(code), play: startPlay, back: () => (leaveCoop(), openMenu()) },
+    );
+  });
+}
+function joinRoom(code: string) {
+  if (!save.created) {
+    pendingJoin = code;
+    return openCustom(true);
+  }
+  const r = newRoom(false);
+  mode = 'custom';
+  hud = null;
+  showWait('Verbinde …', `<p>mit der Insel <b>${code}</b></p>`, { back: () => (leaveCoop(), openMenu()) });
+  r.onTry = (n) => n > 1 && room === r && mode === 'custom' && showWait('Verbinde …', `<p>Direkt klappt es nicht – verbinde über die Website mit <b>${code}</b> …</p>`, { back: () => (leaveCoop(), openMenu()) });
+  r.onOpen = () => r.send({ t: 'hi', v: 1, name: save.name, look: save.look });
+  r.join(code);
+}
+function leaveCoop() {
+  const wasGuest = role === 'guest';
+  room?.close();
+  room = null;
+  mate = null;
+  role = 'solo';
+  if (wasGuest) {
+    // zurück auf die eigene Insel
+    world.apply(save.world ?? {});
+    farm.apply(save.farm ?? {});
+    const pos = save.pos && player.free(save.pos.x, save.pos.y) ? save.pos : START;
+    player.x = pos.x;
+    player.y = pos.y;
+  }
+  syncHud();
+  updateCoopChip();
+}
+function onNet(m: Msg) {
+  const r = room!;
+  switch (m.t) {
+    // ----- beim Gastgeber -----
+    case 'hi':
+      if (role !== 'host') return;
+      mate = makeMate(m.name, m.look, { x: player.x + 12, y: player.y, d: Dir.Down, f: 0, s: 0, tl: '' });
+      r.send({ t: 'welcome', v: 1, name: save.name, look: save.look, state: islandState(), p: myState() });
+      sentVersion = '';
+      hud?.toast(`${mate.name} besucht deine Insel!`);
+      updateCoopChip();
+      if (mode === 'custom') startPlay();
+      break;
+    case 'do':
+      if (role !== 'host' || !mate) return;
+      {
+        const err = perform(m.a, { x: mate.tx, y: mate.ty });
+        if (err) r.send({ t: 'msg', text: err });
+      }
+      break;
+    // ----- beim Gast -----
+    case 'welcome': {
+      if (role !== 'guest') return;
+      world.apply(m.state.world);
+      farm.apply(m.state.farm);
+      mate = makeMate(m.name, m.look, m.p);
+      // neben dem Gastgeber auftauchen
+      const spots = [[12, 0], [-12, 0], [0, 10], [0, -10], [18, 6]];
+      const spot = spots.find(([dx, dy]) => player.free(m.p.x + dx, m.p.y + dy)) ?? [0, 0];
+      player.x = m.p.x + spot[0];
+      player.y = m.p.y + spot[1];
+      startPlay();
+      hud?.toast(`Willkommen auf der Insel von ${mate.name}!`);
+      break;
+    }
+    case 'state':
+      if (role !== 'guest') return;
+      world.apply(m.state.world);
+      farm.apply(m.state.farm);
+      syncHud();
+      break;
+    case 'fx':
+      playFx(m.fx);
+      break;
+    case 'msg':
+      hud?.toast(m.text);
+      break;
+    // ----- beide -----
+    case 'p':
+      if (!mate) return;
+      Object.assign(mate, { tx: m.p.x, ty: m.p.y, d: m.p.d, f: m.p.f, s: m.p.s, tl: m.p.tl });
+      break;
+    case 'look':
+      if (!mate) return;
+      mate.name = m.name || mate.name;
+      mate.sheet = makeCharacter(m.look);
+      updateCoopChip();
+      break;
+    case 'bye':
+      r.onClose();
+      break;
+  }
+}
+/** jedes Bild: Position schicken, als Gastgeber den Insel-Stand */
+function netTick(now: number) {
+  if (!room?.connected) return;
+  if (now - lastPos > 100) {
+    lastPos = now;
+    room.send({ t: 'p', p: myState() });
+  }
+  if (role === 'host' && mate) {
+    const v = `${world.version}/${farm.version}`;
+    if ((v !== sentVersion && now - lastState > 120) || now - lastState > 4000) {
+      sentVersion = v;
+      lastState = now;
+      room.send({ t: 'state', state: islandState() });
+    }
+  }
+}
+// Einladungs-Link ?join=CODE
+{
+  const q = new URLSearchParams(location.search);
+  const code = cleanCode(q.get('join') ?? '');
+  if (code.length === 4) {
+    q.delete('join');
+    history.replaceState(null, '', location.pathname + (q.size ? `?${q}` : ''));
+    pendingJoin = code;
+  }
 }
 addEventListener('pagehide', () => mode === 'play' && persist());
 setInterval(() => mode === 'play' && persist(), 10_000);
-openMenu();
+if (pendingJoin) {
+  const code = pendingJoin;
+  pendingJoin = '';
+  joinRoom(code);
+} else openMenu();
 
 // ---------- Zeichnen ----------
 let last = performance.now();
@@ -520,7 +789,7 @@ function frame(now: number) {
       ghost = { ...g, ok: world.canPlace(g.x, g.y, player) && !farmUnder(g.x, g.y) };
       hud?.setPlacing(true, ghost.ok && world.wood >= HOUSE_COST);
     }
-    if (Math.floor(now / 1000) !== Math.floor((now - dt * 1000) / 1000)) {
+    if (role !== 'guest' && Math.floor(now / 1000) !== Math.floor((now - dt * 1000) / 1000)) {
       world.grow(Date.now(), player);
       farm.update(Date.now());
     }
@@ -536,6 +805,17 @@ function frame(now: number) {
     cam.y = H / 2 + Math.cos(t * 0.05) * 16 + (wide ? 0 : (ch * 0.1) / zoom);
   }
   clampCam();
+  netTick(now);
+  if (mate) {
+    const k = 1 - Math.exp(-dt * 12);
+    mate.x += (mate.tx - mate.x) * k;
+    mate.y += (mate.ty - mate.y) * k;
+  }
+  // Gastgeber im Menü: Insel läuft weiter (Bäume wachsen, Freund spielt)
+  if (role === 'host' && mode !== 'play' && Math.floor(now / 1000) !== Math.floor((now - dt * 1000) / 1000)) {
+    world.grow(Date.now(), player);
+    farm.update(Date.now());
+  }
 
   if (world.version !== landVersion) paintWorldLand();
   for (const [i, v] of shake) {
@@ -586,6 +866,8 @@ function frame(now: number) {
     ctx.globalAlpha = 1;
   }
   if (showPlayer) items.push({ y: player.y, draw: drawPlayer });
+  const m = mate;
+  if (showPlayer && m) items.push({ y: m.y, draw: () => drawChar(m.sheet, m.x, m.y, m.d, m.f, m.s, m.tl) });
   if (showPlayer && placing) items.push({ y: ghost.y, draw: drawGhost });
   items.sort((a, b) => a.y - b.y);
   for (const it of items) it.draw();
@@ -631,6 +913,20 @@ function frame(now: number) {
     ctx.drawImage(gullImg[Math.floor(t * 4 + gl.ph) % 2], x, y);
   }
 
+  // Name über dem Mitspieler
+  if (mode === 'play' && mate) {
+    const dpr = cw / innerWidth;
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.font = `700 ${Math.round(14 * dpr)}px 'Pixelify Sans', sans-serif`;
+    ctx.textAlign = 'center';
+    const sx = ox + mate.x * zoom;
+    const sy = oy + (mate.y - 25) * zoom;
+    const w = ctx.measureText(mate.name).width + 12 * dpr;
+    ctx.fillStyle = 'rgba(20,40,60,0.65)';
+    ctx.fillRect(sx - w / 2, sy - 15 * dpr, w, 20 * dpr);
+    ctx.fillStyle = '#fff';
+    ctx.fillText(mate.name, sx, sy);
+  }
   // „+4 Holz“ (Bildschirm-Pixel, damit die Schrift scharf bleibt)
   if (floats.length) {
     const dpr = cw / innerWidth;
@@ -702,40 +998,46 @@ function drawDecor(i: number, t: number, nowMs: number) {
   }
 }
 
-function drawAxe(px: number, py: number) {
+/** Werkzeug in der Hand: k = Fortschritt des Schwungs 0..1 */
+function drawTool(px: number, py: number, dir: Dir, k: number, tl: string) {
   // Schwung: von hinten oben nach vorn unten
-  const k = 1 - Math.max(0, swing) / SWING;
   const a = -1.9 + k * 2.6;
-  const side = player.dir === Dir.Left ? -1 : 1;
-  const hx = player.dir === Dir.Right ? px + 3 : player.dir === Dir.Left ? px - 3 : px + 4;
+  const side = dir === Dir.Left ? -1 : 1;
+  const hx = dir === Dir.Right ? px + 3 : dir === Dir.Left ? px - 3 : px + 4;
   const hy = py - 9;
+  const img = tl === 'hoe' ? hoeImg : tl === 'water' || tl === 'refill' ? (farm.hasCan ? canImg : bucketImg) : tl === 'axe' ? axeImg : null;
+  if (!img) return;
   ctx.save();
   ctx.translate(hx, hy);
   ctx.scale(side, 1);
-  ctx.rotate(a);
-  const img = swingTool === 'hoe' ? hoeImg : swingTool === 'water' || swingTool === 'refill' ? (farm.hasCan ? canImg : bucketImg) : swingTool === 'seeds' || swingTool === 'harvest' ? null : axeImg;
   if (img === bucketImg || img === canImg) {
     // Gießen: Gefäß kippt nach vorn
-    ctx.rotate(-a + 0.5 * k);
+    ctx.rotate(0.5 * k);
     ctx.drawImage(img, 0, -6);
-  } else if (img) ctx.drawImage(img, -1, -9);
+  } else {
+    ctx.rotate(a);
+    ctx.drawImage(img, -1, -9);
+  }
   ctx.restore();
 }
 
-function drawPlayer() {
-  const px = Math.round(player.x);
-  const py = Math.round(player.y);
-  // Schatten
+/** Figur mit Schatten und Werkzeug zeichnen (ich oder Mitspieler) */
+function drawChar(sh: CharSheet, x: number, y: number, dir: Dir, f: number, k: number, tl: string) {
+  const px = Math.round(x);
+  const py = Math.round(y);
   const onGrass = island.ground[py * W + px] === Ground.Grass;
   ctx.fillStyle = onGrass ? 'rgba(8,40,10,0.45)' : 'rgba(100,70,35,0.38)';
   ctx.fillRect(px - 4, py - 1, 9, 2);
   ctx.fillRect(px - 3, py + 1, 7, 1);
-  const swinging = swing > 0;
-  if (swinging && player.dir === Dir.Up) drawAxe(px, py);
-  // beim Schlagen: Schritt-Bild als „Ausholen“
-  const f = swinging ? (swing > SWING / 2 ? 1 : 3) : player.frame;
-  ctx.drawImage(sheet[player.dir][f], px - FOOT_X, py - FOOT_Y, CW, CH);
-  if (swinging && player.dir !== Dir.Up) drawAxe(px, py);
+  const swinging = k > 0 && !!tl;
+  if (swinging && dir === Dir.Up) drawTool(px, py, dir, k, tl);
+  ctx.drawImage(sh[dir][f], px - FOOT_X, py - FOOT_Y, CW, CH);
+  if (swinging && dir !== Dir.Up) drawTool(px, py, dir, k, tl);
+}
+
+function drawPlayer() {
+  const st = myState();
+  drawChar(sheet, player.x, player.y, player.dir, st.f, swing > 0 ? 1 - swing / SWING : 0, swing > 0 ? swingTool : '');
 }
 
 function drawGhost() {
@@ -752,4 +1054,4 @@ function drawGhost() {
 }
 
 // zum Testen von außen
-(window as unknown as { __game?: unknown }).__game = { player, world, farm, get mode() { return mode; } };
+(window as unknown as { __game?: unknown }).__game = { player, world, farm, get mode() { return mode; }, get mate() { return mate; }, get room() { return room; } };

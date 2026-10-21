@@ -61,6 +61,18 @@ export class Farm {
     return this.hasCan ? CAPACITY.can : CAPACITY.bucket;
   }
 
+  /** Stand vom Gastgeber übernehmen (Koop) */
+  apply(save: Partial<FarmSave>) {
+    const f = new Farm(this.isl, save);
+    this.plots = f.plots;
+    this.seeds = f.seeds;
+    this.turnips = f.turnips;
+    this.water = f.water;
+    this.hasCan = f.hasCan;
+    this.harvested = f.harvested;
+    this.version++;
+  }
+
   toSave(): FarmSave {
     return {
       plots: Object.fromEntries([...this.plots].map(([k, p]) => [k, { wetAt: p.wetAt, ...(p.crop ? { crop: { ...p.crop } } : {}) }])),
