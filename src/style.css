@@ -384,7 +384,7 @@ body {
   position: fixed;
   top: calc(env(safe-area-inset-top, 0px) + 116px);
   right: 12px;
-  max-width: 170px;
+  max-width: 210px;
   margin: 0;
   padding: 6px 10px;
   background: rgba(20, 40, 60, 0.6);
@@ -507,15 +507,18 @@ body {
 }
 .toast {
   position: fixed;
-  top: calc(env(safe-area-inset-top, 0px) + 78px);
+  top: 34%;
   left: 50%;
   transform: translateX(-50%);
+  width: max-content;
+  max-width: 86vw;
   padding: 8px 14px;
-  background: rgba(20, 40, 60, 0.75);
+  background: rgba(20, 40, 60, 0.8);
   clip-path: var(--px-corner);
   color: #fff;
   font-size: 17px;
-  white-space: nowrap;
+  line-height: 1.25;
+  text-align: center;
   pointer-events: none !important;
 }
 .modal {
@@ -740,4 +743,80 @@ body {
 .slot-btns .pbtn {
   font-size: 16px;
   padding: 7px 8px 10px;
+}
+
+/* ---------- Fortschritt ---------- */
+.lvl {
+  position: fixed;
+  top: calc(env(safe-area-inset-top, 0px) + 12px);
+  left: 74px;
+  padding: 5px 10px 8px;
+  min-width: 96px;
+  box-sizing: border-box;
+}
+.lvl b {
+  display: block;
+  font-size: 17px;
+  line-height: 1;
+}
+.xpbar {
+  margin-top: 5px;
+  height: 8px;
+  background: #d8c49a;
+  border: 2px solid var(--ink);
+}
+.xpbar i {
+  display: block;
+  height: 100%;
+  width: 0;
+  background: linear-gradient(#ffe08a, #e8b84a);
+  transition: width 0.4s;
+}
+.goal {
+  white-space: pre-line;
+}
+.levelup {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  pointer-events: none !important;
+  animation: lvl-in 0.4s cubic-bezier(0.2, 1.6, 0.4, 1);
+  transition: opacity 0.5s;
+}
+.levelup.out {
+  opacity: 0;
+}
+.levelup .panel {
+  text-align: center;
+  min-width: 220px;
+  max-width: min(320px, 86vw);
+  box-sizing: border-box;
+  padding: 14px 22px 18px;
+}
+.levelup small {
+  display: block;
+  font-size: 16px;
+  color: #7a5a3a;
+}
+.levelup b {
+  display: block;
+  font-size: 64px;
+  line-height: 1;
+  color: #e8a83a;
+  text-shadow: 3px 3px 0 var(--ink);
+}
+.levelup p {
+  margin: 6px 0 0;
+  font-size: 17px;
+}
+.levelup .gift {
+  color: #3a7d32;
+  font-weight: 700;
+}
+@keyframes lvl-in {
+  from {
+    transform: scale(0.4);
+    opacity: 0;
+  }
 }

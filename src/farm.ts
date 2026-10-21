@@ -13,6 +13,15 @@ export const START_SEEDS = 6;
 /** Ernten bis zur Eisen-Gießkanne */
 export const CAN_GOAL = 5;
 export const CAPACITY = { bucket: 4, can: 15 } as const;
+/** ab Insel-Stufe 4 */
+export const CAPACITY_BIG = { bucket: 6, can: 20 } as const;
+/** was die Insel-Stufe am Ackerbau ändert (kommt von World.perks) */
+export interface FarmPerks {
+  bigWater: boolean;
+  growMul: number;
+  twoSeeds: boolean;
+}
+const NO_PERKS: FarmPerks = { bigWater: false, growMul: 1, twoSeeds: false };
 
 export interface Plot {
   /** gegossen seit (0 = trocken) */
@@ -41,6 +50,8 @@ export class Farm {
   hasCan = false;
   harvested = 0;
   version = 0;
+  /** Fähigkeiten der Insel-Stufe (wird mit der World verbunden) */
+  perks: () => FarmPerks = () => NO_PERKS;
 
   constructor(
     readonly isl: Island,
@@ -53,12 +64,15 @@ export class Farm {
     this.seeds = Math.max(0, Math.floor(save.seeds ?? START_SEEDS));
     this.turnips = Math.max(0, Math.floor(save.turnips ?? 0));
     this.hasCan = !!save.hasCan;
-    this.water = Math.max(0, Math.min(this.capacity, Math.floor(save.water ?? this.capacity)));
+    // Grenze erst nach dem Verbinden mit der Insel-Stufe bekannt → hier großzügig
+    const max = this.hasCan ? CAPACITY_BIG.can : CAPACITY_BIG.bucket;
+    this.water = Math.max(0, Math.min(max, Math.floor(save.water ?? this.capacity)));
     this.harvested = Math.max(0, Math.floor(save.harvested ?? 0));
   }
 
   get capacity() {
-    return this.hasCan ? CAPACITY.can : CAPACITY.bucket;
+    const cap = this.perks().bigWater ? CAPACITY_BIG : CAPACITY;
+    return this.hasCan ? cap.can : cap.bucket;
   }
 
   /** Stand vom Gastgeber übernehmen (Koop) */
@@ -105,7 +119,7 @@ export class Farm {
     for (const p of this.plots.values()) {
       if (!p.wetAt) continue;
       if (p.crop && p.crop.stage < RIPE) {
-        if (now - p.wetAt >= GROW_MS) {
+        if (now - p.wetAt >= GROW_MS * this.perks().growMul) {
           p.crop.stage++;
           p.wetAt = 0;
           this.version++;
@@ -162,13 +176,13 @@ export class Farm {
     p.crop = undefined;
     p.wetAt = 0;
     this.turnips++;
-    const seeds = 1 + (rand() < 0.5 ? 1 : 0);
+    const seeds = this.perks().twoSeeds ? 2 : 1 + (rand() < 0.5 ? 1 : 0);
     this.seeds += seeds;
     this.harvested++;
     let gotCan = false;
     if (!this.hasCan && this.harvested >= CAN_GOAL) {
       this.hasCan = true;
-      this.water = CAPACITY.can;
+      this.water = this.capacity;
       gotCan = true;
     }
     this.version++;

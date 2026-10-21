@@ -4,6 +4,7 @@
  * gemacht hat, werden auf den neuesten Stand aus der Cloud nochmal angewendet.
  */
 import { Farm } from './farm';
+import { gain, type Gain, type Stat } from './progress';
 import { TILE } from './island';
 import type { Action } from './net/room';
 import { HOUSE_COST, HOUSE_FOOT, type World } from './world';
@@ -27,6 +28,36 @@ export interface OpResult {
   harvest?: { seeds: number; gotCan: boolean };
   built?: boolean;
   done: boolean;
+  /** erledigte Aufgaben / neue Stufen durch diese Aktion */
+  gain?: Gain;
+}
+
+/** Ackerbau kennt die Fähigkeiten der Insel-Stufe */
+export function link(world: World, farm: Farm) {
+  farm.perks = () => world.perks;
+}
+
+const STAT: Partial<Record<Action['kind'], Stat>> = { hoe: 'tilled', seeds: 'planted', water: 'watered', harvest: 'harvested', build: 'built' };
+
+/** Aktion ausführen und Fortschritt verbuchen */
+export function applyOp(world: World, farm: Farm, op: Op): OpResult {
+  const res = run(world, farm, op);
+  const give = (r: { seeds?: number; wood?: number }) => {
+    if (r.seeds) farm.seeds += r.seeds;
+    if (r.wood) world.wood += r.wood;
+  };
+  const merge = (g: Gain) => {
+    res.gain = { quests: [...(res.gain?.quests ?? []), ...g.quests], levels: [...(res.gain?.levels ?? []), ...g.levels] };
+  };
+  if (res.felled) {
+    merge(gain(world.prog, 'felled', 1, give));
+    merge(gain(world.prog, 'wood', res.wood ?? 0, give));
+  } else if (res.done && STAT[op.a.kind]) merge(gain(world.prog, STAT[op.a.kind]!, 1, give));
+  if (res.gain && (res.gain.quests.length || res.gain.levels.length)) {
+    world.version++;
+    farm.version++;
+  }
+  return res;
 }
 
 export function tileFree(world: World, c: number, r: number, actor: { x: number; y: number }) {
@@ -43,7 +74,7 @@ export function farmUnder(farm: Farm, x: number, y: number) {
   return false;
 }
 
-export function applyOp(world: World, farm: Farm, op: Op): OpResult {
+function run(world: World, farm: Farm, op: Op): OpResult {
   const { a, t } = op;
   const actor = { x: op.x, y: op.y };
   const c = a.c ?? 0;

@@ -7,7 +7,8 @@ import { Shore, paintDock, paintLand, paintShadows, waveTile } from './paint';
 import { Player } from './player';
 import { httpApi, syncIsland } from './cloud';
 import { CAN_GOAL, Farm, RIPE } from './farm';
-import { applyOp, farmUnder as farmUnderOf, tileFree as tileFreeOf, type Op } from './ops';
+import { applyOp, farmUnder as farmUnderOf, link, tileFree as tileFreeOf, type Op } from './ops';
+import { PERKS, levelProgress, questAt } from './progress';
 import { axe, bucket, cropStage, hoe, house, logIcon, sapling, seedBag, soilTile, toUrl, treeStump, turnipIcon, wateringCan } from './props';
 import { activeSlot, addSlot, loadSave, removeSlot, writeSave, type Save, type Slot } from './save';
 import { butterfly, gull, makeSprites } from './sprites';
@@ -65,6 +66,7 @@ let save: Save = loadSave();
 const mySlot = () => activeSlot(save);
 const world = new World(island, mySlot().world);
 const farm = new Farm(island, mySlot().farm);
+link(world, farm);
 const START = { x: 176, y: 172 };
 const player = new Player(island, world, START.x, START.y);
 {
@@ -168,6 +170,9 @@ function playFx(fx: Fx) {
   else if (fx.k === 'harvest') burst(fx.x, fx.y, 4, 10, ['#4f9a44', '#8a5e3a', '#b05a9a']);
   else if (fx.k === 'build') burst(fx.x, fx.y, 2, 30, ['#e8dcc8', '#c8b498', '#ffffff'], 45);
   else if (fx.k === 'can') hud?.toast('Belohnung: Eisen-Gießkanne!');
+  else if (fx.k === 'quest') hud?.toast(fx.text ?? 'Aufgabe geschafft!');
+  else if (fx.k === 'level' && fx.n) hud?.levelUp(fx.n, PERKS.find((p) => p.level === fx.n)?.text);
+  if (fx.k === 'quest' || fx.k === 'level') return;
   if (fx.text) floats.push({ x: fx.x, y: fx.y - (fx.k === 'fell' ? -6 : 8), text: fx.text, life: fx.k === 'can' ? 2.2 : 1.5 });
 }
 function emit(fx: Fx) {
@@ -196,6 +201,12 @@ function perform(a: Action, actor: { x: number; y: number }): string | null {
       if (res.harvest.gotCan) emit({ k: 'can', x: actor.x, y: actor.y - 18, text: 'Eisen-Gießkanne!' });
     } else if (a.kind === 'build') emit({ k: 'build', x: a.x ?? 0, y: a.y ?? 0, text: 'Haus gebaut!' });
   }
+  // Aufgaben & Stufen
+  for (const q of res.gain?.quests ?? []) {
+    const reward = [q.seeds ? `+${q.seeds} Samen` : '', q.wood ? `+${q.wood} Holz` : '', `+${q.xp} EP`].filter(Boolean).join(' ');
+    emit({ k: 'quest', x: actor.x, y: actor.y, text: `Aufgabe geschafft: ${q.text}! ${reward}` });
+  }
+  for (const n of res.gain?.levels ?? []) emit({ k: 'level', x: actor.x, y: actor.y, n });
   // gemeinsame Insel: Aktion für den Abgleich merken (beim Fällen nur das Umfallen)
   if (cloudOn() && (a.kind === 'axe' ? res.felled : res.done)) {
     const sl = mySlot();
@@ -265,7 +276,12 @@ function syncHud() {
   if (!hud) return;
   hud.setInv(world.wood, farm.turnips);
   hud.setSlots(farm.seeds, farm.water, farm.capacity, farm.hasCan);
-  hud.setGoal(farm.hasCan ? null : `Ernte ${CAN_GOAL} Rüben → Eisen-Gießkanne (${farm.harvested}/${CAN_GOAL})`);
+  const q = questAt(world.prog.quests);
+  const have = Math.min(q.goal, world.prog.stats[q.stat] ?? 0);
+  const reward = [q.seeds ? `${q.seeds} Samen` : '', q.wood ? `${q.wood} Holz` : '', `${q.xp} EP`].filter(Boolean).join(', ');
+  const can = farm.hasCan ? '' : `\nErnte ${CAN_GOAL} Rüben → Eisen-Gießkanne (${farm.harvested}/${CAN_GOAL})`;
+  hud.setGoal(`Aufgabe: ${q.text} (${have}/${q.goal})\nBelohnung: ${reward}${can}`);
+  hud.setLevel(world.level, levelProgress(world.prog.xp));
 }
 
 // ---------- Haus platzieren ----------

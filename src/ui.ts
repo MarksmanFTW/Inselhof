@@ -3,6 +3,7 @@
  * und der Aussehen-Editor mit großer, laufender Vorschau der Figur.
  */
 import { Dir, FOOT_X, FOOT_Y, HAIR_COLORS, PANTS, PARTS, SHIRTS, SKINS, makeCharacter, randomLook, type Look } from './character';
+import { levelOf } from './progress';
 import { MAX_SLOTS, activeSlot, type Save, type Slot } from './save';
 
 const ui = document.querySelector<HTMLElement>('#ui')!;
@@ -76,7 +77,7 @@ export function showMenu(save: Save, on: { play: () => void; slots: () => void; 
     <div class="menu-bottom">
     <div class="panel menu-panel">
       <div class="menu-hero"></div>
-      ${save.created && save.name ? `<p class="hello">Hallo, <b>${esc(save.name)}</b>!</p>` : ''}
+      ${save.created && save.name ? `<p class="hello">Hallo, <b>${esc(save.name)}</b>! <small>Insel-Stufe ${levelOf(activeSlot(save).world?.prog?.xp ?? 0)}</small></p>` : ''}
       <button class="pbtn green" data-act="play">${save.created ? 'Weiterspielen' : 'Spielen'}${save.created ? `<small class="sub">${esc(activeSlot(save).title)}</small>` : ''}</button>
       <div class="two">
         <button class="pbtn small" data-act="slots">Spielstände</button>
@@ -111,6 +112,7 @@ function slotStats(sl: Slot) {
   const w = sl.world ?? {};
   const f = sl.farm ?? {};
   return [
+    `Stufe ${levelOf(w.prog?.xp ?? 0)}`,
     `${w.wood ?? 0} Holz`,
     `${f.turnips ?? 0} Rüben`,
     `${Object.keys(f.plots ?? {}).length} Felder`,
@@ -337,6 +339,10 @@ export interface Hud {
   /** Aktions-Knopf: aktiv? und welches Bild (z. B. Rübe zum Ernten) */
   setAction(on: boolean, icon?: string): void;
   setGoal(text: string | null): void;
+  /** Insel-Stufe und Fortschritt (0..1) */
+  setLevel(level: number, progress: number): void;
+  /** Aufstieg feiern */
+  levelUp(level: number, perk?: string): void;
   setPlacing(on: boolean, valid?: boolean): void;
   /** Koop-Anzeige unter dem Menü-Knopf */
   setCoop(text: string | null): void;
@@ -352,6 +358,7 @@ export function showHud(on: HudActions, icons: HudIcons, cost: number): Hud {
     `<button class="slot" data-tool="${t}" aria-label="${TOOL_NAMES[t]}"><img src="${icon}" alt="" /><small></small></button>`;
   ui.innerHTML = `
     <button class="pbtn icon" data-act="menu" aria-label="Menü"><i></i><i></i><i></i></button>
+    <div class="panel lvl"><b>Stufe 1</b><div class="xpbar"><i></i></div></div>
     <div class="inv">
       <div class="panel wood"><img src="${icons.log}" alt="" /><b class="n-wood">0</b></div>
       <div class="panel wood"><img class="turnip" src="${icons.turnip}" alt="" /><b class="n-turnip">0</b></div>
@@ -433,6 +440,20 @@ export function showHud(on: HudActions, icons: HudIcons, cost: number): Hud {
       g.hidden = !text;
       if (text && g.textContent !== text) g.textContent = text;
     },
+    setLevel(level, progress) {
+      const b = $('.lvl b');
+      const t = `Stufe ${level}`;
+      if (b.textContent !== t) b.textContent = t;
+      $('.xpbar i').style.width = `${Math.round(Math.max(0, Math.min(1, progress)) * 100)}%`;
+    },
+    levelUp(level, perk) {
+      const el = document.createElement('div');
+      el.className = 'levelup';
+      el.innerHTML = `<div class="panel"><small>Insel-Stufe</small><b>${level}</b>${perk ? `<p>Neu: ${esc(perk)}</p>` : ''}<p class="gift">+3 Samen</p></div>`;
+      ui.appendChild(el);
+      setTimeout(() => el.classList.add('out'), 3000);
+      setTimeout(() => el.remove(), 3500);
+    },
     setPlacing(onP, valid = true) {
       $('.place-bar').hidden = !onP;
       $('.actions').hidden = onP;
@@ -471,7 +492,7 @@ export function showHud(on: HudActions, icons: HudIcons, cost: number): Hud {
       t.textContent = text;
       t.hidden = false;
       clearTimeout(toastTimer);
-      toastTimer = window.setTimeout(() => (t.hidden = true), 1800);
+      toastTimer = window.setTimeout(() => (t.hidden = true), 1600 + text.length * 35);
     },
   };
   return hud;

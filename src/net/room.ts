@@ -42,7 +42,9 @@ export interface Action {
 }
 /** Effekte (Splitter, „+4 Holz“) für den anderen Bildschirm */
 export interface Fx {
-  k: 'chop' | 'fell' | 'till' | 'seed' | 'water' | 'refill' | 'harvest' | 'build' | 'can';
+  k: 'chop' | 'fell' | 'till' | 'seed' | 'water' | 'refill' | 'harvest' | 'build' | 'can' | 'quest' | 'level';
+  /** neue Stufe */
+  n?: number;
   x: number;
   y: number;
   text?: string;

@@ -7,7 +7,7 @@
 import { Farm } from './farm';
 import type { Island } from './island';
 import type { IslandState } from './net/room';
-import { applyOp, type Op } from './ops';
+import { applyOp, link, type Op } from './ops';
 import { World } from './world';
 
 export interface CloudIsland {
@@ -75,6 +75,7 @@ export async function syncIsland(
       // jemand war inzwischen weiter: eigene Aktionen auf seinen Stand anwenden
       const w = new World(isl, srv.state.world);
       const f = new Farm(isl, srv.state.farm);
+      link(w, f);
       for (const op of local.pending.slice(0, n)) applyOp(w, f, op);
       state = { world: w.toSave(), farm: f.toSave() };
       rebased = true;

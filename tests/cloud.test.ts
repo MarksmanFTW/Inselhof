@@ -3,7 +3,7 @@ import { type CloudApi, type CloudIsland, syncIsland } from '../src/cloud';
 import { Farm } from '../src/farm';
 import { generate } from '../src/island';
 import type { IslandState } from '../src/net/room';
-import { applyOp, type Op } from '../src/ops';
+import { applyOp, link, type Op } from '../src/ops';
 import { World } from '../src/world';
 
 /** Server im Speicher, verhält sich wie island.php */
@@ -26,6 +26,7 @@ const trees = isl.decor.map((d, i) => [d.kind, i] as const).filter(([k]) => k ==
 /** ein Spieler mit eigener Kopie der Insel */
 function client() {
   const c = { world: new World(isl), farm: new Farm(isl), rev: 0, pending: [] as Op[] };
+  link(c.world, c.farm);
   const act = (op: Op) => {
     const res = applyOp(c.world, c.farm, op);
     if (op.a.kind === 'axe') {

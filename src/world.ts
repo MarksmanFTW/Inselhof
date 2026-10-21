@@ -3,6 +3,7 @@
  * Rucksack, gebaute Häuser. Reine Logik ohne Zeichnen – lässt sich testen.
  */
 import { Ground, H, W, type Decor, type Island } from './island';
+import { cleanProgress, levelOf, newProgress, perks, type Progress } from './progress';
 
 /** Schläge bis zum Fallen und Holz-Ertrag */
 export const CHOP: Partial<Record<Decor['kind'], { hits: number; wood: number }>> = {
@@ -29,6 +30,8 @@ export interface WorldSave {
   /** Index in island.decor → Zeitpunkt des Fällens */
   felled: Record<number, number>;
   houses: House[];
+  /** Erfahrung, Statistik, Aufgaben der Insel */
+  prog?: Progress;
 }
 
 export type TreeStage = 'tree' | 'stump' | 'sapling';
@@ -48,6 +51,7 @@ export class World {
   wood = 0;
   felled = new Map<number, number>();
   houses: House[] = [];
+  prog: Progress = newProgress();
   /** Treffer am aktuellen Baum (nicht gespeichert) */
   private hits = new Map<number, number>();
   /** wird bei jeder Änderung hochgezählt (Schatten neu malen, speichern) */
@@ -64,6 +68,7 @@ export class World {
         if (CHOP[isl.decor[i]?.kind] && typeof v === 'number') this.felled.set(i, v);
       }
       this.houses = (save.houses ?? []).filter((h) => typeof h?.x === 'number' && typeof h?.y === 'number');
+      this.prog = cleanProgress(save.prog);
     }
   }
 
@@ -73,23 +78,36 @@ export class World {
     this.wood = w.wood;
     this.felled = w.felled;
     this.houses = w.houses;
+    this.prog = w.prog;
     this.version++;
   }
 
   toSave(): WorldSave {
-    return { wood: this.wood, felled: Object.fromEntries(this.felled), houses: this.houses.map((h) => ({ ...h })) };
+    return {
+      wood: this.wood,
+      felled: Object.fromEntries(this.felled),
+      houses: this.houses.map((h) => ({ ...h })),
+      prog: { xp: this.prog.xp, stats: { ...this.prog.stats }, quests: this.prog.quests },
+    };
+  }
+
+  get level() {
+    return levelOf(this.prog.xp);
+  }
+  get perks() {
+    return perks(this.level);
   }
 
   stage(i: number, now = Date.now()): TreeStage {
     const t = this.felled.get(i);
     if (t === undefined) return 'tree';
-    return now - t < SPROUT_MS ? 'stump' : 'sapling';
+    return now - t < SPROUT_MS * this.perks.regrowMul ? 'stump' : 'sapling';
   }
 
   /** Bäume nachwachsen lassen – aber nicht, wenn jemand genau dort steht */
   grow(now: number, standing?: { x: number; y: number }) {
     for (const [i, t] of this.felled) {
-      if (now - t < REGROW_MS) continue;
+      if (now - t < REGROW_MS * this.perks.regrowMul) continue;
       const d = this.isl.decor[i];
       if (standing && this.hitsBlock(d, BLOCK[d.kind], standing.x, standing.y, 4, 2)) continue;
       this.felled.delete(i);
@@ -143,15 +161,17 @@ export class World {
     const c = d && CHOP[d.kind];
     if (!c || this.felled.has(i)) return { felled: false, wood: 0, left: 0 };
     const n = (this.hits.get(i) ?? 0) + 1;
-    if (n < c.hits) {
+    const hits = Math.max(1, c.hits - this.perks.chopFaster);
+    if (n < hits) {
       this.hits.set(i, n);
-      return { felled: false, wood: 0, left: c.hits - n };
+      return { felled: false, wood: 0, left: hits - n };
     }
     this.hits.delete(i);
     this.felled.set(i, now);
-    this.wood += c.wood;
+    const wood = c.wood + this.perks.extraWood;
+    this.wood += wood;
     this.version++;
-    return { felled: true, wood: c.wood, left: 0 };
+    return { felled: true, wood, left: 0 };
   }
 
   /** Baum gilt als gefällt (Abgleich einer gemeinsamen Insel) */
@@ -160,9 +180,10 @@ export class World {
     if (!c || this.felled.has(i)) return 0;
     this.hits.delete(i);
     this.felled.set(i, now);
-    this.wood += c.wood;
+    const wood = c.wood + this.perks.extraWood;
+    this.wood += wood;
     this.version++;
-    return c.wood;
+    return wood;
   }
 
   /** Darf hier ein Haus stehen? Ganz auf Land, nichts im Weg, nicht auf dem Steg */
