@@ -49,7 +49,9 @@ export interface Fx {
 
 export type Msg =
   | { t: 'hi'; v: number; name: string; look: Look }
-  | { t: 'welcome'; v: number; name: string; look: Look; state: IslandState; p: PlayerState }
+  | { t: 'welcome'; v: number; name: string; look: Look; state: IslandState; p: PlayerState; slot: { id: string; title: string; updatedAt: number } }
+  /** Gast hat einen neueren Stand dieser gemeinsamen Insel */
+  | { t: 'newer'; state: IslandState; updatedAt: number }
   | { t: 'state'; state: IslandState }
   | { t: 'p'; p: PlayerState }
   | { t: 'do'; a: Action }

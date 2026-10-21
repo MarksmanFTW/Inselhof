@@ -3,7 +3,7 @@
  * und der Aussehen-Editor mit großer, laufender Vorschau der Figur.
  */
 import { Dir, FOOT_X, FOOT_Y, HAIR_COLORS, PANTS, PARTS, SHIRTS, SKINS, makeCharacter, randomLook, type Look } from './character';
-import type { Save } from './save';
+import { MAX_SLOTS, activeSlot, type Save, type Slot } from './save';
 
 const ui = document.querySelector<HTMLElement>('#ui')!;
 
@@ -65,7 +65,7 @@ export function hideUI() {
 }
 
 /** Hauptmenü */
-export function showMenu(save: Save, on: { play: () => void; look: () => void; coop: () => void; leave?: () => void; coopText?: string }) {
+export function showMenu(save: Save, on: { play: () => void; slots: () => void; look: () => void; coop: () => void; leave?: () => void; coopText?: string }) {
   clear();
   ui.className = 'ui-menu';
   ui.innerHTML = `
@@ -77,8 +77,11 @@ export function showMenu(save: Save, on: { play: () => void; look: () => void; c
     <div class="panel menu-panel">
       <div class="menu-hero"></div>
       ${save.created && save.name ? `<p class="hello">Hallo, <b>${esc(save.name)}</b>!</p>` : ''}
-      <button class="pbtn green" data-act="play">${save.created ? 'Weiterspielen' : 'Spielen'}</button>
-      <button class="pbtn" data-act="look">Aussehen</button>
+      <button class="pbtn green" data-act="play">${save.created ? 'Weiterspielen' : 'Spielen'}${save.created ? `<small class="sub">${esc(activeSlot(save).title)}</small>` : ''}</button>
+      <div class="two">
+        <button class="pbtn small" data-act="slots">Spielstände</button>
+        <button class="pbtn small" data-act="look">Aussehen</button>
+      </div>
       ${on.leave ? `<button class="pbtn blue" data-act="leave">Koop beenden</button>` : `<button class="pbtn blue" data-act="coop">Mit Freund spielen</button>`}
       ${on.coopText ? `<p class="coop-note">${esc(on.coopText)}</p>` : ''}
     </div>
@@ -98,19 +101,103 @@ export function showMenu(save: Save, on: { play: () => void; look: () => void; c
   }, 2200);
   ui.querySelector('[data-act=play]')!.addEventListener('click', on.play);
   ui.querySelector('[data-act=look]')!.addEventListener('click', on.look);
+  ui.querySelector('[data-act=slots]')!.addEventListener('click', on.slots);
   ui.querySelector('[data-act=coop]')?.addEventListener('click', on.coop);
   if (on.leave) ui.querySelector('[data-act=leave]')!.addEventListener('click', on.leave);
 }
 
+/** Kurzer Überblick über eine Insel */
+function slotStats(sl: Slot) {
+  const w = sl.world ?? {};
+  const f = sl.farm ?? {};
+  return [
+    `${w.wood ?? 0} Holz`,
+    `${f.turnips ?? 0} Rüben`,
+    `${Object.keys(f.plots ?? {}).length} Felder`,
+    `${(w.houses ?? []).length} ${(w.houses ?? []).length === 1 ? 'Haus' : 'Häuser'}`,
+  ].join(' · ');
+}
+const when = (t: number) =>
+  t ? new Date(t).toLocaleString('de-AT', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : 'noch nie';
+
+/** Spielstände: Inseln wählen, neu anlegen, löschen */
+export function showSlots(
+  save: Save,
+  on: { play: (id: string) => void; create: () => void; remove: (id: string) => void; rename: (id: string, title: string) => void; back: () => void },
+  locked = false,
+) {
+  clear();
+  ui.className = 'ui-custom';
+  const list = [...save.slots].sort((a, b) => b.updatedAt - a.updatedAt);
+  ui.innerHTML = `
+    <div class="panel coop-panel slots-panel">
+      <h2>Spielstände</h2>
+      ${locked ? '<p class="need">Während eines Koop-Spiels kannst du die Insel nicht wechseln.</p>' : ''}
+      <div class="slots">
+        ${list
+          .map(
+            (sl) => `<div class="slot-card${sl.id === save.active ? ' on' : ''}" data-id="${sl.id}">
+              <div class="slot-head">
+                <input class="slot-title" maxlength="20" value="${esc(sl.title)}" aria-label="Name der Insel" />
+                ${sl.id === save.active ? '<span class="badge">aktiv</span>' : ''}
+              </div>
+              ${sl.shared ? `<p class="shared">Gemeinsam mit ${esc(sl.shared.with)}</p>` : ''}
+              <p class="stats">${slotStats(sl)}</p>
+              <p class="date">zuletzt gespielt: ${when(sl.updatedAt)}</p>
+              <div class="slot-btns">
+                <button class="pbtn small green" data-s="play"${locked ? ' disabled' : ''}>Spielen</button>
+                <button class="pbtn small ghost" data-s="del"${locked && sl.id === save.active ? ' disabled' : ''}>Löschen</button>
+              </div>
+            </div>`,
+          )
+          .join('')}
+      </div>
+      <button class="pbtn blue" data-act="new"${save.slots.length >= MAX_SLOTS || locked ? ' disabled' : ''}>Neue Insel (${save.slots.length}/${MAX_SLOTS})</button>
+      <button class="pbtn small ghost" data-act="back">Zurück</button>
+    </div>`;
+  const panel = ui.querySelector<HTMLElement>('.slots-panel')!;
+  panel.addEventListener('click', (e) => {
+    const t = e.target as HTMLElement;
+    if (t.closest('[data-act=back]')) return on.back();
+    if (t.closest('[data-act=new]')) return on.create();
+    const card = t.closest<HTMLElement>('.slot-card');
+    const btn = t.closest<HTMLButtonElement>('[data-s]');
+    if (!card || !btn || btn.disabled) return;
+    const id = card.dataset.id!;
+    if (btn.dataset.s === 'play') on.play(id);
+    if (btn.dataset.s === 'del') {
+      // zweimal tippen zum Löschen
+      if (btn.dataset.sure) on.remove(id);
+      else {
+        btn.dataset.sure = '1';
+        btn.textContent = 'Wirklich?';
+        btn.classList.remove('ghost');
+        setTimeout(() => {
+          if (!btn.isConnected) return;
+          delete btn.dataset.sure;
+          btn.textContent = 'Löschen';
+          btn.classList.add('ghost');
+        }, 2500);
+      }
+    }
+  });
+  for (const inp of ui.querySelectorAll<HTMLInputElement>('.slot-title'))
+    inp.addEventListener('change', () => {
+      const v = inp.value.trim().slice(0, 20);
+      if (v) on.rename(inp.closest<HTMLElement>('.slot-card')!.dataset.id!, v);
+    });
+}
+
 /** Koop: Raum öffnen oder mit Code beitreten */
-export function showCoop(on: { host: () => void; join: (code: string) => void; back: () => void }, code = '') {
+export function showCoop(on: { host: () => void; join: (code: string) => void; back: () => void }, code = '', islandTitle = '') {
   clear();
   ui.className = 'ui-custom';
   ui.innerHTML = `
     <div class="panel coop-panel">
       <h2>Mit Freund spielen</h2>
       <p>Dein Freund besucht deine Insel. Ihr teilt Holz, Samen und Rüben und könnt zusammen fällen, farmen und bauen.</p>
-      <button class="pbtn green" data-act="host">Meine Insel öffnen</button>
+      <button class="pbtn green" data-act="host">Meine Insel öffnen${islandTitle ? `<small class="sub">${esc(islandTitle)}</small>` : ''}</button>
+      <p class="tip">Die Insel wird ein gemeinsamer Spielstand – auch dein Freund kann sie später öffnen.</p>
       <div class="or">oder</div>
       <label class="name-row">Code <input class="name code" maxlength="4" placeholder="ABCD" value="${esc(code)}" autocomplete="off" autocapitalize="characters" /></label>
       <button class="pbtn" data-act="join">Freund besuchen</button>

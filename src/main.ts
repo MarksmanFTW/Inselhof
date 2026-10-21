@@ -7,10 +7,10 @@ import { Shore, paintDock, paintLand, paintShadows, waveTile } from './paint';
 import { Player } from './player';
 import { CAN_GOAL, Farm, RIPE } from './farm';
 import { axe, bucket, cropStage, hoe, house, logIcon, sapling, seedBag, soilTile, toUrl, treeStump, turnipIcon, wateringCan } from './props';
-import { loadSave, writeSave, type Save } from './save';
+import { activeSlot, addSlot, loadSave, removeSlot, writeSave, type Save, type Slot } from './save';
 import { butterfly, gull, makeSprites } from './sprites';
 import { Room, cleanCode, type Action, type Fx, type Msg, type PlayerState } from './net/room';
-import { showCoop, showCustomize, showHud, showMenu, showWait, type Hud, type ToolId } from './ui';
+import { showCoop, showCustomize, showHud, showMenu, showSlots, showWait, type Hud, type ToolId } from './ui';
 import { HOUSE_COST, HOUSE_FOOT, World } from './world';
 
 const screen = document.querySelector<HTMLCanvasElement>('#screen')!;
@@ -59,11 +59,16 @@ const flies = (() => {
 
 // ---------- Spielfigur & was sich auf der Insel ändert ----------
 let save: Save = loadSave();
-const world = new World(island, save.world);
-const farm = new Farm(island, save.farm);
+/** aktuelle eigene Insel (Spielstand) */
+const mySlot = () => activeSlot(save);
+const world = new World(island, mySlot().world);
+const farm = new Farm(island, mySlot().farm);
 const START = { x: 176, y: 172 };
 const player = new Player(island, world, START.x, START.y);
-if (save.pos && player.free(save.pos.x, save.pos.y)) Object.assign(player, save.pos);
+{
+  const pos = mySlot().pos;
+  if (pos && player.free(pos.x, pos.y)) Object.assign(player, pos);
+}
 let sheet = makeCharacter(save.look);
 
 type Mode = 'menu' | 'custom' | 'play';
@@ -420,14 +425,87 @@ function input(): [number, number] {
 }
 
 // ---------- Menüs ----------
+/** Stand der Insel beim letzten Speichern – „zuletzt gespielt“ zählt nur echte Änderungen */
+let savedVersion = '';
+const versionNow = () => `${world.version}/${farm.version}`;
 function persist() {
-  // als Gast gehört die Insel dem Freund – den eigenen Stand nicht überschreiben
-  if (role !== 'guest') {
-    save.pos = { x: Math.round(player.x), y: Math.round(player.y) };
-    save.world = world.toSave();
-    save.farm = farm.toSave();
+  const now = Date.now();
+  const changed = versionNow() !== savedVersion;
+  savedVersion = versionNow();
+  const pos = { x: Math.round(player.x), y: Math.round(player.y) };
+  if (role === 'guest') {
+    // als Gast: eigene Kopie der gemeinsamen Insel mitschreiben (die eigene Insel bleibt unberührt)
+    if (!hostSlot) return writeSave(save);
+    let copy = save.slots.find((x) => x.id === hostSlot!.id);
+    if (!copy) {
+      // „Meine Insel“ des Freundes heißt bei mir „Insel von …“
+      const title = hostSlot.title === 'Meine Insel' ? `Insel von ${mate?.name ?? 'Freund'}`.slice(0, 20) : hostSlot.title;
+      copy = { id: hostSlot.id, title, createdAt: now, updatedAt: now };
+      save.slots.push(copy);
+    }
+    Object.assign(copy, { shared: { with: mate?.name ?? copy.shared?.with ?? 'Freund' }, pos, world: world.toSave(), farm: farm.toSave() });
+    if (changed) copy.updatedAt = now;
+  } else {
+    const sl = mySlot();
+    Object.assign(sl, { pos, world: world.toSave(), farm: farm.toSave() });
+    if (changed) sl.updatedAt = now;
+    if (role === 'host' && mate) sl.shared = { with: mate.name };
   }
   writeSave(save);
+}
+/** Insel wechseln: Stand aus dem Spielstand laden */
+function applySlot(sl: Slot) {
+  save.active = sl.id;
+  world.apply(sl.world ?? {});
+  farm.apply(sl.farm ?? {});
+  const pos = sl.pos && player.free(sl.pos.x, sl.pos.y) ? sl.pos : START;
+  player.x = pos.x;
+  player.y = pos.y;
+  shake.clear();
+  bits.length = 0;
+  floats.length = 0;
+  savedVersion = versionNow();
+  writeSave(save);
+}
+function openSlots() {
+  hud = null;
+  mode = 'custom';
+  showSlots(
+    save,
+    {
+      play: (id) => {
+        const sl = save.slots.find((x) => x.id === id);
+        if (!sl) return;
+        if (sl.id !== save.active) {
+          persist();
+          applySlot(sl);
+        }
+        startPlay();
+      },
+      create: () => {
+        persist();
+        const sl = addSlot(save);
+        if (!sl) return;
+        applySlot(sl);
+        startPlay();
+      },
+      remove: (id) => {
+        const wasActive = id === save.active;
+        removeSlot(save, id);
+        if (!save.slots.length) addSlot(save);
+        if (wasActive) applySlot(mySlot());
+        writeSave(save);
+        openSlots();
+      },
+      rename: (id, title) => {
+        const sl = save.slots.find((x) => x.id === id);
+        if (sl) sl.title = title;
+        writeSave(save);
+      },
+      back: openMenu,
+    },
+    !!room,
+  );
 }
 function openMenu() {
   hud = null;
@@ -439,6 +517,7 @@ function openMenu() {
   zoom = minZoom;
   showMenu(save, {
     play: startPlay,
+    slots: openSlots,
     look: () => openCustom(false),
     coop: () => openCoop(),
     leave: room ? () => (leaveCoop(), openMenu()) : undefined,
@@ -538,6 +617,9 @@ interface Mate {
   tl: string;
 }
 let mate: Mate | null = null;
+/** als Gast: welche Insel wir besuchen */
+let hostSlot: { id: string; title: string; updatedAt: number } | null = null;
+let guestSaveTimer = 0;
 let lastPos = 0;
 let lastState = 0;
 let sentVersion = '';
@@ -576,7 +658,7 @@ async function share(code: string) {
 function openCoop(code = '') {
   hud = null;
   mode = 'custom';
-  showCoop({ host: hostRoom, join: (c) => joinRoom(c), back: openMenu }, code);
+  showCoop({ host: hostRoom, join: (c) => joinRoom(c), back: openMenu }, code, mySlot().title);
 }
 function newRoom(host: boolean) {
   leaveCoop();
@@ -641,12 +723,12 @@ function leaveCoop() {
   mate = null;
   role = 'solo';
   if (wasGuest) {
-    // zurück auf die eigene Insel
-    world.apply(save.world ?? {});
-    farm.apply(save.farm ?? {});
-    const pos = save.pos && player.free(save.pos.x, save.pos.y) ? save.pos : START;
-    player.x = pos.x;
-    player.y = pos.y;
+    // Kopie der gemeinsamen Insel sichern, dann zurück auf die eigene Insel
+    role = 'guest';
+    persist();
+    role = 'solo';
+    hostSlot = null;
+    applySlot(mySlot());
   }
   syncHud();
   updateCoopChip();
@@ -658,7 +740,16 @@ function onNet(m: Msg) {
     case 'hi':
       if (role !== 'host') return;
       mate = makeMate(m.name, m.look, { x: player.x + 12, y: player.y, d: Dir.Down, f: 0, s: 0, tl: '' });
-      r.send({ t: 'welcome', v: 1, name: save.name, look: save.look, state: islandState(), p: myState() });
+      persist();
+      r.send({
+        t: 'welcome',
+        v: 1,
+        name: save.name,
+        look: save.look,
+        state: islandState(),
+        p: myState(),
+        slot: { id: mySlot().id, title: mySlot().title, updatedAt: mySlot().updatedAt },
+      });
       sentVersion = '';
       hud?.toast(`${mate.name} besucht deine Insel!`);
       updateCoopChip();
@@ -674,9 +765,23 @@ function onNet(m: Msg) {
     // ----- beim Gast -----
     case 'welcome': {
       if (role !== 'guest') return;
+      // eigenen (neueren) Stand dieser gemeinsamen Insel mitbringen?
+      const mine = save.slots.find((x) => x.id === m.slot.id);
+      if (mine?.world && mine.updatedAt > m.slot.updatedAt + 2000)
+        r.send({ t: 'newer', state: { world: new World(island, mine.world).toSave(), farm: new Farm(island, mine.farm).toSave() }, updatedAt: mine.updatedAt });
+      hostSlot = m.slot;
       world.apply(m.state.world);
       farm.apply(m.state.farm);
+      savedVersion = versionNow();
       mate = makeMate(m.name, m.look, m.p);
+      {
+        // Kopie anlegen bzw. auf den Stand des Gastgebers bringen
+        role = 'guest';
+        persist();
+        const copy = save.slots.find((x) => x.id === m.slot.id);
+        if (copy && !(mine && mine.updatedAt > m.slot.updatedAt + 2000)) copy.updatedAt = m.slot.updatedAt;
+        writeSave(save);
+      }
       // neben dem Gastgeber auftauchen
       const spots = [[12, 0], [-12, 0], [0, 10], [0, -10], [18, 6]];
       const spot = spots.find(([dx, dy]) => player.free(m.p.x + dx, m.p.y + dy)) ?? [0, 0];
@@ -691,6 +796,22 @@ function onNet(m: Msg) {
       world.apply(m.state.world);
       farm.apply(m.state.farm);
       syncHud();
+      // Kopie der gemeinsamen Insel ab und zu sichern
+      if (!guestSaveTimer)
+        guestSaveTimer = window.setTimeout(() => {
+          guestSaveTimer = 0;
+          if (role === 'guest') persist();
+        }, 2000);
+      break;
+    case 'newer':
+      if (role !== 'host' || m.updatedAt <= mySlot().updatedAt) return;
+      world.apply(m.state.world);
+      farm.apply(m.state.farm);
+      persist();
+      mySlot().updatedAt = m.updatedAt;
+      writeSave(save);
+      syncHud();
+      hud?.toast(`Neuerer Stand von ${mate?.name ?? 'deinem Freund'} übernommen`);
       break;
     case 'fx':
       playFx(m.fx);
@@ -742,6 +863,7 @@ function netTick(now: number) {
 }
 addEventListener('pagehide', () => mode === 'play' && persist());
 setInterval(() => mode === 'play' && persist(), 10_000);
+savedVersion = versionNow();
 if (pendingJoin) {
   const code = pendingJoin;
   pendingJoin = '';
