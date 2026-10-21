@@ -28,10 +28,12 @@ export interface PlayerState {
   /** Schwung 0..1 (0 = kein Schlag) und Werkzeug */
   s: number;
   tl: string;
+  /** in welchem Haus (-1 = draußen) */
+  in?: number;
 }
 /** Aktion des Gasts, der Gastgeber führt sie aus */
 export interface Action {
-  kind: 'axe' | 'hoe' | 'seeds' | 'water' | 'refill' | 'harvest' | 'build';
+  kind: 'axe' | 'hoe' | 'seeds' | 'water' | 'refill' | 'harvest' | 'build' | 'sleep' | 'eat' | 'cook' | 'furnish';
   c?: number;
   r?: number;
   tree?: number;
@@ -39,10 +41,18 @@ export interface Action {
   y?: number;
   /** Abgleich: Baum ist umgefallen (unabhängig von einzelnen Schlägen) */
   fell?: boolean;
+  /** Bauen: Haus oder Lagerfeuer */
+  what?: 'house' | 'fire';
+  /** Essen: Ofenrübe statt roher Rübe */
+  cooked?: boolean;
+  /** Möbel: Haus, Platz, Möbelstück */
+  house?: number;
+  slot?: number;
+  item?: string;
 }
 /** Effekte (Splitter, „+4 Holz“) für den anderen Bildschirm */
 export interface Fx {
-  k: 'chop' | 'fell' | 'till' | 'seed' | 'water' | 'refill' | 'harvest' | 'build' | 'can' | 'quest' | 'level';
+  k: 'chop' | 'fell' | 'till' | 'seed' | 'water' | 'refill' | 'harvest' | 'build' | 'can' | 'quest' | 'level' | 'sleep' | 'cook' | 'furnish';
   /** neue Stufe */
   n?: number;
   x: number;

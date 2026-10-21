@@ -33,6 +33,8 @@ export interface FarmSave {
   plots: Record<string, Plot>;
   seeds: number;
   turnips: number;
+  /** gekochte Ofenrüben */
+  meals?: number;
   water: number;
   hasCan: boolean;
   harvested: number;
@@ -46,6 +48,7 @@ export class Farm {
   plots = new Map<string, Plot>();
   seeds = START_SEEDS;
   turnips = 0;
+  meals = 0;
   water: number = CAPACITY.bucket;
   hasCan = false;
   harvested = 0;
@@ -63,6 +66,7 @@ export class Farm {
         this.plots.set(k, { wetAt: p.wetAt, crop: p.crop ? { stage: Math.max(0, Math.min(RIPE, Math.floor(p.crop.stage))) } : undefined });
     this.seeds = Math.max(0, Math.floor(save.seeds ?? START_SEEDS));
     this.turnips = Math.max(0, Math.floor(save.turnips ?? 0));
+    this.meals = Math.max(0, Math.floor(save.meals ?? 0));
     this.hasCan = !!save.hasCan;
     // Grenze erst nach dem Verbinden mit der Insel-Stufe bekannt → hier großzügig
     const max = this.hasCan ? CAPACITY_BIG.can : CAPACITY_BIG.bucket;
@@ -81,6 +85,7 @@ export class Farm {
     this.plots = f.plots;
     this.seeds = f.seeds;
     this.turnips = f.turnips;
+    this.meals = f.meals;
     this.water = f.water;
     this.hasCan = f.hasCan;
     this.harvested = f.harvested;
@@ -92,6 +97,7 @@ export class Farm {
       plots: Object.fromEntries([...this.plots].map(([k, p]) => [k, { wetAt: p.wetAt, ...(p.crop ? { crop: { ...p.crop } } : {}) }])),
       seeds: this.seeds,
       turnips: this.turnips,
+      meals: this.meals,
       water: this.water,
       hasCan: this.hasCan,
       harvested: this.harvested,
@@ -114,9 +120,13 @@ export class Farm {
     return this.plots.get(key(c, r));
   }
 
-  /** Wachsen und Austrocknen nachholen */
-  update(now: number) {
+  /** Wachsen und Austrocknen nachholen; Regen gießt alle Felder */
+  update(now: number, raining = false) {
     for (const p of this.plots.values()) {
+      if (raining && !p.wetAt && !(p.crop && p.crop.stage >= RIPE)) {
+        p.wetAt = now;
+        this.version++;
+      }
       if (!p.wetAt) continue;
       if (p.crop && p.crop.stage < RIPE) {
         if (now - p.wetAt >= GROW_MS * this.perks().growMul) {
@@ -162,6 +172,24 @@ export class Farm {
     p.wetAt = now;
     this.version++;
     return null;
+  }
+
+  /** Rübe essen (roh) oder Ofenrübe; false = nichts da */
+  eat(cooked: boolean) {
+    if (cooked ? this.meals <= 0 : this.turnips <= 0) return false;
+    if (cooked) this.meals--;
+    else this.turnips--;
+    this.version++;
+    return true;
+  }
+
+  /** am Lagerfeuer: Rübe → Ofenrübe */
+  cook() {
+    if (this.turnips <= 0) return false;
+    this.turnips--;
+    this.meals++;
+    this.version++;
+    return true;
   }
 
   refill() {

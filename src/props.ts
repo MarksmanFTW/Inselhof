@@ -5,7 +5,7 @@
 
 const OUTLINE = '#1a1008';
 
-class Grid {
+export class Grid {
   c: (string | null)[];
   constructor(
     readonly w: number,
@@ -346,4 +346,49 @@ export function cropStage(stage: number): Prop {
   g.rect(2, 6, 1, 2, '#c87ab2');
   g.rect(7, 8, 1, 2, '#d8c8d8');
   return { img: g.render(), ox: 5, oy: 11 };
+}
+
+/** Lagerfeuer: Steinkreis, Holzscheite, Flammen (3 Bilder zum Flackern) */
+export function campfire(frame: number): Prop {
+  const g = new Grid(16, 18);
+  // Steinkreis
+  for (const [x, y] of [[1, 14], [3, 15], [6, 16], [9, 16], [12, 15], [14, 14], [2, 12], [13, 12]] as const) {
+    g.rect(x, y, 2, 2, '#9a96a2');
+    g.set(x, y, '#c8c6ce');
+  }
+  // Scheite über Kreuz
+  for (let i = 0; i < 8; i++) {
+    g.set(4 + i, 14 - Math.floor(i / 3), '#6a4628');
+    g.set(11 - i, 14 - Math.floor(i / 3), '#8c6440');
+  }
+  // Flammen
+  const F = ['#ffd23f', '#ff9a2a', '#e8502a'];
+  const shapes: [number, number, number, number][][] = [
+    [[6, 6, 4, 7], [5, 9, 6, 4], [7, 4, 2, 3]],
+    [[5, 7, 5, 6], [6, 5, 3, 3], [9, 8, 2, 4]],
+    [[6, 5, 4, 8], [5, 9, 6, 4], [8, 3, 1, 3]],
+  ];
+  for (const [x, y, w, h] of shapes[frame % 3]) g.rect(x, y, w, h, F[2]);
+  for (const [x, y, w, h] of shapes[frame % 3]) g.rect(x + 1, y + 2, Math.max(1, w - 2), Math.max(1, h - 3), F[1]);
+  g.rect(7, 9 - (frame % 2), 2, 3, F[0]);
+  return { img: g.render(), ox: 8, oy: 17 };
+}
+
+/** Ofenrübe (am Lagerfeuer gebraten) */
+export function mealIcon(): HTMLCanvasElement {
+  const g = new Grid(12, 11);
+  // Teller
+  g.rect(0, 8, 12, 2, '#e8e4dc');
+  g.rect(1, 10, 10, 1, '#b8b4ac');
+  // gebratene Rübe, goldbraun mit Röstspuren
+  g.rect(2, 3, 8, 5, '#d8904a');
+  g.rect(2, 3, 8, 1, '#f0b060');
+  g.rect(3, 5, 2, 1, '#8a4a20');
+  g.rect(7, 6, 2, 1, '#8a4a20');
+  g.rect(9, 4, 1, 4, '#a8602a');
+  // Dampf
+  g.set(4, 1, '#ffffff');
+  g.set(5, 0, '#ffffff');
+  g.set(8, 1, '#ffffff');
+  return g.render();
 }

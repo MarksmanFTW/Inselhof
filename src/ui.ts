@@ -3,6 +3,7 @@
  * und der Aussehen-Editor mit großer, laufender Vorschau der Figur.
  */
 import { Dir, FOOT_X, FOOT_Y, HAIR_COLORS, PANTS, PARTS, SHIRTS, SKINS, makeCharacter, randomLook, type Look } from './character';
+import { prefs, setPrefs } from './audio';
 import { levelOf } from './progress';
 import { MAX_SLOTS, activeSlot, type Save, type Slot } from './save';
 
@@ -85,6 +86,10 @@ export function showMenu(save: Save, on: { play: () => void; slots: () => void; 
       </div>
       ${on.leave ? `<button class="pbtn blue" data-act="leave">Koop beenden</button>` : `<button class="pbtn blue" data-act="coop">Mit Freund spielen</button>`}
       ${on.coopText ? `<p class="coop-note">${esc(on.coopText)}</p>` : ''}
+      <div class="two sound">
+        <button class="pbtn small ghost" data-act="music">Musik: ${prefs.music ? 'an' : 'aus'}</button>
+        <button class="pbtn small ghost" data-act="sound">Töne: ${prefs.sound ? 'an' : 'aus'}</button>
+      </div>
     </div>
     <p class="foot">Im Aufbau · bald: farmen, bauen, überleben</p>
     </div>`;
@@ -103,6 +108,13 @@ export function showMenu(save: Save, on: { play: () => void; slots: () => void; 
   ui.querySelector('[data-act=play]')!.addEventListener('click', on.play);
   ui.querySelector('[data-act=look]')!.addEventListener('click', on.look);
   ui.querySelector('[data-act=slots]')!.addEventListener('click', on.slots);
+  for (const k of ['music', 'sound'] as const) {
+    const b = ui.querySelector<HTMLElement>(`[data-act=${k}]`)!;
+    b.addEventListener('click', () => {
+      setPrefs({ [k]: !prefs[k] });
+      b.textContent = `${k === 'music' ? 'Musik' : 'Töne'}: ${prefs[k] ? 'an' : 'aus'}`;
+    });
+  }
   ui.querySelector('[data-act=coop]')?.addEventListener('click', on.coop);
   if (on.leave) ui.querySelector('[data-act=leave]')!.addEventListener('click', on.leave);
 }
@@ -315,8 +327,10 @@ export interface HudActions {
   /** Aktions-Knopf gedrückt halten */
   act: (down: boolean) => void;
   tool: (t: ToolId) => void;
-  /** Bau-Fenster: Haus wählen → platzieren */
-  place: () => void;
+  /** Bau-Fenster: Haus oder Lagerfeuer wählen → platzieren */
+  place: (what: 'house' | 'fire') => void;
+  /** Rübe essen (roh) oder Ofenrübe */
+  eat: (cooked: boolean) => void;
   confirm: () => void;
   cancel: () => void;
 }
@@ -330,10 +344,14 @@ export interface HudIcons {
   bucket: string;
   can: string;
   turnip: string;
+  fire: string;
+  meal: string;
 }
 
 export interface Hud {
-  setInv(wood: number, turnips: number): void;
+  setInv(wood: number, turnips: number, meals: number): void;
+  /** Energie 0..100 */
+  setEnergy(v: number): void;
   setTool(t: ToolId): void;
   setSlots(seeds: number, water: number, cap: number, hasCan: boolean): void;
   /** Aktions-Knopf: aktiv? und welches Bild (z. B. Rübe zum Ernten) */
@@ -341,6 +359,14 @@ export interface Hud {
   setGoal(text: string | null): void;
   /** Insel-Stufe und Fortschritt (0..1) */
   setLevel(level: number, progress: number): void;
+  /** im Haus: Werkzeuge und Bauen ausblenden */
+  setInside(on: boolean): void;
+  openChest(items: [string, number][]): void;
+  openFurnish(list: { id: string; name: string; cost: number; img: string }[], wood: number, pick: (id: string) => void): void;
+  /** Bildschirm wird schwarz, done läuft in der Mitte */
+  sleep(text: string, done: () => void): void;
+  /** Uhrzeit-Anzeige */
+  setClock(text: string): void;
   /** Aufstieg feiern */
   levelUp(level: number, perk?: string): void;
   setPlacing(on: boolean, valid?: boolean): void;
@@ -351,17 +377,18 @@ export interface Hud {
 }
 
 /** Anzeigen und Knöpfe im Spiel */
-export function showHud(on: HudActions, icons: HudIcons, cost: number): Hud {
+export function showHud(on: HudActions, icons: HudIcons, costs: { house: number; fire: number }): Hud {
   clear();
   ui.className = 'ui-hud';
   const slot = (t: ToolId, icon: string) =>
     `<button class="slot" data-tool="${t}" aria-label="${TOOL_NAMES[t]}"><img src="${icon}" alt="" /><small></small></button>`;
   ui.innerHTML = `
     <button class="pbtn icon" data-act="menu" aria-label="Menü"><i></i><i></i><i></i></button>
-    <div class="panel lvl"><b>Stufe 1</b><div class="xpbar"><i></i></div></div>
+    <div class="panel lvl"><b>Stufe 1</b><div class="xpbar"><i></i></div><div class="enbar" title="Energie"><i></i></div><small class="clock"></small></div>
     <div class="inv">
       <div class="panel wood"><img src="${icons.log}" alt="" /><b class="n-wood">0</b></div>
-      <div class="panel wood"><img class="turnip" src="${icons.turnip}" alt="" /><b class="n-turnip">0</b></div>
+      <button class="panel wood eat" data-eat="raw" aria-label="Rübe essen"><img class="turnip" src="${icons.turnip}" alt="" /><b class="n-turnip">0</b></button>
+      <button class="panel wood eat" data-eat="cooked" aria-label="Ofenrübe essen"><img class="meal" src="${icons.meal}" alt="" /><b class="n-meal">0</b></button>
     </div>
     <p class="goal" hidden></p>
     <p class="coop-chip" hidden></p>
@@ -382,6 +409,7 @@ export function showHud(on: HudActions, icons: HudIcons, cost: number): Hud {
     <div class="toast" hidden></div>`;
   const $ = <T extends HTMLElement>(q: string) => ui.querySelector<T>(q)!;
   $('[data-act=menu]').addEventListener('click', on.menu);
+  for (const b of ui.querySelectorAll<HTMLElement>('[data-eat]')) b.addEventListener('click', () => on.eat(b.dataset.eat === 'cooked'));
   const use = $('[data-act=use]');
   use.addEventListener('pointerdown', (e) => {
     e.preventDefault();
@@ -408,10 +436,16 @@ export function showHud(on: HudActions, icons: HudIcons, cost: number): Hud {
   let toastTimer = 0;
   let actionIcon = '';
   const hud: Hud = {
-    setInv(w, turnips) {
+    setInv(w, turnips, meals) {
       wood = w;
       bump($('.n-wood'), String(w));
       bump($('.n-turnip'), String(turnips));
+      bump($('.n-meal'), String(meals));
+    },
+    setEnergy(v) {
+      const bar = $('.enbar i');
+      bar.style.width = `${Math.round(Math.max(0, Math.min(100, v)))}%`;
+      $('.enbar').classList.toggle('low', v < 25);
     },
     setTool(t) {
       for (const b of ui.querySelectorAll<HTMLElement>('[data-tool]')) b.classList.toggle('on', b.dataset.tool === t);
@@ -446,6 +480,62 @@ export function showHud(on: HudActions, icons: HudIcons, cost: number): Hud {
       if (b.textContent !== t) b.textContent = t;
       $('.xpbar i').style.width = `${Math.round(Math.max(0, Math.min(1, progress)) * 100)}%`;
     },
+    setInside(onI) {
+      $('.hotbar').hidden = onI;
+      $('[data-act=build]').hidden = onI;
+    },
+    openChest(items) {
+      const modal = document.createElement('div');
+      modal.className = 'modal';
+      modal.innerHTML = `<div class="panel build-panel">
+          <h2>Truhe</h2>
+          <p class="have">Eure Vorräte auf der Insel</p>
+          <div class="chest-list">${items.map(([n, v]) => `<div><span>${esc(n)}</span><b>${v}</b></div>`).join('')}</div>
+          <button class="pbtn small ghost" data-m="close">Zurück</button>
+        </div>`;
+      ui.appendChild(modal);
+      modal.addEventListener('click', (e) => {
+        if (e.target === modal || (e.target as HTMLElement).closest('[data-m=close]')) modal.remove();
+      });
+    },
+    openFurnish(list, wood, pick) {
+      const modal = document.createElement('div');
+      modal.className = 'modal';
+      modal.innerHTML = `<div class="panel build-panel">
+          <h2>Möbel bauen</h2>
+          <p class="have">Du hast ${wood} Holz</p>
+          <div class="furn-grid">${list
+            .map(
+              (f) => `<button class="furn${wood >= f.cost ? '' : ' poor'}" data-f="${f.id}"${wood >= f.cost ? '' : ' disabled'}>
+                <img src="${f.img}" alt="" /><b>${esc(f.name)}</b><small>${f.cost} Holz</small></button>`,
+            )
+            .join('')}</div>
+          <button class="pbtn small ghost" data-m="close">Zurück</button>
+        </div>`;
+      ui.appendChild(modal);
+      modal.addEventListener('click', (e) => {
+        const t = e.target as HTMLElement;
+        if (e.target === modal || t.closest('[data-m=close]')) return modal.remove();
+        const b = t.closest<HTMLButtonElement>('[data-f]');
+        if (b && !b.disabled) {
+          modal.remove();
+          pick(b.dataset.f!);
+        }
+      });
+    },
+    sleep(text, done) {
+      const el = document.createElement('div');
+      el.className = 'sleepfade';
+      el.innerHTML = `<p>${esc(text)}</p>`;
+      ui.appendChild(el);
+      setTimeout(done, 900);
+      setTimeout(() => el.classList.add('out'), 1700);
+      setTimeout(() => el.remove(), 2400);
+    },
+    setClock(text) {
+      const c = $('.clock');
+      if (c.textContent !== text) c.textContent = text;
+    },
     levelUp(level, perk) {
       const el = document.createElement('div');
       el.className = 'levelup';
@@ -461,29 +551,32 @@ export function showHud(on: HudActions, icons: HudIcons, cost: number): Hud {
       $<HTMLButtonElement>('[data-act=confirm]').disabled = !valid;
     },
     openBuild(wood) {
-      const enough = wood >= cost;
+      const card = (what: 'house' | 'fire', img: string, title: string, text: string) => {
+        const cost = costs[what];
+        const enough = wood >= cost;
+        return `<div class="build-card${enough ? '' : ' poor'}">
+            <img src="${img}" alt="" />
+            <div><b>${title}</b><p>${text}</p>
+            <p class="cost"><img src="${icons.log}" alt="" /> ${cost} Holz</p>
+            <button class="pbtn green small" data-m="${what}"${enough ? '' : ' disabled'}>${enough ? 'Platzieren' : `Noch ${cost - wood} Holz`}</button></div>
+          </div>`;
+      };
       const modal = document.createElement('div');
       modal.className = 'modal';
       modal.innerHTML = `<div class="panel build-panel">
           <h2>Bauen</h2>
-          <div class="build-card${enough ? '' : ' poor'}">
-            <img src="${icons.house}" alt="" />
-            <div><b>Kleines Haus</b><p>Ein gemütliches Zuhause aus Holz.</p>
-            <p class="cost"><img src="${icons.log}" alt="" /> ${cost} Holz <small>(du hast ${wood})</small></p></div>
-          </div>
-          ${enough ? '' : `<p class="need">Dir fehlen noch ${cost - wood} Holz – fäll ein paar Bäume!</p>`}
-          <div class="btns">
-            <button class="pbtn small" data-m="close">Zurück</button>
-            <button class="pbtn green small" data-m="place"${enough ? '' : ' disabled'}>Platzieren</button>
-          </div>
+          <p class="have">Du hast ${wood} Holz</p>
+          ${card('house', icons.house, 'Kleines Haus', 'Zum Schlafen, mit Platz für Möbel.')}
+          ${card('fire', icons.fire, 'Lagerfeuer', 'Brät Rüben zu Ofenrüben – macht richtig satt.')}
+          <button class="pbtn small ghost" data-m="close">Zurück</button>
         </div>`;
       ui.appendChild(modal);
       modal.addEventListener('click', (e) => {
-        const m = (e.target as HTMLElement).closest<HTMLElement>('[data-m]')?.dataset.m;
-        if (e.target === modal || m === 'close') modal.remove();
-        if (m === 'place') {
+        const m = (e.target as HTMLElement).closest<HTMLButtonElement>('[data-m]');
+        if (e.target === modal || m?.dataset.m === 'close') modal.remove();
+        if (m && !m.disabled && (m.dataset.m === 'house' || m.dataset.m === 'fire')) {
           modal.remove();
-          on.place();
+          on.place(m.dataset.m);
         }
       });
     },

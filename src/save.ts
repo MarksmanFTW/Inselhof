@@ -32,6 +32,8 @@ export interface Save {
   created: boolean;
   slots: Slot[];
   active: string;
+  /** Energie der Figur (0..100) */
+  energy?: number;
 }
 
 const KEY = 'cozyisland.save';
@@ -77,7 +79,7 @@ export function loadSave(): Save {
       const look = { ...DEFAULT_LOOK, ...raw.look };
       // Werte außerhalb der Auswahl (ältere Versionen) zurücksetzen
       for (const p of PARTS) if (!(look[p.key] >= 0 && look[p.key] < p.count)) look[p.key] = DEFAULT_LOOK[p.key];
-      out = { look, name: String(raw.name ?? '').slice(0, 12), created: !!raw.created, slots: [], active: String(raw.active ?? '') };
+      out = { look, name: String(raw.name ?? '').slice(0, 12), created: !!raw.created, slots: [], active: String(raw.active ?? ''), energy: typeof raw.energy === 'number' ? raw.energy : 100 };
       if (Array.isArray(raw.slots)) {
         out.slots = raw.slots
           .filter((x) => x && typeof x.id === 'string')

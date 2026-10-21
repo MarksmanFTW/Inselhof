@@ -4,6 +4,7 @@
  */
 import { Ground, H, W, type Decor, type Island } from './island';
 import { cleanProgress, levelOf, newProgress, perks, type Progress } from './progress';
+import type { Clock } from './time';
 
 /** Schläge bis zum Fallen und Holz-Ertrag */
 export const CHOP: Partial<Record<Decor['kind'], { hits: number; wood: number }>> = {
@@ -11,6 +12,7 @@ export const CHOP: Partial<Record<Decor['kind'], { hits: number; wood: number }>
   palm: { hits: 3, wood: 2 },
 };
 export const HOUSE_COST = 10;
+export const FIRE_COST = 3;
 /** nach dem Fällen: erst Stumpf, dann Setzling, dann wieder Baum (ms) */
 export const SPROUT_MS = 60_000;
 export const REGROW_MS = 180_000;
@@ -23,7 +25,20 @@ export const HOUSE_FOOT = { left: -18, right: 18, top: -14, bottom: 1 };
 export interface House {
   x: number;
   y: number;
+  /** Möbel drinnen: Platz → Möbelstück */
+  furn?: Record<number, string>;
 }
+export interface Fire {
+  x: number;
+  y: number;
+}
+export type BuildKind = 'house' | 'fire';
+/** Grundfläche des Lagerfeuers */
+export const FIRE_FOOT = { left: -6, right: 6, top: -4, bottom: 1 };
+export const BUILDS: Record<BuildKind, { cost: number; foot: typeof HOUSE_FOOT }> = {
+  house: { cost: HOUSE_COST, foot: HOUSE_FOOT },
+  fire: { cost: FIRE_COST, foot: FIRE_FOOT },
+};
 
 export interface WorldSave {
   wood: number;
@@ -32,6 +47,9 @@ export interface WorldSave {
   houses: House[];
   /** Erfahrung, Statistik, Aufgaben der Insel */
   prog?: Progress;
+  fires?: Fire[];
+  /** Uhrzeit der Insel */
+  clock?: Clock;
 }
 
 export type TreeStage = 'tree' | 'stump' | 'sapling';
@@ -51,6 +69,8 @@ export class World {
   wood = 0;
   felled = new Map<number, number>();
   houses: House[] = [];
+  fires: Fire[] = [];
+  clock: Clock | null = null;
   prog: Progress = newProgress();
   /** Treffer am aktuellen Baum (nicht gespeichert) */
   private hits = new Map<number, number>();
@@ -69,6 +89,9 @@ export class World {
       }
       this.houses = (save.houses ?? []).filter((h) => typeof h?.x === 'number' && typeof h?.y === 'number');
       this.prog = cleanProgress(save.prog);
+      this.fires = (save.fires ?? []).filter((h) => typeof h?.x === 'number' && typeof h?.y === 'number');
+      const c = save.clock;
+      this.clock = c && typeof c.offset === 'number' && typeof c.day0 === 'number' ? { offset: c.offset, day0: c.day0 } : null;
     }
   }
 
@@ -79,6 +102,8 @@ export class World {
     this.felled = w.felled;
     this.houses = w.houses;
     this.prog = w.prog;
+    this.fires = w.fires;
+    this.clock = w.clock;
     this.version++;
   }
 
@@ -86,7 +111,9 @@ export class World {
     return {
       wood: this.wood,
       felled: Object.fromEntries(this.felled),
-      houses: this.houses.map((h) => ({ ...h })),
+      houses: this.houses.map((h) => ({ ...h, ...(h.furn ? { furn: { ...h.furn } } : {}) })),
+      fires: this.fires.map((f) => ({ ...f })),
+      ...(this.clock ? { clock: { ...this.clock } } : {}),
       prog: { xp: this.prog.xp, stats: { ...this.prog.stats }, quests: this.prog.quests },
     };
   }
@@ -134,9 +161,11 @@ export class World {
       }
       if (this.hitsBlock(d, b, x, y, fw, fh)) return true;
     }
-    for (const h of this.houses)
-      if (x + fw > h.x + HOUSE_FOOT.left && x - fw < h.x + HOUSE_FOOT.right && y + fh > h.y + HOUSE_FOOT.top && y - fh < h.y + HOUSE_FOOT.bottom)
-        return true;
+    for (const [list, f] of [
+      [this.houses, HOUSE_FOOT],
+      [this.fires, FIRE_FOOT],
+    ] as const)
+      for (const h of list) if (x + fw > h.x + f.left && x - fw < h.x + f.right && y + fh > h.y + f.top && y - fh < h.y + f.bottom) return true;
     return false;
   }
 
@@ -187,8 +216,8 @@ export class World {
   }
 
   /** Darf hier ein Haus stehen? Ganz auf Land, nichts im Weg, nicht auf dem Steg */
-  canPlace(x: number, y: number, player?: { x: number; y: number }) {
-    const f = HOUSE_FOOT;
+  canPlace(x: number, y: number, player?: { x: number; y: number }, kind: BuildKind = 'house') {
+    const f = BUILDS[kind].foot;
     for (let yy = y + f.top - 6; yy <= y + f.bottom; yy += 2)
       for (let xx = x + f.left; xx <= x + f.right; xx += 2) {
         if (xx < 0 || yy < 0 || xx >= W || yy >= H) return false;
@@ -204,16 +233,40 @@ export class World {
       const cx = d.kind === 'palm' ? d.x : d.x + 1;
       if (cx + b[0] + 2 > x + f.left && cx - b[0] - 2 < x + f.right && d.y + b[1] > y + f.top - 4 && d.y - b[1] < y + f.bottom + 2) return false;
     }
-    for (const h of this.houses) if (Math.abs(h.x - x) < 40 && Math.abs(h.y - y) < 24) return false;
+    // Abstand zu Häusern und Feuern (Grundflächen + Luft)
+    for (const [list, g] of [
+      [this.houses, HOUSE_FOOT],
+      [this.fires, FIRE_FOOT],
+    ] as const)
+      for (const h of list)
+        if (x + f.right + 4 > h.x + g.left && x + f.left - 4 < h.x + g.right && y + f.bottom + 4 > h.y + g.top - 6 && y + f.top - 8 < h.y + g.bottom) return false;
     if (player && player.x + 4 > x + f.left && player.x - 4 < x + f.right && player.y + 2 > y + f.top && player.y - 2 < y + f.bottom) return false;
     return true;
   }
 
-  build(x: number, y: number, player?: { x: number; y: number }) {
-    if (this.wood < HOUSE_COST || !this.canPlace(x, y, player)) return false;
-    this.wood -= HOUSE_COST;
-    this.houses.push({ x: Math.round(x), y: Math.round(y) });
+  build(x: number, y: number, player?: { x: number; y: number }, kind: BuildKind = 'house') {
+    const cost = BUILDS[kind].cost;
+    if (this.wood < cost || !this.canPlace(x, y, player, kind)) return false;
+    this.wood -= cost;
+    (kind === 'fire' ? this.fires : this.houses).push({ x: Math.round(x), y: Math.round(y) });
     this.version++;
     return true;
+  }
+
+  /** Möbelstück in ein Haus stellen (Platz frei, genug Holz) */
+  furnish(house: number, slot: number, item: string, cost: number) {
+    const h = this.houses[house];
+    if (!h) return 'Dieses Haus gibt es nicht';
+    if (h.furn?.[slot]) return 'Hier steht schon etwas';
+    if (this.wood < cost) return 'Zu wenig Holz';
+    this.wood -= cost;
+    h.furn = { ...h.furn, [slot]: item };
+    this.version++;
+    return null;
+  }
+
+  /** Feuer in der Nähe (zum Kochen) */
+  fireNear(x: number, y: number, r = 16) {
+    return this.fires.findIndex((f) => Math.hypot(f.x - x, (f.y - y) * 1.4) < r);
   }
 }

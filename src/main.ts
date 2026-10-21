@@ -4,17 +4,21 @@ import './style.css';
 import { CH, CW, Dir, FOOT_X, FOOT_Y, makeCharacter, type CharSheet, type Look } from './character';
 import { Ground, H, TILE, W, generate, rng } from './island';
 import { Shore, paintDock, paintLand, paintShadows, waveTile } from './paint';
+import { setScene, sfx, unlockAudio } from './audio';
+import { FURNITURE } from './furniture';
+import { DOOR, ROOM_H, ROOM_W, furnitureIcon, nearSpot, paintRoom, roomFree } from './interior';
 import { Player } from './player';
 import { httpApi, syncIsland } from './cloud';
 import { CAN_GOAL, Farm, RIPE } from './farm';
 import { applyOp, farmUnder as farmUnderOf, link, tileFree as tileFreeOf, type Op } from './ops';
 import { PERKS, levelProgress, questAt } from './progress';
-import { axe, bucket, cropStage, hoe, house, logIcon, sapling, seedBag, soilTile, toUrl, treeStump, turnipIcon, wateringCan } from './props';
+import { newClock, timeOf, type TimeOfDay } from './time';
+import { campfire, mealIcon, axe, bucket, cropStage, hoe, house, logIcon, sapling, seedBag, soilTile, toUrl, treeStump, turnipIcon, wateringCan } from './props';
 import { activeSlot, addSlot, loadSave, removeSlot, writeSave, type Save, type Slot } from './save';
 import { butterfly, gull, makeSprites } from './sprites';
 import { Room, cleanCode, type Action, type Fx, type Msg, type PlayerState } from './net/room';
 import { showCoop, showCustomize, showHud, showMenu, showSlots, showWait, type Hud, type ToolId } from './ui';
-import { HOUSE_COST, HOUSE_FOOT, World } from './world';
+import { BUILDS, FIRE_COST, HOUSE_COST, HOUSE_FOOT, World, type BuildKind } from './world';
 
 const screen = document.querySelector<HTMLCanvasElement>('#screen')!;
 const ctx = screen.getContext('2d')!;
@@ -69,12 +73,19 @@ const farm = new Farm(island, mySlot().farm);
 link(world, farm);
 const START = { x: 176, y: 172 };
 const player = new Player(island, world, START.x, START.y);
+/** neue/alte Insel ohne Uhr: es ist 7 Uhr morgens */
+const ensureClock = () => {
+  if (!world.clock && role !== 'guest') world.clock = newClock(Date.now());
+};
 {
   const pos = mySlot().pos;
   if (pos && player.free(pos.x, pos.y)) Object.assign(player, pos);
 }
 let sheet = makeCharacter(save.look);
 
+/** im Haus Nummer … (-1 = draußen), Position vor der Tür */
+let inside = -1;
+let outsidePos = { x: 0, y: 0 };
 type Mode = 'menu' | 'custom' | 'play';
 let mode: Mode = 'menu';
 
@@ -92,6 +103,7 @@ const turnipImg = turnipIcon();
 const soilDry = soilTile(false);
 const soilWet = soilTile(true);
 const crops = [0, 1, 2, 3].map(cropStage);
+const fireImgs = [0, 1, 2].map(campfire);
 const icons = {
   log: toUrl(logImg),
   axe: toUrl(axeImg),
@@ -101,6 +113,8 @@ const icons = {
   bucket: toUrl(bucketImg),
   can: toUrl(canImg),
   turnip: toUrl(turnipImg),
+  fire: toUrl(campfire(0).img),
+  meal: toUrl(mealIcon()),
 };
 
 /** Boden + Schatten neu malen, wenn Bäume fallen oder Häuser dazukommen */
@@ -131,7 +145,7 @@ let tool: ToolId = 'axe';
 /** Schwung (Sekunden, läuft rückwärts); swingTool = was gerade benutzt wird */
 let swing = 0;
 const SWING = 0.34;
-let swingTool: ToolId | 'harvest' | 'refill' = 'axe';
+let swingTool: ToolId | 'harvest' | 'refill' | 'cook' = 'axe';
 let swingTile: [number, number] = [0, 0];
 const shake = new Map<number, number>();
 interface Bit {
@@ -156,7 +170,24 @@ function burst(x: number, y: number, z: number, n: number, cols: string[], speed
 // ---------- Aktionen (allein oder als Gastgeber ausgeführt, Effekte auch beim Gast) ----------
 const CHIPS = ['#c8925a', '#8c6440', '#e8c890'];
 const LEAVES = ['#2a6630', '#3f8640', '#68a85a', '#163c1e'];
+const FX_SOUND: Partial<Record<Fx['k'], Parameters<typeof sfx>[0]>> = {
+  chop: 'chop',
+  fell: 'fell',
+  till: 'hoe',
+  seed: 'seed',
+  water: 'water',
+  refill: 'refill',
+  harvest: 'harvest',
+  build: 'build',
+  quest: 'quest',
+  level: 'level',
+  cook: 'cook',
+  furnish: 'build',
+  sleep: 'sleep',
+};
 function playFx(fx: Fx) {
+  const snd = FX_SOUND[fx.k];
+  if (snd) sfx(snd);
   if (fx.k === 'chop') {
     if (fx.tree !== undefined) shake.set(fx.tree, 1);
     burst(fx.x, fx.y, 6, 6, CHIPS);
@@ -170,6 +201,7 @@ function playFx(fx: Fx) {
   else if (fx.k === 'harvest') burst(fx.x, fx.y, 4, 10, ['#4f9a44', '#8a5e3a', '#b05a9a']);
   else if (fx.k === 'build') burst(fx.x, fx.y, 2, 30, ['#e8dcc8', '#c8b498', '#ffffff'], 45);
   else if (fx.k === 'can') hud?.toast('Belohnung: Eisen-Gießkanne!');
+  else if (fx.k === 'cook') burst(fx.x, fx.y, 6, 8, ['#ffd23f', '#ff9a2a', '#ffffff'], 18);
   else if (fx.k === 'quest') hud?.toast(fx.text ?? 'Aufgabe geschafft!');
   else if (fx.k === 'level' && fx.n) hud?.levelUp(fx.n, PERKS.find((p) => p.level === fx.n)?.text);
   if (fx.k === 'quest' || fx.k === 'level') return;
@@ -199,7 +231,8 @@ function perform(a: Action, actor: { x: number; y: number }): string | null {
     else if (a.kind === 'harvest' && res.harvest) {
       emit({ k: 'harvest', x: cx, y: cy, text: `+1 Rübe  +${res.harvest.seeds} Samen` });
       if (res.harvest.gotCan) emit({ k: 'can', x: actor.x, y: actor.y - 18, text: 'Eisen-Gießkanne!' });
-    } else if (a.kind === 'build') emit({ k: 'build', x: a.x ?? 0, y: a.y ?? 0, text: 'Haus gebaut!' });
+    } else if (a.kind === 'build') emit({ k: 'build', x: a.x ?? 0, y: a.y ?? 0, text: a.what === 'fire' ? 'Lagerfeuer!' : 'Haus gebaut!' });
+    else if (a.kind === 'cook') emit({ k: 'cook', x: actor.x, y: actor.y - 6, text: '+1 Ofenrübe' });
   }
   // Aufgaben & Stufen
   for (const q of res.gain?.quests ?? []) {
@@ -244,12 +277,25 @@ function facingWater() {
   }
   return false;
 }
-type Intent = ToolId | 'harvest' | 'refill' | null;
+type Intent = ToolId | 'harvest' | 'refill' | 'cook' | 'enter' | 'exit' | 'sleep' | 'chest' | 'furnish' | null;
 /** Was würde der Aktions-Knopf jetzt tun? */
+/** Haustür vor der Figur? (Index des Hauses) */
+function doorAhead() {
+  if (player.dir !== Dir.Up) return -1;
+  return world.houses.findIndex((h) => Math.abs(player.x - h.x) < 6 && player.y > h.y && player.y < h.y + 10);
+}
 function intent(): { kind: Intent; tree: number; tile: [number, number] } {
   const tile = frontTile();
+  if (inside >= 0) {
+    const sp = nearSpot(player.x, player.y, world.houses[inside]?.furn);
+    const k = sp ? (sp.kind === 'bed' ? 'sleep' : sp.kind === 'door' ? 'exit' : sp.kind === 'chest' ? 'chest' : 'furnish') : null;
+    return { kind: k, tree: sp?.kind === 'slot' ? sp.slot : -1, tile };
+  }
+  if (doorAhead() >= 0) return { kind: 'enter', tree: doorAhead(), tile };
   const p = farm.plot(...tile);
   if (p?.crop && p.crop.stage >= RIPE) return { kind: 'harvest', tree: -1, tile };
+  // am Lagerfeuer mit Rüben im Gepäck: braten
+  if (farm.turnips > 0 && world.fireNear(player.x, player.y, 20) >= 0) return { kind: 'cook', tree: -1, tile };
   if (tool === 'axe') {
     const tr = world.target(player.x, player.y);
     return { kind: tr >= 0 ? 'axe' : null, tree: tr, tile };
@@ -265,16 +311,52 @@ const toolHint: Record<ToolId, string> = {
   seeds: 'Stell dich vor ein leeres Feld',
   water: 'Stell dich vor ein trockenes Feld',
 };
+// ---------- Energie ----------
+/** Energie kostet jede Arbeit; Essen und Schlafen füllen sie auf */
+const COST: Partial<Record<Action['kind'], number>> = { axe: 2, hoe: 3, seeds: 1, water: 1, build: 5 };
+const FOOD = { raw: 12, cooked: 40 };
+const energy = () => save.energy ?? 100;
+function setEnergy(v: number) {
+  save.energy = Math.max(0, Math.min(100, Math.round(v * 10) / 10));
+  hud?.setEnergy(save.energy);
+  player.speedMul = save.energy < 15 ? 0.6 : 1;
+}
+/** genug Kraft? sonst Hinweis */
+function spend(kind: Action['kind']) {
+  const c = COST[kind] ?? 0;
+  if (!c) return true;
+  if (energy() < c) {
+    actHeld = false;
+    hud?.toast('Du bist erschöpft – iss eine Rübe oder schlaf im Haus');
+    return false;
+  }
+  setEnergy(energy() - c);
+  return true;
+}
+function eat(cooked: boolean) {
+  const have = cooked ? farm.meals : farm.turnips;
+  if (have <= 0) return hud?.toast(cooked ? 'Keine Ofenrüben – brat Rüben am Lagerfeuer' : 'Keine Rüben – ernte erst welche');
+  if (energy() >= 100) return hud?.toast('Du bist satt');
+  const err = doAction({ kind: 'eat', cooked });
+  if (err) return hud?.toast(err);
+  setEnergy(energy() + (cooked ? FOOD.cooked : FOOD.raw));
+  sfx('eat');
+  floats.push({ x: player.x, y: player.y - 24, text: `+${cooked ? FOOD.cooked : FOOD.raw} Energie`, life: 1.3 });
+  writeSave(save);
+}
+
 function useTool() {
   const [c, r] = swingTile;
+  if (!spend(swingTool)) return;
   // nach Ernten/Auffüllen nicht gleich weitermachen – erst loslassen
-  if (swingTool === 'harvest' || swingTool === 'refill') actHeld = false;
+  if (swingTool === 'harvest' || swingTool === 'refill' || swingTool === 'cook') actHeld = false;
   const err = doAction({ kind: swingTool, c, r, tree: chopTarget });
   if (err) hud?.toast(err);
 }
 function syncHud() {
   if (!hud) return;
-  hud.setInv(world.wood, farm.turnips);
+  hud.setInv(world.wood, farm.turnips, farm.meals);
+  hud.setEnergy(energy());
   hud.setSlots(farm.seeds, farm.water, farm.capacity, farm.hasCan);
   const q = questAt(world.prog.quests);
   const have = Math.min(q.goal, world.prog.stats[q.stat] ?? 0);
@@ -282,18 +364,21 @@ function syncHud() {
   const can = farm.hasCan ? '' : `\nErnte ${CAN_GOAL} Rüben → Eisen-Gießkanne (${farm.harvested}/${CAN_GOAL})`;
   hud.setGoal(`Aufgabe: ${q.text} (${have}/${q.goal})\nBelohnung: ${reward}${can}`);
   hud.setLevel(world.level, levelProgress(world.prog.xp));
+  if (tod) hud.setClock(`Tag ${tod.day} · ${tod.label}${tod.rain ? ' · Regen' : ''}`);
 }
 
 // ---------- Haus platzieren ----------
 let placing = false;
+let placeKind: BuildKind = 'house';
 let ghost = { x: 0, y: 0, ok: false };
 function ghostSpot() {
   const px = Math.round(player.x / 2) * 2;
   const py = Math.round(player.y / 2) * 2;
-  if (player.dir === Dir.Down) return { x: px, y: py + 22 };
-  if (player.dir === Dir.Up) return { x: px, y: py - 6 };
-  if (player.dir === Dir.Right) return { x: px + 28, y: py + 6 };
-  return { x: px - 28, y: py + 6 };
+  const k = placeKind === 'fire' ? 0.5 : 1;
+  if (player.dir === Dir.Down) return { x: px, y: py + Math.round(22 * k) };
+  if (player.dir === Dir.Up) return { x: px, y: py - Math.round(6 * k) - (k < 1 ? 4 : 0) };
+  if (player.dir === Dir.Right) return { x: px + Math.round(28 * k), y: py + 6 };
+  return { x: px - Math.round(28 * k), y: py + 6 };
 }
 
 // ---------- Kamera ----------
@@ -435,7 +520,7 @@ function persist() {
   const now = Date.now();
   const changed = versionNow() !== savedVersion;
   savedVersion = versionNow();
-  const pos = { x: Math.round(player.x), y: Math.round(player.y) };
+  const pos = inside >= 0 ? { ...outsidePos } : { x: Math.round(player.x), y: Math.round(player.y) };
   if (role === 'guest') {
     // als Gast: eigene Kopie der gemeinsamen Insel mitschreiben (die eigene Insel bleibt unberührt)
     if (!hostSlot) return writeSave(save);
@@ -461,6 +546,7 @@ function applySlot(sl: Slot) {
   save.active = sl.id;
   world.apply(sl.world ?? {});
   farm.apply(sl.farm ?? {});
+  ensureClock();
   const pos = sl.pos && player.free(sl.pos.x, sl.pos.y) ? sl.pos : START;
   player.x = pos.x;
   player.y = pos.y;
@@ -511,6 +597,7 @@ function openSlots() {
   );
 }
 function openMenu() {
+  if (inside >= 0) leaveHouse();
   hud = null;
   if (mode === 'play') persist();
   mode = 'menu';
@@ -565,10 +652,12 @@ function startPlay() {
         tool = t;
         hud?.setTool(t);
       },
-      place: () => {
+      place: (what) => {
         placing = true;
+        placeKind = what;
         hud?.setPlacing(true);
       },
+      eat,
       confirm: confirmBuild,
       cancel: () => {
         placing = false;
@@ -576,7 +665,7 @@ function startPlay() {
       },
     },
     icons,
-    HOUSE_COST,
+    { house: HOUSE_COST, fire: FIRE_COST },
   );
   hud.setTool(tool);
   syncHud();
@@ -587,16 +676,17 @@ function startPlay() {
 }
 /** Liegt ein Feld unter der Haus-Grundfläche? */
 function farmUnder(x: number, y: number) {
-  return farmUnderOf(farm, x, y);
+  return farmUnderOf(farm, x, y, placeKind);
 }
 function confirmBuild() {
   if (!placing) return;
   if (farmUnder(ghost.x, ghost.y)) return hud?.toast('Hier ist ein Feld im Weg');
   if (!ghost.ok) return hud?.toast('Hier ist kein Platz');
-  if (world.wood < HOUSE_COST) return hud?.toast('Zu wenig Holz');
+  if (world.wood < BUILDS[placeKind].cost) return hud?.toast('Zu wenig Holz');
+  if (!spend('build')) return;
   placing = false;
   hud?.setPlacing(false);
-  const err = doAction({ kind: 'build', x: ghost.x, y: ghost.y });
+  const err = doAction({ kind: 'build', x: ghost.x, y: ghost.y, what: placeKind });
   if (err) hud?.toast(err);
 }
 
@@ -616,6 +706,7 @@ interface Mate {
   f: number;
   s: number;
   tl: string;
+  in?: number;
 }
 let mate: Mate | null = null;
 /** als Gast: welche Insel wir besuchen */
@@ -631,6 +722,7 @@ const myState = (): PlayerState => ({
   f: swing > 0 ? (swing > SWING / 2 ? 1 : 3) : player.frame,
   s: swing > 0 ? Math.round((1 - swing / SWING) * 100) / 100 : 0,
   tl: swing > 0 ? swingTool : '',
+  in: inside,
 });
 function makeMate(name: string, look: Look, p: PlayerState): Mate {
   return { name: name || 'Freund', sheet: makeCharacter(look), x: p.x, y: p.y, tx: p.x, ty: p.y, d: p.d as Dir, f: p.f, s: p.s, tl: p.tl };
@@ -831,7 +923,9 @@ function onNet(m: Msg) {
     // ----- beide -----
     case 'p':
       if (!mate) return;
-      Object.assign(mate, { tx: m.p.x, ty: m.p.y, d: m.p.d, f: m.p.f, s: m.p.s, tl: m.p.tl });
+      // Raumwechsel: nicht durchs Bild gleiten
+      if ((m.p.in ?? -1) !== (mate.in ?? -1)) Object.assign(mate, { x: m.p.x, y: m.p.y });
+      Object.assign(mate, { tx: m.p.x, ty: m.p.y, d: m.p.d, f: m.p.f, s: m.p.s, tl: m.p.tl, in: m.p.in ?? -1 });
       break;
     case 'look':
       if (!mate) return;
@@ -902,6 +996,19 @@ async function cloudSync() {
 setInterval(() => void cloudSync(), 8000);
 document.addEventListener('visibilitychange', () => document.visibilityState === 'visible' && void cloudSync());
 
+// Ton erst nach der ersten Berührung (Browser-Regel); Klick-Geräusch für Knöpfe
+addEventListener('pointerdown', unlockAudio, { capture: true });
+addEventListener('keydown', unlockAudio, { capture: true });
+addEventListener(
+  'click',
+  (e) => {
+    const b = (e.target as HTMLElement).closest('button');
+    if (b && !b.matches('[data-act=use]')) sfx(b.disabled ? 'nope' : 'click');
+  },
+  { capture: true },
+);
+let stepT = 0;
+
 // Einladungs-Link ?join=CODE
 {
   const q = new URLSearchParams(location.search);
@@ -914,6 +1021,7 @@ document.addEventListener('visibilitychange', () => document.visibilityState ===
 }
 addEventListener('pagehide', () => mode === 'play' && persist());
 setInterval(() => mode === 'play' && persist(), 10_000);
+ensureClock();
 savedVersion = versionNow();
 if (pendingJoin) {
   const code = pendingJoin;
@@ -934,12 +1042,22 @@ function frame(now: number) {
     // beim Schlagen bleibt man stehen
     if (swing > 0) player.update(0, 0, dt);
     else player.update(mx, my, dt);
+    if (player.moving) {
+      stepT -= dt;
+      if (stepT <= 0) {
+        stepT = 0.3 / player.speedMul;
+        sfx('step');
+      }
+    }
     // Werkzeug benutzen
     if (!placing) {
       const it = intent();
-      hud?.setAction(!!it.kind, it.kind === 'harvest' ? icons.turnip : it.kind === 'refill' ? (farm.hasCan ? icons.can : icons.bucket) : icons[tool === 'water' ? (farm.hasCan ? 'can' : 'bucket') : tool]);
-      if (actHeld && swing <= 0 && it.kind) {
-        swingTool = it.kind;
+      hud?.setAction(!!it.kind, it.kind && ROOM_ACTS.has(it.kind) ? icons.house : it.kind === 'cook' ? icons.meal : it.kind === 'harvest' ? icons.turnip : it.kind === 'refill' ? (farm.hasCan ? icons.can : icons.bucket) : icons[tool === 'water' ? (farm.hasCan ? 'can' : 'bucket') : tool]);
+      if (actHeld && swing <= 0 && it.kind && ROOM_ACTS.has(it.kind)) {
+        actHeld = false;
+        roomAction(it.kind, it.tree);
+      } else if (actHeld && swing <= 0 && it.kind) {
+        swingTool = it.kind as typeof swingTool;
         swingTile = it.tile;
         if (it.kind === 'axe') {
           chopTarget = it.tree;
@@ -959,17 +1077,22 @@ function frame(now: number) {
     }
     if (placing) {
       const g = ghostSpot();
-      ghost = { ...g, ok: world.canPlace(g.x, g.y, player) && !farmUnder(g.x, g.y) };
-      hud?.setPlacing(true, ghost.ok && world.wood >= HOUSE_COST);
+      ghost = { ...g, ok: world.canPlace(g.x, g.y, player, placeKind) && !farmUnder(g.x, g.y) };
+      hud?.setPlacing(true, ghost.ok && world.wood >= BUILDS[placeKind].cost);
     }
     if (role !== 'guest' && Math.floor(now / 1000) !== Math.floor((now - dt * 1000) / 1000)) {
       world.grow(Date.now(), player);
-      farm.update(Date.now());
+      farm.update(Date.now(), tod?.rain);
     }
-    // Kamera folgt weich
-    const k = 1 - Math.exp(-dt * 6);
-    cam.x += (player.x - cam.x) * k;
-    cam.y += (player.y - 10 - cam.y) * k;
+    // Kamera folgt weich (im Haus: ganzer Raum fest im Bild)
+    if (inside >= 0) {
+      cam.x = ROOM_W / 2;
+      cam.y = ROOM_H / 2 + 4;
+    } else {
+      const k = 1 - Math.exp(-dt * 6);
+      cam.x += (player.x - cam.x) * k;
+      cam.y += (player.y - 10 - cam.y) * k;
+    }
   } else {
     // Menü: Kamera schwebt langsam über die Insel
     // Hochformat: Insel etwas über der Mitte (Schild unten); Querformat: Insel links, Menü rechts
@@ -977,7 +1100,7 @@ function frame(now: number) {
     cam.x = W / 2 + Math.sin(t * 0.07) * 24 + (wide ? (cw * 0.2) / zoom : 0);
     cam.y = H / 2 + Math.cos(t * 0.05) * 16 + (wide ? 0 : (ch * 0.1) / zoom);
   }
-  clampCam();
+  if (inside < 0) clampCam();
   netTick(now);
   if (mate) {
     const k = 1 - Math.exp(-dt * 12);
@@ -990,6 +1113,12 @@ function frame(now: number) {
     farm.update(Date.now());
   }
 
+  tod = world.clock ? timeOf(world.clock, Date.now()) : null;
+  {
+    const fi = world.fires.length ? Math.min(...world.fires.map((f) => Math.hypot(f.x - player.x, f.y - player.y))) : 999;
+    setScene({ night: tod?.dark ?? 0, rain: !!tod?.rain, fire: mode === 'play' && inside < 0 ? Math.max(0, 1 - fi / 70) : 0, menu: mode !== 'play', inside: inside >= 0 });
+  }
+  if (mode === 'play' && hud && tod) hud.setClock(`Tag ${tod.day} · ${tod.label}${tod.rain ? ' · Regen' : ''}`);
   if (world.version !== landVersion) paintWorldLand();
   for (const [i, v] of shake) {
     const nv = v - dt * 3;
@@ -1002,6 +1131,11 @@ function frame(now: number) {
   const ox = Math.round(cw / 2 - cam.x * zoom);
   const oy = Math.round(ch / 2 - cam.y * zoom);
   ctx.setTransform(zoom, 0, 0, zoom, ox, oy);
+  scene: {
+  if (inside >= 0) {
+    drawInterior(t);
+    break scene;
+  }
   // Meer: Wellenmuster treibt langsam schräg
   const drift = Math.floor(t * 2) % 24;
   sea.setTransform(new DOMMatrix([1, 0, 0, 1, drift, 0]));
@@ -1019,7 +1153,11 @@ function frame(now: number) {
   const nowMs = Date.now();
   const items: { y: number; draw: () => void }[] = [];
   island.decor.forEach((d, i) => items.push({ y: d.y, draw: () => drawDecor(i, t, nowMs) }));
-  for (const h of world.houses) items.push({ y: h.y, draw: () => ctx.drawImage(houseImg.img, h.x - houseImg.ox, h.y - houseImg.oy) });
+  for (const h of world.houses) items.push({ y: h.y, draw: () => drawHouse(h.x, h.y) });
+  for (const f of world.fires) {
+    const im = fireImgs[Math.floor(t * 8 + f.x) % 3];
+    items.push({ y: f.y, draw: () => ctx.drawImage(im.img, f.x - im.ox, f.y - im.oy) });
+  }
   for (const [k, p] of farm.plots) {
     if (!p.crop) continue;
     const [c, r] = k.split(',').map(Number);
@@ -1040,7 +1178,7 @@ function frame(now: number) {
   }
   if (showPlayer) items.push({ y: player.y, draw: drawPlayer });
   const m = mate;
-  if (showPlayer && m) items.push({ y: m.y, draw: () => drawChar(m.sheet, m.x, m.y, m.d, m.f, m.s, m.tl) });
+  if (showPlayer && m && (m.in ?? -1) === -1) items.push({ y: m.y, draw: () => drawChar(m.sheet, m.x, m.y, m.d, m.f, m.s, m.tl) });
   if (showPlayer && placing) items.push({ y: ghost.y, draw: drawGhost });
   items.sort((a, b) => a.y - b.y);
   for (const it of items) it.draw();
@@ -1086,8 +1224,11 @@ function frame(now: number) {
     ctx.drawImage(gullImg[Math.floor(t * 4 + gl.ph) % 2], x, y);
   }
 
+  drawWeather(t, dt, ox, oy);
+  }
+
   // Name über dem Mitspieler
-  if (mode === 'play' && mate) {
+  if (mode === 'play' && mate && (mate.in ?? -1) === inside) {
     const dpr = cw / innerWidth;
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.font = `700 ${Math.round(14 * dpr)}px 'Pixelify Sans', sans-serif`;
@@ -1213,18 +1354,209 @@ function drawPlayer() {
   drawChar(sheet, player.x, player.y, player.dir, st.f, swing > 0 ? 1 - swing / SWING : 0, swing > 0 ? swingTool : '');
 }
 
+// ---------- Tag & Nacht, Regen ----------
+let tod: TimeOfDay | null = null;
+const shade = document.createElement('canvas');
+const drops: { x: number; y: number; v: number }[] = [];
+const flies2 = Array.from({ length: 14 }, (_, i) => ({ x: 70 + ((i * 53) % 200), y: 80 + ((i * 97) % 150), ph: i * 1.7 }));
+/** Fenster der Häuser (relativ zum Fußpunkt) */
+const WINDOWS = [
+  [-11, -13],
+  [10, -13],
+];
+function drawHouse(x: number, y: number) {
+  ctx.drawImage(houseImg.img, x - houseImg.ox, y - houseImg.oy);
+  // abends leuchten die Fenster warm
+  const d = tod?.dark ?? 0;
+  if (d > 0.05) {
+    ctx.globalAlpha = Math.min(1, d * 1.2);
+    ctx.fillStyle = '#ffd87a';
+    for (const [wx, wy] of WINDOWS) ctx.fillRect(x + wx - 2, y + wy - 2, 5, 4);
+    ctx.globalAlpha = 1;
+  }
+}
+function drawWeather(t: number, dt: number, ox: number, oy: number) {
+  const T = tod;
+  if (!T) return;
+  const dpr = cw / innerWidth;
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  const sx = (x: number) => ox + x * zoom;
+  const sy = (y: number) => oy + y * zoom;
+  // Abendrot / Morgenrot
+  if (T.glow > 0.02) {
+    ctx.fillStyle = `rgba(255,130,60,${(T.glow * 0.16).toFixed(3)})`;
+    ctx.fillRect(0, 0, cw, ch);
+  }
+  // Nacht: Dunkelheit mit Lichtern (Fenster, Feuer, wir selbst)
+  const dark = Math.max(T.dark * 0.66, T.rain ? 0.18 : 0);
+  if (dark > 0.01) {
+    if (shade.width !== cw || shade.height !== ch) {
+      shade.width = cw;
+      shade.height = ch;
+    }
+    const g = shade.getContext('2d')!;
+    g.globalCompositeOperation = 'source-over';
+    g.clearRect(0, 0, cw, ch);
+    g.fillStyle = `rgba(12,18,52,${dark.toFixed(3)})`;
+    g.fillRect(0, 0, cw, ch);
+    g.globalCompositeOperation = 'destination-out';
+    const light = (x: number, y: number, r: number, a = 1) => {
+      const rr = r * zoom;
+      const grad = g.createRadialGradient(sx(x), sy(y), 0, sx(x), sy(y), rr);
+      grad.addColorStop(0, `rgba(0,0,0,${a})`);
+      grad.addColorStop(1, 'rgba(0,0,0,0)');
+      g.fillStyle = grad;
+      g.fillRect(sx(x) - rr, sy(y) - rr, rr * 2, rr * 2);
+    };
+    if (T.dark > 0.05) {
+      for (const h of world.houses) for (const [wx, wy] of WINDOWS) light(h.x + wx, h.y + wy + 6, 20, 0.8);
+      for (const f of world.fires) light(f.x, f.y - 5, 46 + Math.sin(t * 9 + f.x) * 2.5, 1);
+      if (mode === 'play') {
+        light(player.x, player.y - 8, 30, 0.75);
+        if (mate) light(mate.x, mate.y - 8, 30, 0.75);
+      }
+      for (const fl of flies2) light(fl.x + Math.sin(t * 0.6 + fl.ph) * 14, fl.y + Math.cos(t * 0.45 + fl.ph) * 9, 6, 0.6);
+    }
+    ctx.drawImage(shade, 0, 0);
+    // Feuerschein warm
+    for (const f of world.fires) {
+      const rr = 40 * zoom;
+      const grad = ctx.createRadialGradient(sx(f.x), sy(f.y - 5), 0, sx(f.x), sy(f.y - 5), rr);
+      grad.addColorStop(0, `rgba(255,150,60,${(0.25 * Math.max(0.3, T.dark)).toFixed(3)})`);
+      grad.addColorStop(1, 'rgba(255,150,60,0)');
+      ctx.fillStyle = grad;
+      ctx.fillRect(sx(f.x) - rr, sy(f.y - 5) - rr, rr * 2, rr * 2);
+    }
+  }
+  // Glühwürmchen
+  if (T.dark > 0.4) {
+    for (const fl of flies2) {
+      const x = fl.x + Math.sin(t * 0.6 + fl.ph) * 14;
+      const y = fl.y + Math.cos(t * 0.45 + fl.ph) * 9;
+      const on = Math.sin(t * 2.3 + fl.ph * 3) > -0.2;
+      if (!on) continue;
+      ctx.fillStyle = '#e8ff8a';
+      ctx.fillRect(Math.round(sx(x)), Math.round(sy(y)), zoom, zoom);
+    }
+  }
+  // Regen: schräge Striche
+  if (T.rain) {
+    while (drops.length < 140) drops.push({ x: Math.random() * cw, y: Math.random() * ch, v: 0.8 + Math.random() * 0.4 });
+    ctx.strokeStyle = 'rgba(200,225,255,0.55)';
+    ctx.lineWidth = Math.max(1, dpr);
+    ctx.beginPath();
+    for (const d of drops) {
+      d.y += 900 * dpr * dt * d.v;
+      d.x -= 160 * dpr * dt * d.v;
+      if (d.y > ch) {
+        d.y = -10;
+        d.x = Math.random() * cw * 1.2;
+      }
+      ctx.moveTo(d.x, d.y);
+      ctx.lineTo(d.x + 4 * dpr, d.y - 18 * dpr);
+    }
+    ctx.stroke();
+  } else drops.length = 0;
+}
+
+// ---------- Im Haus ----------
+const ROOM_ACTS = new Set<Intent>(['enter', 'exit', 'sleep', 'chest', 'furnish']);
+function enterHouse(i: number) {
+  const h = world.houses[i];
+  if (!h) return;
+  outsidePos = { x: Math.round(player.x), y: Math.round(player.y) };
+  inside = i;
+  player.collide = (x, y) => roomFree(x, y, world.houses[inside]?.furn);
+  player.x = DOOR.x;
+  player.y = ROOM_H - 7;
+  player.dir = Dir.Up;
+  placing = false;
+  hud?.setInside(true);
+  hint.classList.add('gone');
+  // Raum füllt den Bildschirm
+  zoom = Math.max(playZoom, Math.floor(Math.min(cw / (ROOM_W + 8), ch / (ROOM_H + 60))));
+  sfx('door');
+}
+function leaveHouse() {
+  const h = world.houses[inside];
+  inside = -1;
+  player.collide = null;
+  player.x = h ? h.x : outsidePos.x;
+  player.y = h ? h.y + 7 : outsidePos.y;
+  player.dir = Dir.Down;
+  hud?.setInside(false);
+  zoom = playZoom;
+  cam.x = player.x;
+  cam.y = player.y - 10;
+  sfx('door');
+}
+function roomAction(kind: Intent, slot: number) {
+  if (kind === 'enter') return enterHouse(slot);
+  if (kind === 'exit') return leaveHouse();
+  if (kind === 'chest')
+    return hud?.openChest([
+      ['Holz', world.wood],
+      ['Samen', farm.seeds],
+      ['Rüben', farm.turnips],
+      ['Ofenrüben', farm.meals],
+    ]);
+  if (kind === 'furnish')
+    return hud?.openFurnish(
+      FURNITURE.map((f) => ({ id: f.id, name: f.name, cost: f.cost, img: toUrl(furnitureIcon(f.id)!) })),
+      world.wood,
+      (item) => {
+        const err = doAction({ kind: 'furnish', house: inside, slot, item });
+        if (err) hud?.toast(err);
+        else sfx('build');
+      },
+    );
+  if (kind === 'sleep') {
+    const night = tod ? tod.hour >= 17 || tod.hour < 6 : true;
+    hud?.sleep(night ? 'Gute Nacht …' : 'Ein kleines Nickerchen …', () => {
+      const err = doAction({ kind: 'sleep' });
+      if (err) return hud?.toast(err);
+      setEnergy(night ? 100 : energy() + 40);
+      writeSave(save);
+      hud?.toast(night ? `Guten Morgen! Ein neuer Tag beginnt.` : 'Ausgeruht! +40 Energie');
+    });
+    sfx('sleep');
+  }
+}
+function drawInterior(t: number) {
+  const h = world.houses[inside];
+  if (!h) {
+    leaveHouse();
+    return;
+  }
+  ctx.fillStyle = '#20140c';
+  ctx.fillRect(-cw, -ch, cw * 2 + ROOM_W, ch * 2 + ROOM_H);
+  ctx.drawImage(paintRoom(h.furn, !!tod?.night), 0, 0);
+  // Abend: warmes Licht im Raum
+  if (tod && tod.dark > 0.1) {
+    ctx.fillStyle = `rgba(255,170,80,${(tod.dark * 0.12).toFixed(3)})`;
+    ctx.fillRect(0, 0, ROOM_W, ROOM_H);
+  }
+  const chars: { y: number; draw: () => void }[] = [{ y: player.y, draw: drawPlayer }];
+  const m = mate;
+  if (m && (m.in ?? -1) === inside) chars.push({ y: m.y, draw: () => drawChar(m.sheet, m.x, m.y, m.d, m.f, m.s, m.tl) });
+  chars.sort((a, b) => a.y - b.y);
+  for (const c of chars) c.draw();
+  void t;
+}
+
 function drawGhost() {
   const { x, y, ok } = ghost;
+  const im = placeKind === 'fire' ? fireImgs[0] : houseImg;
   ctx.globalAlpha = 0.7;
-  ctx.drawImage(houseImg.img, x - houseImg.ox, y - houseImg.oy);
+  ctx.drawImage(im.img, x - im.ox, y - im.oy);
   ctx.globalAlpha = 1;
   // Grundfläche: grün = passt, rot = geht nicht
-  const f = HOUSE_FOOT;
-  ctx.fillStyle = ok && world.wood >= HOUSE_COST ? 'rgba(120,230,110,0.45)' : 'rgba(240,70,60,0.5)';
+  const f = BUILDS[placeKind].foot;
+  ctx.fillStyle = ok && world.wood >= BUILDS[placeKind].cost ? 'rgba(120,230,110,0.45)' : 'rgba(240,70,60,0.5)';
   ctx.fillRect(x + f.left, y + f.top, f.right - f.left, f.bottom - f.top);
   ctx.fillStyle = ok ? '#2a7a2a' : '#a02020';
   ctx.fillRect(x + f.left, y + f.bottom, f.right - f.left, 1);
 }
 
 // zum Testen von außen
-(window as unknown as { __game?: unknown }).__game = { player, world, farm, get mode() { return mode; }, get mate() { return mate; }, get room() { return room; } };
+(window as unknown as { __game?: unknown }).__game = { player, world, farm, syncHud, get mode() { return mode; }, get mate() { return mate; }, get room() { return room; } };

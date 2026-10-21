@@ -18,6 +18,10 @@ export class Player {
   moving = false;
   /** Lauf-Animation (0..4) */
   anim = 0;
+  /** müde = langsamer */
+  speedMul = 1;
+  /** eigene Kollision (z. B. im Haus); sonst Insel */
+  collide: ((x: number, y: number) => boolean) | null = null;
 
   constructor(
     readonly isl: Island,
@@ -39,6 +43,7 @@ export class Player {
 
   /** Darf der Fußpunkt hier stehen? */
   free(x: number, y: number) {
+    if (this.collide) return this.collide(x, y);
     for (const [dx, dy] of [
       [-FOOT_W, -FOOT_H],
       [FOOT_W, -FOOT_H],
@@ -59,8 +64,8 @@ export class Player {
       return;
     }
     const k = Math.min(1, len);
-    const vx = (mx / len) * k * SPEED * dt;
-    const vy = (my / len) * k * SPEED * dt;
+    const vx = (mx / len) * k * SPEED * this.speedMul * dt;
+    const vy = (my / len) * k * SPEED * this.speedMul * dt;
     // Blickrichtung nach der stärkeren Achse
     this.dir = Math.abs(mx) > Math.abs(my) * 1.1 ? (mx > 0 ? Dir.Right : Dir.Left) : my > 0 ? Dir.Down : Dir.Up;
     // getrennt je Achse → an Hindernissen entlang gleiten
