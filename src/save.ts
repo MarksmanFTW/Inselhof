@@ -1,5 +1,6 @@
 /** Spielstand im Browser: Aussehen, Name, wo die Figur zuletzt stand, Holz und Häuser */
 import { DEFAULT_LOOK, PARTS, type Look } from './character';
+import type { FarmSave } from './farm';
 import type { WorldSave } from './world';
 
 export interface Save {
@@ -10,6 +11,8 @@ export interface Save {
   pos?: { x: number; y: number };
   /** Holz, gefällte Bäume, Häuser */
   world?: Partial<WorldSave>;
+  /** Felder, Samen, Rüben, Gießkanne */
+  farm?: Partial<FarmSave>;
 }
 
 const KEY = 'cozyisland.save';
@@ -21,7 +24,7 @@ export function loadSave(): Save {
       const look = { ...DEFAULT_LOOK, ...raw.look };
       // Werte außerhalb der Auswahl (ältere Versionen) zurücksetzen
       for (const p of PARTS) if (!(look[p.key] >= 0 && look[p.key] < p.count)) look[p.key] = DEFAULT_LOOK[p.key];
-      return { look, name: String(raw.name ?? '').slice(0, 12), created: !!raw.created, pos: raw.pos, world: raw.world };
+      return { look, name: String(raw.name ?? '').slice(0, 12), created: !!raw.created, pos: raw.pos, world: raw.world, farm: raw.farm };
     }
   } catch {
     /* kaputt oder gesperrt → neu */

@@ -193,3 +193,157 @@ export function logIcon(): HTMLCanvasElement {
 
 /** Bild als CSS-Hintergrund (für Knöpfe und Anzeigen) */
 export const toUrl = (c: HTMLCanvasElement) => c.toDataURL();
+
+/** Hacke (Klinge oben rechts, wie die Axt geschwungen) */
+export function hoe(): HTMLCanvasElement {
+  const g = new Grid(10, 10);
+  for (let i = 0; i < 8; i++) g.set(1 + i, 8 - i, i < 2 ? '#5a3a20' : '#8c6440');
+  g.rect(6, 0, 4, 2, '#a4a2ac');
+  g.rect(6, 0, 4, 1, '#d8d6de');
+  g.rect(9, 2, 1, 2, '#7a7884');
+  return g.render();
+}
+
+/** Samentüte mit Rüben-Bild */
+export function seedBag(): HTMLCanvasElement {
+  const g = new Grid(10, 12);
+  g.rect(1, 3, 8, 8, '#e8c890');
+  g.rect(1, 3, 1, 8, '#f4dcb0');
+  g.rect(8, 3, 1, 8, '#c8a470');
+  g.rect(2, 1, 6, 2, '#c8a470');
+  g.rect(3, 0, 4, 1, '#b08050');
+  // Rübe drauf
+  g.rect(4, 6, 3, 3, '#f0e6f0');
+  g.set(4, 6, '#b05a9a');
+  g.set(6, 6, '#b05a9a');
+  g.set(5, 9, '#d8c8d8');
+  g.set(5, 5, '#4f9a44');
+  g.set(4, 4, '#4f9a44');
+  g.set(6, 4, '#4f9a44');
+  return g.render();
+}
+
+/** Holzkübel (Anfang) */
+export function bucket(): HTMLCanvasElement {
+  const g = new Grid(12, 11);
+  g.rect(2, 3, 8, 7, '#a87a48');
+  g.rect(2, 3, 2, 7, '#c8925a');
+  g.rect(8, 3, 2, 7, '#7a5232');
+  g.rect(1, 3, 10, 1, '#8a5a32');
+  g.rect(2, 5, 8, 1, '#5a5660'); // Eisenring
+  g.rect(2, 8, 8, 1, '#5a5660');
+  g.rect(3, 4, 6, 1, '#4a8ad0'); // Wasser
+  // Henkel
+  g.set(2, 1, '#6a4628');
+  g.set(3, 0, '#6a4628');
+  g.rect(4, 0, 4, 1, '#6a4628');
+  g.set(8, 0, '#6a4628');
+  g.set(9, 1, '#6a4628');
+  g.set(1, 2, '#6a4628');
+  g.set(10, 2, '#6a4628');
+  return g.render();
+}
+
+/** Eisen-Gießkanne (Belohnung) */
+export function wateringCan(): HTMLCanvasElement {
+  const g = new Grid(14, 11);
+  g.rect(3, 3, 7, 7, '#9aa2ac');
+  g.rect(3, 3, 2, 7, '#c4ccd4');
+  g.rect(8, 3, 2, 7, '#6a7280');
+  g.rect(3, 6, 7, 1, '#7a828e');
+  // Tülle nach rechts oben
+  g.set(10, 6, '#9aa2ac');
+  g.set(11, 5, '#9aa2ac');
+  g.set(12, 4, '#9aa2ac');
+  g.rect(12, 2, 2, 2, '#c4ccd4');
+  // Griff
+  g.rect(4, 0, 5, 1, '#6a7280');
+  g.set(3, 1, '#6a7280');
+  g.set(9, 1, '#6a7280');
+  g.set(2, 4, '#6a7280');
+  g.set(1, 5, '#6a7280');
+  g.set(1, 6, '#6a7280');
+  return g.render();
+}
+
+/** Rübe (geerntet) */
+export function turnipIcon(): HTMLCanvasElement {
+  const g = new Grid(10, 12);
+  // Blätter
+  g.rect(3, 0, 1, 3, '#4f9a44');
+  g.rect(5, 0, 2, 3, '#3a7d32');
+  g.set(2, 1, '#6cb45a');
+  g.set(7, 1, '#6cb45a');
+  // Knolle: oben lila, unten weiß
+  g.rect(2, 3, 6, 6, '#f4eef4');
+  g.rect(2, 3, 6, 2, '#b05a9a');
+  g.rect(2, 3, 1, 2, '#c87ab2');
+  g.rect(7, 5, 1, 4, '#d8c8d8');
+  g.rect(3, 9, 4, 1, '#e8dce8');
+  g.set(4, 10, '#d8c8d8');
+  g.set(4, 11, '#c8b8c8');
+  return g.render();
+}
+
+/** Ackerboden-Kachel (8×8): Furchen; nass = dunkler */
+export function soilTile(wet: boolean): HTMLCanvasElement {
+  const c = document.createElement('canvas');
+  c.width = 8;
+  c.height = 8;
+  const g = c.getContext('2d')!;
+  const base = wet ? '#4a3020' : '#8a5e3a';
+  const dark = wet ? '#2e1c12' : '#6a4428';
+  const hi = wet ? '#5e3e2a' : '#a87a50';
+  g.fillStyle = base;
+  g.fillRect(0, 0, 8, 8);
+  for (const y of [1, 4, 7]) {
+    g.fillStyle = dark;
+    g.fillRect(0, y, 8, 1);
+    g.fillStyle = hi;
+    g.fillRect(1, y - 1, 6, 1);
+  }
+  // Rand etwas dunkler, damit Felder als Kacheln erkennbar sind
+  g.fillStyle = 'rgba(30,15,5,0.35)';
+  g.fillRect(0, 7, 8, 1);
+  g.fillRect(7, 0, 1, 8);
+  return c;
+}
+
+/** Rübe auf dem Feld: 0 Samen, 1 Keim, 2 Pflänzchen, 3 reif */
+export function cropStage(stage: number): Prop {
+  const g = new Grid(10, 12);
+  if (stage === 0) {
+    g.set(3, 10, '#e8c890');
+    g.set(6, 9, '#e8c890');
+    g.set(5, 11, '#e8c890');
+    return { img: g.render(false), ox: 5, oy: 11 };
+  }
+  if (stage === 1) {
+    g.rect(4, 8, 1, 3, '#4f9a44');
+    g.set(3, 8, '#6cb45a');
+    g.set(5, 7, '#6cb45a');
+    g.set(6, 7, '#7cc460');
+    return { img: g.render(), ox: 5, oy: 11 };
+  }
+  if (stage === 2) {
+    g.rect(4, 6, 1, 5, '#3a7d32');
+    g.rect(1, 5, 3, 3, '#4f9a44');
+    g.rect(5, 4, 3, 3, '#56a648');
+    g.set(2, 5, '#7cc460');
+    g.set(6, 4, '#8ad070');
+    return { img: g.render(), ox: 5, oy: 11 };
+  }
+  // reif: lila Knolle schaut aus der Erde
+  g.rect(3, 1, 1, 5, '#3a7d32');
+  g.rect(6, 1, 1, 5, '#3a7d32');
+  g.rect(0, 2, 3, 3, '#4f9a44');
+  g.rect(7, 1, 3, 3, '#56a648');
+  g.rect(4, 0, 2, 4, '#4f9a44');
+  g.set(1, 2, '#7cc460');
+  g.set(8, 1, '#8ad070');
+  g.rect(2, 6, 6, 4, '#f4eef4');
+  g.rect(2, 6, 6, 2, '#b05a9a');
+  g.rect(2, 6, 1, 2, '#c87ab2');
+  g.rect(7, 8, 1, 2, '#d8c8d8');
+  return { img: g.render(), ox: 5, oy: 11 };
+}

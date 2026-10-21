@@ -42,7 +42,7 @@ body {
 .hint {
   position: fixed;
   left: 50%;
-  bottom: calc(env(safe-area-inset-bottom, 0px) + 200px);
+  bottom: calc(env(safe-area-inset-bottom, 0px) + 230px);
   transform: translateX(-50%);
   margin: 0;
   padding: 8px 14px;
@@ -50,7 +50,9 @@ body {
   clip-path: var(--px-corner);
   color: #fff;
   font: 500 15px/1.2 'Pixelify Sans', system-ui, sans-serif;
-  white-space: nowrap;
+  width: max-content;
+  max-width: 88vw;
+  text-align: center;
   pointer-events: none;
   transition: opacity 1s;
 }
@@ -344,10 +346,16 @@ body {
   background: #fff;
   box-shadow: 2px 2px 0 rgba(60, 25, 5, 0.6);
 }
-.wood {
+.inv {
   position: fixed;
   top: calc(env(safe-area-inset-top, 0px) + 12px);
   right: 12px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+}
+.wood {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -355,10 +363,75 @@ body {
   font-size: 24px;
   font-weight: 700;
 }
+.wood {
+  padding: 4px 12px 6px 8px;
+  font-size: 20px;
+  min-width: 70px;
+  box-sizing: border-box;
+  justify-content: space-between;
+}
 .wood img {
-  width: 42px;
-  height: 30px;
+  width: 34px;
+  height: 24px;
   image-rendering: pixelated;
+}
+.wood img.turnip {
+  width: 24px;
+  height: 29px;
+  margin: 0 5px;
+}
+.goal {
+  position: fixed;
+  top: calc(env(safe-area-inset-top, 0px) + 116px);
+  right: 12px;
+  max-width: 170px;
+  margin: 0;
+  padding: 6px 10px;
+  background: rgba(20, 40, 60, 0.6);
+  clip-path: var(--px-corner);
+  color: #fff;
+  font-size: 14px;
+  line-height: 1.25;
+  text-align: right;
+  pointer-events: none !important;
+}
+.hotbar {
+  position: fixed;
+  left: 12px;
+  bottom: calc(env(safe-area-inset-bottom, 0px) + 18px);
+  display: flex;
+  gap: 4px;
+  padding: 6px;
+}
+.slot {
+  position: relative;
+  width: 50px;
+  height: 50px;
+  padding: 0;
+  border: 3px solid #c4a46a;
+  background: #fff6dc;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+}
+.slot img {
+  width: 34px;
+  height: 34px;
+  object-fit: contain;
+  image-rendering: pixelated;
+}
+.slot small {
+  position: absolute;
+  right: 2px;
+  bottom: 0;
+  font: 700 13px/1 'Pixelify Sans', system-ui, sans-serif;
+  color: var(--ink);
+  text-shadow: 1px 1px 0 #fff, -1px -1px 0 #fff, 1px -1px 0 #fff, -1px 1px 0 #fff;
+}
+.slot.on {
+  border-color: var(--ink);
+  background: #ffe08a;
+  box-shadow: inset 0 -4px 0 #e8b84a;
 }
 .wood.pop {
   animation: pop 0.35s ease-out;
@@ -393,19 +466,20 @@ body {
   height: 36px;
   image-rendering: pixelated;
 }
-.pbtn.axe {
+.pbtn.use {
   width: 84px;
   height: 84px;
   padding: 0 0 6px;
   display: grid;
   place-items: center;
 }
-.pbtn.axe img {
+.pbtn.use img {
+  object-fit: contain;
   width: 50px;
   height: 50px;
   image-rendering: pixelated;
 }
-.pbtn.axe.off {
+.pbtn.use.off {
   filter: saturate(0.25) brightness(0.9);
   opacity: 0.75;
 }

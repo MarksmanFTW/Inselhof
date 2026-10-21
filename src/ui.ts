@@ -174,34 +174,62 @@ export function showCustomize(save: Save, done: (s: Save) => void, opts: { first
   });
 }
 
+export type ToolId = 'axe' | 'hoe' | 'seeds' | 'water';
+const TOOL_NAMES: Record<ToolId, string> = { axe: 'Axt', hoe: 'Hacke', seeds: 'Samen', water: 'Gießen' };
+
 export interface HudActions {
   menu: () => void;
-  /** Axt gedrückt halten */
-  chop: (down: boolean) => void;
+  /** Aktions-Knopf gedrückt halten */
+  act: (down: boolean) => void;
+  tool: (t: ToolId) => void;
   /** Bau-Fenster: Haus wählen → platzieren */
   place: () => void;
   confirm: () => void;
   cancel: () => void;
 }
 
+export interface HudIcons {
+  log: string;
+  axe: string;
+  house: string;
+  hoe: string;
+  seeds: string;
+  bucket: string;
+  can: string;
+  turnip: string;
+}
+
 export interface Hud {
-  setWood(n: number): void;
-  setTarget(on: boolean): void;
+  setInv(wood: number, turnips: number): void;
+  setTool(t: ToolId): void;
+  setSlots(seeds: number, water: number, cap: number, hasCan: boolean): void;
+  /** Aktions-Knopf: aktiv? und welches Bild (z. B. Rübe zum Ernten) */
+  setAction(on: boolean, icon?: string): void;
+  setGoal(text: string | null): void;
   setPlacing(on: boolean, valid?: boolean): void;
   openBuild(wood: number): void;
   toast(text: string): void;
 }
 
 /** Anzeigen und Knöpfe im Spiel */
-export function showHud(on: HudActions, icons: { log: string; axe: string; house: string }, cost: number): Hud {
+export function showHud(on: HudActions, icons: HudIcons, cost: number): Hud {
   clear();
   ui.className = 'ui-hud';
+  const slot = (t: ToolId, icon: string) =>
+    `<button class="slot" data-tool="${t}" aria-label="${TOOL_NAMES[t]}"><img src="${icon}" alt="" /><small></small></button>`;
   ui.innerHTML = `
     <button class="pbtn icon" data-act="menu" aria-label="Menü"><i></i><i></i><i></i></button>
-    <div class="panel wood"><img src="${icons.log}" alt="" /><b>0</b></div>
+    <div class="inv">
+      <div class="panel wood"><img src="${icons.log}" alt="" /><b class="n-wood">0</b></div>
+      <div class="panel wood"><img class="turnip" src="${icons.turnip}" alt="" /><b class="n-turnip">0</b></div>
+    </div>
+    <p class="goal" hidden></p>
+    <div class="hotbar panel">
+      ${slot('axe', icons.axe)}${slot('hoe', icons.hoe)}${slot('seeds', icons.seeds)}${slot('water', icons.bucket)}
+    </div>
     <div class="actions">
       <button class="pbtn build" data-act="build" aria-label="Bauen"><img src="${icons.house}" alt="" /><span>Bauen</span></button>
-      <button class="pbtn green axe off" data-act="axe" aria-label="Axt"><img src="${icons.axe}" alt="" /></button>
+      <button class="pbtn green use off" data-act="use" aria-label="Benutzen"><img src="${icons.axe}" alt="" /></button>
     </div>
     <div class="place-bar" hidden>
       <p>Lauf dorthin, wo dein Haus stehen soll</p>
@@ -213,34 +241,63 @@ export function showHud(on: HudActions, icons: { log: string; axe: string; house
     <div class="toast" hidden></div>`;
   const $ = <T extends HTMLElement>(q: string) => ui.querySelector<T>(q)!;
   $('[data-act=menu]').addEventListener('click', on.menu);
-  const axe = $('[data-act=axe]');
-  axe.addEventListener('pointerdown', (e) => {
+  const use = $('[data-act=use]');
+  use.addEventListener('pointerdown', (e) => {
     e.preventDefault();
-    axe.setPointerCapture(e.pointerId);
-    on.chop(true);
+    use.setPointerCapture(e.pointerId);
+    on.act(true);
   });
-  for (const ev of ['pointerup', 'pointercancel', 'lostpointercapture']) axe.addEventListener(ev, () => on.chop(false));
-  $('[data-act=build]').addEventListener('click', () => hud.openBuild(Number($('.wood b').textContent)));
+  for (const ev of ['pointerup', 'pointercancel', 'lostpointercapture']) use.addEventListener(ev, () => on.act(false));
+  $('.hotbar').addEventListener('click', (e) => {
+    const t = (e.target as HTMLElement).closest<HTMLElement>('[data-tool]')?.dataset.tool as ToolId | undefined;
+    if (t) on.tool(t);
+  });
+  let wood = 0;
+  $('[data-act=build]').addEventListener('click', () => hud.openBuild(wood));
   $('[data-act=cancel]').addEventListener('click', on.cancel);
   $('[data-act=confirm]').addEventListener('click', on.confirm);
+  const bump = (el: HTMLElement, v: string) => {
+    if (el.textContent === v) return;
+    el.textContent = v;
+    const box = el.parentElement!;
+    box.classList.remove('pop');
+    void box.offsetWidth;
+    box.classList.add('pop');
+  };
   let toastTimer = 0;
+  let actionIcon = '';
   const hud: Hud = {
-    setWood(n) {
-      const b = $('.wood b');
-      if (b.textContent !== String(n)) {
-        b.textContent = String(n);
-        const w = $('.wood');
-        w.classList.remove('pop');
-        void w.offsetWidth;
-        w.classList.add('pop');
+    setInv(w, turnips) {
+      wood = w;
+      bump($('.n-wood'), String(w));
+      bump($('.n-turnip'), String(turnips));
+    },
+    setTool(t) {
+      for (const b of ui.querySelectorAll<HTMLElement>('[data-tool]')) b.classList.toggle('on', b.dataset.tool === t);
+    },
+    setSlots(seeds, water, cap, hasCan) {
+      $('[data-tool=seeds] small').textContent = String(seeds);
+      $('[data-tool=water] small').textContent = `${water}/${cap}`;
+      const img = $<HTMLImageElement>('[data-tool=water] img');
+      const want = hasCan ? icons.can : icons.bucket;
+      if (img.getAttribute('src') !== want) img.src = want;
+    },
+    setAction(onA, icon) {
+      use.classList.toggle('off', !onA);
+      if (icon && icon !== actionIcon) {
+        actionIcon = icon;
+        use.querySelector('img')!.src = icon;
       }
     },
-    setTarget(onT) {
-      axe.classList.toggle('off', !onT);
+    setGoal(text) {
+      const g = $('.goal');
+      g.hidden = !text;
+      if (text && g.textContent !== text) g.textContent = text;
     },
     setPlacing(onP, valid = true) {
       $('.place-bar').hidden = !onP;
       $('.actions').hidden = onP;
+      $('.hotbar').hidden = onP;
       $<HTMLButtonElement>('[data-act=confirm]').disabled = !valid;
     },
     openBuild(wood) {

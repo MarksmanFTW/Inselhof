@@ -2,13 +2,14 @@ import '@fontsource/pixelify-sans/latin-500.css';
 import '@fontsource/pixelify-sans/latin-700.css';
 import './style.css';
 import { CH, CW, Dir, FOOT_X, FOOT_Y, makeCharacter } from './character';
-import { Ground, H, W, generate, rng } from './island';
+import { Ground, H, TILE, W, generate, rng } from './island';
 import { Shore, paintDock, paintLand, paintShadows, waveTile } from './paint';
 import { Player } from './player';
-import { axe, house, logIcon, sapling, toUrl, treeStump } from './props';
+import { CAN_GOAL, Farm, RIPE } from './farm';
+import { axe, bucket, cropStage, hoe, house, logIcon, sapling, seedBag, soilTile, toUrl, treeStump, turnipIcon, wateringCan } from './props';
 import { loadSave, writeSave, type Save } from './save';
 import { butterfly, gull, makeSprites } from './sprites';
-import { showCustomize, showHud, showMenu, type Hud } from './ui';
+import { showCustomize, showHud, showMenu, type Hud, type ToolId } from './ui';
 import { HOUSE_COST, HOUSE_FOOT, World } from './world';
 
 const screen = document.querySelector<HTMLCanvasElement>('#screen')!;
@@ -58,6 +59,7 @@ const flies = (() => {
 // ---------- Spielfigur & was sich auf der Insel ändert ----------
 let save: Save = loadSave();
 const world = new World(island, save.world);
+const farm = new Farm(island, save.farm);
 const START = { x: 176, y: 172 };
 const player = new Player(island, world, START.x, START.y);
 if (save.pos && player.free(save.pos.x, save.pos.y)) Object.assign(player, save.pos);
@@ -73,7 +75,23 @@ const stumpSmall = treeStump(false);
 const saplingImg = sapling();
 const axeImg = axe();
 const logImg = logIcon();
-const icons = { log: toUrl(logImg), axe: toUrl(axeImg), house: toUrl(houseImg.img) };
+const hoeImg = hoe();
+const bucketImg = bucket();
+const canImg = wateringCan();
+const turnipImg = turnipIcon();
+const soilDry = soilTile(false);
+const soilWet = soilTile(true);
+const crops = [0, 1, 2, 3].map(cropStage);
+const icons = {
+  log: toUrl(logImg),
+  axe: toUrl(axeImg),
+  house: toUrl(houseImg.img),
+  hoe: toUrl(hoeImg),
+  seeds: toUrl(seedBag()),
+  bucket: toUrl(bucketImg),
+  can: toUrl(canImg),
+  turnip: toUrl(turnipImg),
+};
 
 /** Boden + Schatten neu malen, wenn Bäume fallen oder Häuser dazukommen */
 let landVersion = -1;
@@ -97,11 +115,14 @@ paintWorldLand();
 
 // ---------- Holzfällen ----------
 let hud: Hud | null = null;
-let chopHeld = false;
+let actHeld = false;
 let chopTarget = -1;
-/** Schwung der Axt (Sekunden, läuft rückwärts) */
+let tool: ToolId = 'axe';
+/** Schwung (Sekunden, läuft rückwärts); swingTool = was gerade benutzt wird */
 let swing = 0;
 const SWING = 0.34;
+let swingTool: ToolId | 'harvest' | 'refill' = 'axe';
+let swingTile: [number, number] = [0, 0];
 const shake = new Map<number, number>();
 interface Bit {
   x: number;
@@ -133,9 +154,97 @@ function hit() {
     // Blätter rieseln, Holz fliegt in den Rucksack
     burst(d.x, d.y - 26, 24, 26, ['#2a6630', '#3f8640', '#68a85a', '#163c1e'], 40);
     floats.push({ x: d.x, y: d.y - 20, text: `+${res.wood} Holz`, life: 1.4 });
-    hud?.setWood(world.wood);
+    syncHud();
     persist();
   }
+}
+
+// ---------- Ackerbau ----------
+/** Kachel vor der Figur */
+function frontTile(): [number, number] {
+  const off: Record<Dir, [number, number]> = { [Dir.Down]: [0, 7], [Dir.Up]: [0, -7], [Dir.Right]: [8, -2], [Dir.Left]: [-8, -2] };
+  const [dx, dy] = off[player.dir];
+  return Farm.tileAt(player.x + dx, player.y + dy);
+}
+const tileFree = (c: number, r: number) => {
+  const cx = c * TILE + 4;
+  const cy = r * TILE + 4;
+  return !world.blocked(cx, cy, 4, 4) && !(Math.abs(player.x - cx) < 4 && Math.abs(player.y - cy) < 4);
+};
+/** Wasser vor der Figur (zum Auffüllen)? */
+function facingWater() {
+  const off: Record<Dir, [number, number]> = { [Dir.Down]: [0, 10], [Dir.Up]: [0, -8], [Dir.Right]: [10, 0], [Dir.Left]: [-10, 0] };
+  const [dx, dy] = off[player.dir];
+  for (let k = 0.6; k <= 1.6; k += 0.5) {
+    const x = Math.round(player.x + dx * k);
+    const y = Math.round(player.y + dy * k);
+    if (x < 0 || y < 0 || x >= W || y >= H || island.ground[y * W + x] === Ground.Water) return true;
+  }
+  return false;
+}
+type Intent = ToolId | 'harvest' | 'refill' | null;
+/** Was würde der Aktions-Knopf jetzt tun? */
+function intent(): { kind: Intent; tree: number; tile: [number, number] } {
+  const tile = frontTile();
+  const p = farm.plot(...tile);
+  if (p?.crop && p.crop.stage >= RIPE) return { kind: 'harvest', tree: -1, tile };
+  if (tool === 'axe') {
+    const tr = world.target(player.x, player.y);
+    return { kind: tr >= 0 ? 'axe' : null, tree: tr, tile };
+  }
+  if (tool === 'hoe') return { kind: !p && tileFree(...tile) ? 'hoe' : null, tree: -1, tile };
+  if (tool === 'seeds') return { kind: p && !p.crop && farm.seeds > 0 ? 'seeds' : null, tree: -1, tile };
+  if (facingWater() && farm.water < farm.capacity) return { kind: 'refill', tree: -1, tile };
+  return { kind: p && !p.wetAt && farm.water > 0 ? 'water' : null, tree: -1, tile };
+}
+const toolHint: Record<ToolId, string> = {
+  axe: 'Geh näher an einen Baum',
+  hoe: 'Stell dich vor ein freies Stück Wiese',
+  seeds: 'Stell dich vor ein leeres Feld',
+  water: 'Stell dich vor ein trockenes Feld',
+};
+function useTool() {
+  const [c, r] = swingTile;
+  const cx = c * TILE + 4;
+  const cy = r * TILE + 4;
+  let err: string | null = null;
+  if (swingTool === 'axe') return hit();
+  if (swingTool === 'hoe') {
+    err = farm.till(c, r, tileFree(c, r));
+    if (!err) burst(cx, cy, 2, 10, ['#8a5e3a', '#6a4428', '#a87a50']);
+  } else if (swingTool === 'seeds') {
+    err = farm.plant(c, r);
+    if (!err) burst(cx, cy, 3, 5, ['#e8c890', '#f4dcb0']);
+  } else if (swingTool === 'refill') {
+    actHeld = false;
+    farm.refill();
+    hud?.toast(farm.hasCan ? 'Gießkanne aufgefüllt' : 'Kübel aufgefüllt');
+    burst(player.x, player.y + 6, 2, 8, ['#9fd8f0', '#e6f7ff'], 25);
+  } else if (swingTool === 'water') {
+    err = farm.pour(c, r, Date.now());
+    if (!err) burst(cx, cy, 6, 12, ['#4a8ad0', '#9fd8f0', '#e6f7ff'], 18);
+  } else if (swingTool === 'harvest') {
+    // nach dem Ernten nicht gleich weiter gießen/säen – erst loslassen
+    actHeld = false;
+    const res = farm.harvest(c, r);
+    if (res) {
+      burst(cx, cy, 4, 10, ['#4f9a44', '#8a5e3a', '#b05a9a']);
+      floats.push({ x: cx, y: cy - 8, text: `+1 Rübe  +${res.seeds} Samen`, life: 1.6 });
+      if (res.gotCan) {
+        hud?.toast('Belohnung: Eisen-Gießkanne!');
+        floats.push({ x: player.x, y: player.y - 26, text: 'Eisen-Gießkanne!', life: 2.2 });
+      }
+    }
+  }
+  if (err) hud?.toast(err);
+  syncHud();
+  persist();
+}
+function syncHud() {
+  if (!hud) return;
+  hud.setInv(world.wood, farm.turnips);
+  hud.setSlots(farm.seeds, farm.water, farm.capacity, farm.hasCan);
+  hud.setGoal(farm.hasCan ? null : `Ernte ${CAN_GOAL} Rüben → Eisen-Gießkanne (${farm.harvested}/${CAN_GOAL})`);
 }
 
 // ---------- Haus platzieren ----------
@@ -254,13 +363,18 @@ addEventListener('keydown', (e) => {
   if (e.key === 'Enter' && placing) confirmBuild();
   if ((e.key === ' ' || e.key.toLowerCase() === 'e') && !placing) {
     e.preventDefault();
-    chopHeld = true;
+    actHeld = true;
   }
   if (e.key.toLowerCase() === 'b' && !placing) hud?.openBuild(world.wood);
+  const tk = (['axe', 'hoe', 'seeds', 'water'] as const)[Number(e.key) - 1];
+  if (tk) {
+    tool = tk;
+    hud?.setTool(tk);
+  }
 });
 addEventListener('keyup', (e) => {
   keys.delete(e.key.toLowerCase());
-  if (e.key === ' ' || e.key.toLowerCase() === 'e') chopHeld = false;
+  if (e.key === ' ' || e.key.toLowerCase() === 'e') actHeld = false;
 });
 addEventListener('blur', () => keys.clear());
 
@@ -280,6 +394,7 @@ function input(): [number, number] {
 function persist() {
   save.pos = { x: Math.round(player.x), y: Math.round(player.y) };
   save.world = world.toSave();
+  save.farm = farm.toSave();
   writeSave(save);
 }
 function openMenu() {
@@ -315,9 +430,13 @@ function startPlay() {
   hud = showHud(
     {
       menu: openMenu,
-      chop: (down) => {
-        chopHeld = down;
-        if (down && world.target(player.x, player.y) < 0) hud?.toast('Geh näher an einen Baum');
+      act: (down) => {
+        actHeld = down;
+        if (down && !intent().kind) hud?.toast(tool === 'water' && farm.water <= 0 ? 'Leer – am Wasser auffüllen' : toolHint[tool]);
+      },
+      tool: (t) => {
+        tool = t;
+        hud?.setTool(t);
       },
       place: () => {
         placing = true;
@@ -332,16 +451,25 @@ function startPlay() {
     icons,
     HOUSE_COST,
   );
-  hud.setWood(world.wood);
+  hud.setTool(tool);
+  syncHud();
   hint.classList.remove('gone');
   setTimeout(() => hint.classList.add('gone'), 6000);
 }
+/** Liegt ein Feld unter der Haus-Grundfläche? */
+function farmUnder(x: number, y: number) {
+  const [c0, r0] = Farm.tileAt(x + HOUSE_FOOT.left, y + HOUSE_FOOT.top - 6);
+  const [c1, r1] = Farm.tileAt(x + HOUSE_FOOT.right, y + HOUSE_FOOT.bottom);
+  for (let r = r0; r <= r1; r++) for (let c = c0; c <= c1; c++) if (farm.plot(c, r)) return true;
+  return false;
+}
 function confirmBuild() {
   if (!placing) return;
+  if (farmUnder(ghost.x, ghost.y)) return hud?.toast('Hier ist ein Feld im Weg');
   if (world.build(ghost.x, ghost.y, player)) {
     placing = false;
     hud?.setPlacing(false);
-    hud?.setWood(world.wood);
+    syncHud();
     hud?.toast('Dein Haus steht!');
     burst(ghost.x, ghost.y, 2, 30, ['#e8dcc8', '#c8b498', '#ffffff'], 45);
     persist();
@@ -364,31 +492,38 @@ function frame(now: number) {
     // beim Schlagen bleibt man stehen
     if (swing > 0) player.update(0, 0, dt);
     else player.update(mx, my, dt);
-    // Axt
+    // Werkzeug benutzen
     if (!placing) {
-      const tgt = world.target(player.x, player.y);
-      hud?.setTarget(tgt >= 0);
-      if (chopHeld && swing <= 0 && tgt >= 0) {
-        chopTarget = tgt;
-        const d = island.decor[tgt];
-        // zum Baum drehen
-        const dx = d.x - player.x;
-        const dy = d.y - player.y;
-        player.dir = Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? Dir.Right : Dir.Left) : dy > 0 ? Dir.Down : Dir.Up;
-        swing = SWING;
+      const it = intent();
+      hud?.setAction(!!it.kind, it.kind === 'harvest' ? icons.turnip : it.kind === 'refill' ? (farm.hasCan ? icons.can : icons.bucket) : icons[tool === 'water' ? (farm.hasCan ? 'can' : 'bucket') : tool]);
+      if (actHeld && swing <= 0 && it.kind) {
+        swingTool = it.kind;
+        swingTile = it.tile;
+        if (it.kind === 'axe') {
+          chopTarget = it.tree;
+          const d = island.decor[it.tree];
+          // zum Baum drehen
+          const dx = d.x - player.x;
+          const dy = d.y - player.y;
+          player.dir = Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? Dir.Right : Dir.Left) : dy > 0 ? Dir.Down : Dir.Up;
+        }
+        swing = it.kind === 'seeds' || it.kind === 'harvest' ? SWING * 0.7 : SWING;
       }
     }
     if (swing > 0) {
       const before = swing;
       swing -= dt;
-      if (before > SWING / 2 && swing <= SWING / 2) hit();
+      if (before > SWING / 2 && swing <= SWING / 2) useTool();
     }
     if (placing) {
       const g = ghostSpot();
-      ghost = { ...g, ok: world.canPlace(g.x, g.y, player) };
+      ghost = { ...g, ok: world.canPlace(g.x, g.y, player) && !farmUnder(g.x, g.y) };
       hud?.setPlacing(true, ghost.ok && world.wood >= HOUSE_COST);
     }
-    if (Math.floor(now / 1000) !== Math.floor((now - dt * 1000) / 1000)) world.grow(Date.now(), player);
+    if (Math.floor(now / 1000) !== Math.floor((now - dt * 1000) / 1000)) {
+      world.grow(Date.now(), player);
+      farm.update(Date.now());
+    }
     // Kamera folgt weich
     const k = 1 - Math.exp(-dt * 6);
     cam.x += (player.x - cam.x) * k;
@@ -421,6 +556,10 @@ function frame(now: number) {
   ctx.fillRect(-ox / zoom - 16, -oy / zoom - 16, cw / zoom + 32, ch / zoom + 32);
   ctx.drawImage(shore.canvas, 0, 0);
   ctx.drawImage(land, 0, 0);
+  for (const [k, p] of farm.plots) {
+    const [c, r] = k.split(',').map(Number);
+    ctx.drawImage(p.wetAt ? soilWet : soilDry, c * TILE, r * TILE);
+  }
 
   // Bäume, Palmen, Büsche, Steine, hohes Gras, Häuser und die Figur – von hinten nach vorn
   const showPlayer = mode === 'play';
@@ -428,6 +567,24 @@ function frame(now: number) {
   const items: { y: number; draw: () => void }[] = [];
   island.decor.forEach((d, i) => items.push({ y: d.y, draw: () => drawDecor(i, t, nowMs) }));
   for (const h of world.houses) items.push({ y: h.y, draw: () => ctx.drawImage(houseImg.img, h.x - houseImg.ox, h.y - houseImg.oy) });
+  for (const [k, p] of farm.plots) {
+    if (!p.crop) continue;
+    const [c, r] = k.split(',').map(Number);
+    const im = crops[p.crop.stage];
+    const ripeBob = p.crop.stage >= RIPE ? Math.round(Math.sin(t * 3 + c) * 0.6) : 0;
+    items.push({ y: r * TILE + 6, draw: () => ctx.drawImage(im.img, c * TILE + 4 - im.ox, r * TILE + 7 - im.oy + ripeBob) });
+  }
+  // Ziel-Kachel markieren (Feld-Werkzeuge)
+  if (showPlayer && !placing && tool !== 'axe') {
+    const [c, r] = frontTile();
+    const blink = 0.5 + Math.sin(t * 6) * 0.25;
+    ctx.globalAlpha = blink;
+    ctx.fillStyle = '#fff8e6';
+    const x0 = c * TILE;
+    const y0 = r * TILE;
+    for (const [a, b, w, h] of [[0, 0, 3, 1], [0, 0, 1, 3], [5, 0, 3, 1], [7, 0, 1, 3], [0, 7, 3, 1], [0, 5, 1, 3], [5, 7, 3, 1], [7, 5, 1, 3]]) ctx.fillRect(x0 + a, y0 + b, w, h);
+    ctx.globalAlpha = 1;
+  }
   if (showPlayer) items.push({ y: player.y, draw: drawPlayer });
   if (showPlayer && placing) items.push({ y: ghost.y, draw: drawGhost });
   items.sort((a, b) => a.y - b.y);
@@ -556,7 +713,12 @@ function drawAxe(px: number, py: number) {
   ctx.translate(hx, hy);
   ctx.scale(side, 1);
   ctx.rotate(a);
-  ctx.drawImage(axeImg, -1, -9);
+  const img = swingTool === 'hoe' ? hoeImg : swingTool === 'water' || swingTool === 'refill' ? (farm.hasCan ? canImg : bucketImg) : swingTool === 'seeds' || swingTool === 'harvest' ? null : axeImg;
+  if (img === bucketImg || img === canImg) {
+    // Gießen: Gefäß kippt nach vorn
+    ctx.rotate(-a + 0.5 * k);
+    ctx.drawImage(img, 0, -6);
+  } else if (img) ctx.drawImage(img, -1, -9);
   ctx.restore();
 }
 
@@ -590,4 +752,4 @@ function drawGhost() {
 }
 
 // zum Testen von außen
-(window as unknown as { __game?: unknown }).__game = { player, world, get mode() { return mode; } };
+(window as unknown as { __game?: unknown }).__game = { player, world, farm, get mode() { return mode; } };
