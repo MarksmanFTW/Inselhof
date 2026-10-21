@@ -154,6 +154,17 @@ export class World {
     return { felled: true, wood: c.wood, left: 0 };
   }
 
+  /** Baum gilt als gefällt (Abgleich einer gemeinsamen Insel) */
+  fell(i: number, now = Date.now()) {
+    const c = CHOP[this.isl.decor[i]?.kind];
+    if (!c || this.felled.has(i)) return 0;
+    this.hits.delete(i);
+    this.felled.set(i, now);
+    this.wood += c.wood;
+    this.version++;
+    return c.wood;
+  }
+
   /** Darf hier ein Haus stehen? Ganz auf Land, nichts im Weg, nicht auf dem Steg */
   canPlace(x: number, y: number, player?: { x: number; y: number }) {
     const f = HOUSE_FOOT;

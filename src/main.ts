@@ -5,7 +5,9 @@ import { CH, CW, Dir, FOOT_X, FOOT_Y, makeCharacter, type CharSheet, type Look }
 import { Ground, H, TILE, W, generate, rng } from './island';
 import { Shore, paintDock, paintLand, paintShadows, waveTile } from './paint';
 import { Player } from './player';
+import { httpApi, syncIsland } from './cloud';
 import { CAN_GOAL, Farm, RIPE } from './farm';
+import { applyOp, farmUnder as farmUnderOf, tileFree as tileFreeOf, type Op } from './ops';
 import { axe, bucket, cropStage, hoe, house, logIcon, sapling, seedBag, soilTile, toUrl, treeStump, turnipIcon, wateringCan } from './props';
 import { activeSlot, addSlot, loadSave, removeSlot, writeSave, type Save, type Slot } from './save';
 import { butterfly, gull, makeSprites } from './sprites';
@@ -174,45 +176,34 @@ function emit(fx: Fx) {
 }
 /** Aktion ausführen (nur allein oder beim Gastgeber); liefert einen Hinweis bei Fehlschlag */
 function perform(a: Action, actor: { x: number; y: number }): string | null {
+  const op: Op = { a, x: Math.round(actor.x), y: Math.round(actor.y), t: Date.now() };
+  const res = applyOp(world, farm, op);
   const c = a.c ?? 0;
   const r = a.r ?? 0;
   const cx = c * TILE + 4;
   const cy = r * TILE + 4;
-  let err: string | null = null;
   if (a.kind === 'axe') {
     const d = island.decor[a.tree ?? -1];
-    if (!d) return null;
-    const res = world.chop(a.tree!);
-    emit({ k: 'chop', x: d.x + (actor.x < d.x ? -3 : 3), y: d.y - 2, tree: a.tree });
-    if (res.felled) emit({ k: 'fell', x: d.x, y: d.y - 26, text: `+${res.wood} Holz` });
-  } else if (a.kind === 'hoe') {
-    err = farm.till(c, r, tileFree(c, r, actor));
-    if (!err) emit({ k: 'till', x: cx, y: cy });
-  } else if (a.kind === 'seeds') {
-    err = farm.plant(c, r);
-    if (!err) emit({ k: 'seed', x: cx, y: cy });
-  } else if (a.kind === 'refill') {
-    farm.refill();
-    emit({ k: 'refill', x: actor.x, y: actor.y + 6, text: 'Voll!' });
-  } else if (a.kind === 'water') {
-    err = farm.pour(c, r, Date.now());
-    if (!err) emit({ k: 'water', x: cx, y: cy });
-  } else if (a.kind === 'harvest') {
-    const res = farm.harvest(c, r);
-    if (res) {
-      emit({ k: 'harvest', x: cx, y: cy, text: `+1 Rübe  +${res.seeds} Samen` });
-      if (res.gotCan) emit({ k: 'can', x: actor.x, y: actor.y - 18, text: 'Eisen-Gießkanne!' });
-    }
-  } else if (a.kind === 'build') {
-    const x = a.x ?? 0;
-    const y = a.y ?? 0;
-    if (farmUnder(x, y)) err = 'Hier ist ein Feld im Weg';
-    else if (world.build(x, y, actor)) emit({ k: 'build', x, y, text: 'Haus gebaut!' });
-    else err = world.wood < HOUSE_COST ? 'Zu wenig Holz' : 'Hier ist kein Platz';
+    if (d) emit({ k: 'chop', x: d.x + (actor.x < d.x ? -3 : 3), y: d.y - 2, tree: a.tree });
+    if (d && res.felled) emit({ k: 'fell', x: d.x, y: d.y - 26, text: `+${res.wood} Holz` });
+  } else if (res.done) {
+    if (a.kind === 'hoe') emit({ k: 'till', x: cx, y: cy });
+    else if (a.kind === 'seeds') emit({ k: 'seed', x: cx, y: cy });
+    else if (a.kind === 'refill') emit({ k: 'refill', x: actor.x, y: actor.y + 6, text: 'Voll!' });
+    else if (a.kind === 'water') emit({ k: 'water', x: cx, y: cy });
+    else if (a.kind === 'harvest' && res.harvest) {
+      emit({ k: 'harvest', x: cx, y: cy, text: `+1 Rübe  +${res.harvest.seeds} Samen` });
+      if (res.harvest.gotCan) emit({ k: 'can', x: actor.x, y: actor.y - 18, text: 'Eisen-Gießkanne!' });
+    } else if (a.kind === 'build') emit({ k: 'build', x: a.x ?? 0, y: a.y ?? 0, text: 'Haus gebaut!' });
+  }
+  // gemeinsame Insel: Aktion für den Abgleich merken (beim Fällen nur das Umfallen)
+  if (cloudOn() && (a.kind === 'axe' ? res.felled : res.done)) {
+    const sl = mySlot();
+    (sl.pending ??= []).push(a.kind === 'axe' ? { ...op, a: { ...a, fell: true } } : op);
   }
   syncHud();
   persist();
-  return err;
+  return res.err;
 }
 /** eigene Aktion: allein/Gastgeber gleich ausführen, als Gast an den Gastgeber schicken */
 function doAction(a: Action) {
@@ -230,11 +221,7 @@ function frontTile(): [number, number] {
   const [dx, dy] = off[player.dir];
   return Farm.tileAt(player.x + dx, player.y + dy);
 }
-const tileFree = (c: number, r: number, actor: { x: number; y: number } = player) => {
-  const cx = c * TILE + 4;
-  const cy = r * TILE + 4;
-  return !world.blocked(cx, cy, 4, 4) && !(Math.abs(actor.x - cx) < 4 && Math.abs(actor.y - cy) < 4);
-};
+const tileFree = (c: number, r: number, actor: { x: number; y: number } = player) => tileFreeOf(world, c, r, actor);
 /** Wasser vor der Figur (zum Auffüllen)? */
 function facingWater() {
   const off: Record<Dir, [number, number]> = { [Dir.Down]: [0, 10], [Dir.Up]: [0, -8], [Dir.Right]: [10, 0], [Dir.Left]: [-10, 0] };
@@ -578,15 +565,13 @@ function startPlay() {
   hud.setTool(tool);
   syncHud();
   updateCoopChip();
+  void cloudSync();
   hint.classList.remove('gone');
   setTimeout(() => hint.classList.add('gone'), 6000);
 }
 /** Liegt ein Feld unter der Haus-Grundfläche? */
 function farmUnder(x: number, y: number) {
-  const [c0, r0] = Farm.tileAt(x + HOUSE_FOOT.left, y + HOUSE_FOOT.top - 6);
-  const [c1, r1] = Farm.tileAt(x + HOUSE_FOOT.right, y + HOUSE_FOOT.bottom);
-  for (let r = r0; r <= r1; r++) for (let c = c0; c <= c1; c++) if (farm.plot(c, r)) return true;
-  return false;
+  return farmUnderOf(farm, x, y);
 }
 function confirmBuild() {
   if (!placing) return;
@@ -637,7 +622,10 @@ function makeMate(name: string, look: Look, p: PlayerState): Mate {
 const islandState = () => ({ world: world.toSave(), farm: farm.toSave() });
 function updateCoopChip() {
   if (!hud) return;
-  if (!room) return hud.setCoop(null);
+  if (!room) {
+    const sh = mySlot().shared;
+    return hud.setCoop(sh ? `Gemeinsam mit ${sh.with}${cloudState === 'offline' ? ' · offline' : ''}` : null);
+  }
   if (role === 'host') hud.setCoop(mate ? `Koop: ${mate.name} ist da` : `Raum ${room.code} · wartet …`);
   else hud.setCoop(`Zu Besuch bei ${mate?.name ?? '…'}`);
 }
@@ -689,6 +677,7 @@ function newRoom(host: boolean) {
 }
 function hostRoom() {
   if (!save.created) return openCustom(true);
+  void cloudSync();
   const r = newRoom(true);
   mode = 'custom';
   hud = null;
@@ -766,9 +755,8 @@ function onNet(m: Msg) {
     case 'welcome': {
       if (role !== 'guest') return;
       // eigenen (neueren) Stand dieser gemeinsamen Insel mitbringen?
+      // (gemeinsame Inseln gleichen sich über die Cloud ab – der Gastgeber hat den neuesten Stand)
       const mine = save.slots.find((x) => x.id === m.slot.id);
-      if (mine?.world && mine.updatedAt > m.slot.updatedAt + 2000)
-        r.send({ t: 'newer', state: { world: new World(island, mine.world).toSave(), farm: new Farm(island, mine.farm).toSave() }, updatedAt: mine.updatedAt });
       hostSlot = m.slot;
       world.apply(m.state.world);
       farm.apply(m.state.farm);
@@ -779,7 +767,12 @@ function onNet(m: Msg) {
         role = 'guest';
         persist();
         const copy = save.slots.find((x) => x.id === m.slot.id);
-        if (copy && !(mine && mine.updatedAt > m.slot.updatedAt + 2000)) copy.updatedAt = m.slot.updatedAt;
+        if (copy) {
+          copy.updatedAt = Math.max(m.slot.updatedAt, mine?.updatedAt ?? 0);
+          // eigene Kopie holt sich beim nächsten Alleinspielen den Cloud-Stand;
+          // noch nicht abgeglichene eigene Aktionen bleiben gemerkt und kommen dann dazu
+          copy.rev = 0;
+        }
         writeSave(save);
       }
       // neben dem Gastgeber auftauchen
@@ -851,6 +844,48 @@ function netTick(now: number) {
     }
   }
 }
+// ---------- Gemeinsame Insel: Abgleich über island.php ----------
+const cloud = httpApi();
+let syncing = false;
+let cloudState: 'ok' | 'offline' | '' = '';
+/** eigene Insel ist gemeinsam und wird von hier aus abgeglichen (nicht als Gast) */
+function cloudOn() {
+  return role !== 'guest' && !!mySlot().shared;
+}
+async function cloudSync() {
+  if (!cloudOn() || syncing) return;
+  syncing = true;
+  const sl = mySlot();
+  try {
+    const res = await syncIsland(cloud, sl.id, island, { rev: sl.rev ?? 0, pending: sl.pending ?? [] }, islandState);
+    if (mySlot() !== sl || !cloudOn()) return;
+    if (!res) {
+      cloudState = 'offline';
+      return;
+    }
+    cloudState = 'ok';
+    sl.rev = res.rev;
+    const rest = (sl.pending ?? []).slice(res.consumed);
+    sl.pending = rest;
+    if (res.state) {
+      // was der Freund inzwischen gemacht hat (plus eigene Aktionen von eben)
+      const before = world.wood + farm.turnips + farm.plots.size + world.houses.length + world.felled.size;
+      world.apply(res.state.world);
+      farm.apply(res.state.farm);
+      for (const op of rest) applyOp(world, farm, op);
+      const after = world.wood + farm.turnips + farm.plots.size + world.houses.length + world.felled.size;
+      if (after !== before && mode === 'play') hud?.toast(`Insel aktualisiert – ${sl.shared?.with ?? 'dein Freund'} war fleißig`);
+      syncHud();
+    }
+    persist();
+  } finally {
+    syncing = false;
+    updateCoopChip();
+  }
+}
+setInterval(() => void cloudSync(), 8000);
+document.addEventListener('visibilitychange', () => document.visibilityState === 'visible' && void cloudSync());
+
 // Einladungs-Link ?join=CODE
 {
   const q = new URLSearchParams(location.search);

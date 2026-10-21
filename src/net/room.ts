@@ -37,6 +37,8 @@ export interface Action {
   tree?: number;
   x?: number;
   y?: number;
+  /** Abgleich: Baum ist umgefallen (unabhängig von einzelnen Schlägen) */
+  fell?: boolean;
 }
 /** Effekte (Splitter, „+4 Holz“) für den anderen Bildschirm */
 export interface Fx {
