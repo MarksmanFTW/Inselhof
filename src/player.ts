@@ -1,19 +1,10 @@
 /**
  * Spielfigur auf der Insel: läuft in 4 Richtungen, bleibt an Wasser, Baumstämmen,
- * Steinen und Büschen hängen (gleitet an ihnen entlang), darf auf den Steg.
+ * Steinen, Büschen und Häusern hängen (gleitet an ihnen entlang), darf auf den Steg.
  */
 import { Dir } from './character';
 import { Ground, H, W, type Island } from './island';
-
-/** Hindernisse: Radius um den Fußpunkt (Welt-Pixel), flach wie der Schatten */
-const BLOCK: Record<string, [number, number]> = {
-  tree: [5, 3],
-  palm: [3, 2],
-  bush: [9, 4],
-  boulder: [9, 4],
-  rock: [5, 2],
-  stump: [4, 2],
-};
+import type { World } from './world';
 
 /** Füße sind ein kleines Rechteck */
 const FOOT_W = 3;
@@ -30,6 +21,7 @@ export class Player {
 
   constructor(
     readonly isl: Island,
+    readonly world: World,
     x: number,
     y: number,
   ) {
@@ -54,12 +46,7 @@ export class Player {
       [FOOT_W, FOOT_H],
     ])
       if (!this.ground(x + dx, y + dy)) return false;
-    for (const d of this.isl.decor) {
-      const b = BLOCK[d.kind];
-      if (!b) continue;
-      const cx = d.kind === 'palm' ? d.x : d.x + 1;
-      if (((x - cx) / (b[0] + FOOT_W)) ** 2 + ((y - d.y) / (b[1] + FOOT_H)) ** 2 < 1) return false;
-    }
+    if (this.world.blocked(x, y, FOOT_W, FOOT_H)) return false;
     return true;
   }
 

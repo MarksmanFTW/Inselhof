@@ -1,24 +1,26 @@
 import { describe, expect, it } from 'vitest';
 import { generate } from '../src/island';
 import { Player, SPEED } from '../src/player';
+import { World } from '../src/world';
 
 describe('Spielfigur', () => {
   const isl = generate();
+  const world = new World(isl);
   it('startet auf freiem Boden und läuft', () => {
-    const p = new Player(isl, 176, 172);
+    const p = new Player(isl, world, 176, 172);
     expect(p.free(p.x, p.y)).toBe(true);
     for (let i = 0; i < 30; i++) p.update(1, 0, 1 / 30);
     expect(p.x).toBeGreaterThan(176 + SPEED * 0.9);
     expect(p.dir).toBe(2); // rechts
   });
   it('bleibt am Ufer stehen', () => {
-    const p = new Player(isl, 176, 172);
+    const p = new Player(isl, world, 176, 172);
     for (let i = 0; i < 600; i++) p.update(-1, 0, 1 / 30);
     expect(p.x).toBeGreaterThan(30);
     expect(p.free(p.x, p.y)).toBe(true);
   });
   it('kommt nicht durch Baumstämme, darf aber auf den Steg', () => {
-    const p = new Player(isl, 227, 140);
+    const p = new Player(isl, world, 227, 140);
     for (let i = 0; i < 90; i++) p.update(0, -1, 1 / 30);
     expect(p.y).toBeGreaterThan(122);
     const d = isl.dock;

@@ -174,11 +174,109 @@ export function showCustomize(save: Save, done: (s: Save) => void, opts: { first
   });
 }
 
-/** Knopf im Spiel, der zurück ins Menü führt */
-export function showHud(onMenu: () => void) {
-  clear();
-  ui.className = 'ui-hud';
-  ui.innerHTML = `<button class="pbtn icon" data-act="menu" aria-label="Menü"><i></i><i></i><i></i></button>`;
-  ui.querySelector('[data-act=menu]')!.addEventListener('click', onMenu);
+export interface HudActions {
+  menu: () => void;
+  /** Axt gedrückt halten */
+  chop: (down: boolean) => void;
+  /** Bau-Fenster: Haus wählen → platzieren */
+  place: () => void;
+  confirm: () => void;
+  cancel: () => void;
 }
 
+export interface Hud {
+  setWood(n: number): void;
+  setTarget(on: boolean): void;
+  setPlacing(on: boolean, valid?: boolean): void;
+  openBuild(wood: number): void;
+  toast(text: string): void;
+}
+
+/** Anzeigen und Knöpfe im Spiel */
+export function showHud(on: HudActions, icons: { log: string; axe: string; house: string }, cost: number): Hud {
+  clear();
+  ui.className = 'ui-hud';
+  ui.innerHTML = `
+    <button class="pbtn icon" data-act="menu" aria-label="Menü"><i></i><i></i><i></i></button>
+    <div class="panel wood"><img src="${icons.log}" alt="" /><b>0</b></div>
+    <div class="actions">
+      <button class="pbtn build" data-act="build" aria-label="Bauen"><img src="${icons.house}" alt="" /><span>Bauen</span></button>
+      <button class="pbtn green axe off" data-act="axe" aria-label="Axt"><img src="${icons.axe}" alt="" /></button>
+    </div>
+    <div class="place-bar" hidden>
+      <p>Lauf dorthin, wo dein Haus stehen soll</p>
+      <div class="btns">
+        <button class="pbtn small" data-act="cancel">Abbrechen</button>
+        <button class="pbtn green small" data-act="confirm">Hier bauen</button>
+      </div>
+    </div>
+    <div class="toast" hidden></div>`;
+  const $ = <T extends HTMLElement>(q: string) => ui.querySelector<T>(q)!;
+  $('[data-act=menu]').addEventListener('click', on.menu);
+  const axe = $('[data-act=axe]');
+  axe.addEventListener('pointerdown', (e) => {
+    e.preventDefault();
+    axe.setPointerCapture(e.pointerId);
+    on.chop(true);
+  });
+  for (const ev of ['pointerup', 'pointercancel', 'lostpointercapture']) axe.addEventListener(ev, () => on.chop(false));
+  $('[data-act=build]').addEventListener('click', () => hud.openBuild(Number($('.wood b').textContent)));
+  $('[data-act=cancel]').addEventListener('click', on.cancel);
+  $('[data-act=confirm]').addEventListener('click', on.confirm);
+  let toastTimer = 0;
+  const hud: Hud = {
+    setWood(n) {
+      const b = $('.wood b');
+      if (b.textContent !== String(n)) {
+        b.textContent = String(n);
+        const w = $('.wood');
+        w.classList.remove('pop');
+        void w.offsetWidth;
+        w.classList.add('pop');
+      }
+    },
+    setTarget(onT) {
+      axe.classList.toggle('off', !onT);
+    },
+    setPlacing(onP, valid = true) {
+      $('.place-bar').hidden = !onP;
+      $('.actions').hidden = onP;
+      $<HTMLButtonElement>('[data-act=confirm]').disabled = !valid;
+    },
+    openBuild(wood) {
+      const enough = wood >= cost;
+      const modal = document.createElement('div');
+      modal.className = 'modal';
+      modal.innerHTML = `<div class="panel build-panel">
+          <h2>Bauen</h2>
+          <div class="build-card${enough ? '' : ' poor'}">
+            <img src="${icons.house}" alt="" />
+            <div><b>Kleines Haus</b><p>Ein gemütliches Zuhause aus Holz.</p>
+            <p class="cost"><img src="${icons.log}" alt="" /> ${cost} Holz <small>(du hast ${wood})</small></p></div>
+          </div>
+          ${enough ? '' : `<p class="need">Dir fehlen noch ${cost - wood} Holz – fäll ein paar Bäume!</p>`}
+          <div class="btns">
+            <button class="pbtn small" data-m="close">Zurück</button>
+            <button class="pbtn green small" data-m="place"${enough ? '' : ' disabled'}>Platzieren</button>
+          </div>
+        </div>`;
+      ui.appendChild(modal);
+      modal.addEventListener('click', (e) => {
+        const m = (e.target as HTMLElement).closest<HTMLElement>('[data-m]')?.dataset.m;
+        if (e.target === modal || m === 'close') modal.remove();
+        if (m === 'place') {
+          modal.remove();
+          on.place();
+        }
+      });
+    },
+    toast(text) {
+      const t = $('.toast');
+      t.textContent = text;
+      t.hidden = false;
+      clearTimeout(toastTimer);
+      toastTimer = window.setTimeout(() => (t.hidden = true), 1800);
+    },
+  };
+  return hud;
+}
