@@ -23,6 +23,8 @@ export interface Slot {
   rev?: number;
   /** Aktionen seit dem letzten Abgleich */
   pending?: Op[];
+  /** über einen Insel-Link dazugekommen: erst den Stand aus der Cloud holen, nie leer hochladen */
+  pull?: boolean;
 }
 
 export interface Save {

@@ -85,4 +85,21 @@ describe('Gemeinsame Insel in der Cloud', () => {
     expect(a.get().pending).toHaveLength(0);
     expect(srv.get().state!.world.wood).toBe(4);
   });
+
+  it('Insel-Link: leere Kopie lädt nur, überschreibt nie die Insel des Freundes', async () => {
+    const srv = fakeServer();
+    const empty = (): IslandState => ({ world: new World(isl).toSave(), farm: new Farm(isl).toSave() });
+    // Freund hat noch nie hochgeladen → nichts passiert
+    expect(await syncIsland(srv.api, 'x', isl, { rev: 0, pending: [] }, empty, true)).toEqual({ rev: 0, consumed: 0 });
+    expect(srv.get().rev).toBe(0);
+    // Freund lädt seine Insel hoch …
+    const w = new World(isl);
+    w.wood = 42;
+    await srv.api.post('x', 0, { world: w.toSave(), farm: new Farm(isl).toSave() });
+    // … die leere Kopie holt sie sich, ohne etwas zu schreiben
+    const res = await syncIsland(srv.api, 'x', isl, { rev: 0, pending: [] }, empty, true);
+    expect(res?.state?.world.wood).toBe(42);
+    expect(res?.rev).toBe(1);
+    expect(srv.get().rev).toBe(1);
+  });
 });

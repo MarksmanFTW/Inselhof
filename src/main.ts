@@ -18,7 +18,7 @@ import { applyOp, farmUnder as farmUnderOf, link, tileFree as tileFreeOf, type O
 import { PERKS, levelProgress, questAt } from './progress';
 import { newClock, timeOf, type TimeOfDay } from './time';
 import { campfire, mealIcon, axe, bucket, cropStage, hoe, house, logIcon, sapling, seedBag, soilTile, toUrl, treeStump, turnipIcon, wateringCan } from './props';
-import { activeSlot, addSlot, loadSave, removeSlot, writeSave, type Save, type Slot } from './save';
+import { MAX_SLOTS, activeSlot, addSlot, loadSave, removeSlot, writeSave, type Save, type Slot } from './save';
 import { butterfly, gull, makeSprites } from './sprites';
 import { PROTOCOL, Room, cleanCode, type Action, type Fx, type Msg, type PlayerState } from './net/room';
 import { showCoop, showCustomize, showHud, showMenu, showSlots, showWait, type Hud, type ToolId, type TradeData } from './ui';
@@ -827,7 +827,17 @@ function openMenu() {
     coop: () => openCoop(),
     leave: room ? () => (leaveCoop(), openMenu()) : undefined,
     coopText: room ? (role === 'host' ? `Deine Insel ist offen – Code ${room.code}` : `Zu Besuch bei ${mate?.name || 'deinem Freund'}`) : undefined,
+    // gemeinsame Inseln direkt im Menü (ohne Umweg über Spielstände)
+    shared: room ? [] : save.slots.filter((x) => x.shared && x.id !== save.active).map((x) => ({ id: x.id, title: x.title })),
+    playSlot: (id) => {
+      const sl = save.slots.find((x) => x.id === id);
+      if (!sl) return;
+      applySlot(sl);
+      startPlay();
+    },
+    note: linkNote,
   });
+  linkNote = '';
 }
 function openCustom(first: boolean) {
   hud = null;
@@ -965,6 +975,25 @@ function updateCoopChip() {
 function coopLink(code: string) {
   return `${location.origin}${location.pathname}?join=${code}`;
 }
+/** fester Link zur eigenen Insel: der Freund spielt jederzeit mit, auch offline */
+async function shareIsland(): Promise<string> {
+  const sl = mySlot();
+  sl.shared ??= { with: 'Freund' };
+  persist();
+  void cloudSync();
+  const url = `${location.origin}${location.pathname}?insel=${sl.id}&von=${encodeURIComponent(save.name || 'Freund')}`;
+  const text = `Spiel mit mir auf meiner Insel „${sl.title}“ in Cozy Island – jederzeit, auch wenn ich offline bin!`;
+  try {
+    if (navigator.share) {
+      await navigator.share({ title: 'Cozy Island', text, url });
+      return 'Link geschickt!';
+    }
+    await navigator.clipboard.writeText(`${text} ${url}`);
+    return 'Link kopiert – schick ihn deinem Freund';
+  } catch {
+    return '';
+  }
+}
 async function share(code: string) {
   const url = coopLink(code);
   const text = `Komm auf meine Insel in Cozy Island! Code: ${code}`;
@@ -979,7 +1008,7 @@ async function share(code: string) {
 function openCoop(code = '') {
   hud = null;
   mode = 'custom';
-  showCoop({ host: hostRoom, join: (c) => joinRoom(c), back: openMenu }, code, mySlot().title);
+  showCoop({ host: hostRoom, join: (c) => joinRoom(c), back: openMenu, island: shareIsland }, code, mySlot().title);
 }
 function newRoom(host: boolean) {
   leaveCoop();
@@ -1233,11 +1262,20 @@ async function cloudSync() {
   syncing = true;
   const sl = mySlot();
   try {
-    const res = await syncIsland(cloud, sl.id, island, { rev: sl.rev ?? 0, pending: sl.pending ?? [] }, islandState);
+    const res = await syncIsland(cloud, sl.id, island, { rev: sl.rev ?? 0, pending: sl.pending ?? [] }, islandState, !!sl.pull);
     if (mySlot() !== sl || !cloudOn()) return;
     if (!res) {
       cloudState = 'offline';
+      if (sl.pull && mode === 'play') hud?.toast('Die gemeinsame Insel lädt noch – ist das Internet an?');
       return;
+    }
+    if (sl.pull) {
+      if (!res.state) {
+        if (mode === 'play') hud?.toast(`Die Insel ist noch nicht in der Cloud – ${sl.shared?.with ?? 'dein Freund'} muss sie einmal öffnen`);
+        return;
+      }
+      delete sl.pull;
+      if (mode === 'play') setTimeout(() => hud?.toast(`Willkommen auf „${sl.title}“!`), 300);
     }
     cloudState = 'ok';
     sl.rev = res.rev;
@@ -1275,6 +1313,28 @@ addEventListener(
 );
 let stepT = 0;
 
+// Insel-Link ?insel=ID&von=NAME: gemeinsame Insel dazuholen – geht auch, wenn der Freund offline ist
+let linkNote = '';
+{
+  const q = new URLSearchParams(location.search);
+  const id = q.get('insel') ?? '';
+  const from = (q.get('von') ?? '').replace(/[<>&"]/g, '').trim().slice(0, 12) || 'Freund';
+  if (/^[a-z0-9]{8,40}$/.test(id)) {
+    q.delete('insel');
+    q.delete('von');
+    history.replaceState(null, '', location.pathname + (q.size ? `?${q}` : ''));
+    let sl = save.slots.find((x) => x.id === id);
+    if (!sl && save.slots.length < MAX_SLOTS) {
+      const now = Date.now();
+      sl = { id, title: `Insel von ${from}`.slice(0, 20), shared: { with: from }, createdAt: now, updatedAt: 0, rev: 0, pull: true };
+      save.slots.push(sl);
+    }
+    if (sl) {
+      applySlot(sl);
+      linkNote = `„${sl.title}“ ist jetzt bei deinen Spielständen – ihr spielt gemeinsam darauf, auch wenn einer offline ist.`;
+    } else linkNote = `Du hast schon ${MAX_SLOTS} Inseln – lösch eine unter „Spielstände“ und öffne den Link nochmal.`;
+  }
+}
 // Einladungs-Link ?join=CODE
 {
   const q = new URLSearchParams(location.search);

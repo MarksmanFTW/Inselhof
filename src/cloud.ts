@@ -59,10 +59,13 @@ export async function syncIsland(
   isl: Island,
   local: { rev: number; pending: Op[] },
   current: () => IslandState,
+  /** eigene Kopie ist noch leer (Insel-Link): nur holen, nie hochladen */
+  pullOnly = false,
 ): Promise<SyncResult | null> {
   for (let attempt = 0; attempt < 4; attempt++) {
     const srv = await api.get(id);
     if (!srv) return null;
+    if (pullOnly) return srv.rev > 0 && srv.state ? { state: srv.state, rev: srv.rev, consumed: 0 } : { rev: 0, consumed: 0 };
     const n = local.pending.length;
     if (!n && srv.rev !== 0) {
       // nichts Eigenes zu melden: höchstens den neueren Stand übernehmen

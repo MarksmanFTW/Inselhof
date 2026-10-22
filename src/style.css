@@ -1400,3 +1400,9 @@ img.c,
 .act-row .pbtn span {
   line-height: 1;
 }
+.shared-btn {
+  margin-top: 6px;
+}
+.island-tip b {
+  color: var(--ink);
+}

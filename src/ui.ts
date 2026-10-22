@@ -67,7 +67,20 @@ export function hideUI() {
 }
 
 /** Hauptmenü */
-export function showMenu(save: Save, on: { play: () => void; slots: () => void; look: () => void; coop: () => void; leave?: () => void; coopText?: string }) {
+export function showMenu(
+  save: Save,
+  on: {
+    play: () => void;
+    slots: () => void;
+    look: () => void;
+    coop: () => void;
+    leave?: () => void;
+    coopText?: string;
+    shared?: { id: string; title: string }[];
+    playSlot?: (id: string) => void;
+    note?: string;
+  },
+) {
   clear();
   ui.className = 'ui-menu';
   ui.innerHTML = `
@@ -79,7 +92,9 @@ export function showMenu(save: Save, on: { play: () => void; slots: () => void; 
     <div class="panel menu-panel">
       <div class="menu-hero"></div>
       ${save.created && save.name ? `<p class="hello">Hallo, <b>${esc(save.name)}</b>! <small>Insel-Stufe ${levelOf(activeSlot(save).world?.prog?.xp ?? 0)}</small></p>` : ''}
-      <button class="pbtn green" data-act="play">${save.created ? 'Weiterspielen' : 'Spielen'}${save.created ? `<small class="sub">${esc(activeSlot(save).title)}</small>` : ''}</button>
+      ${on.note ? `<p class="coop-note">${esc(on.note)}</p>` : ''}
+      <button class="pbtn green" data-act="play">${save.created ? 'Weiterspielen' : 'Spielen'}${save.created ? `<small class="sub">${esc(activeSlot(save).title)}${activeSlot(save).shared ? ' · gemeinsam' : ''}</small>` : ''}</button>
+      ${(on.shared ?? []).map((s) => `<button class="pbtn blue small shared-btn" data-slot="${esc(s.id)}">Gemeinsam spielen<small class="sub">${esc(s.title)}</small></button>`).join('')}
       <div class="two">
         <button class="pbtn small" data-act="slots">Spielstände</button>
         <button class="pbtn small" data-act="look">Aussehen</button>
@@ -116,6 +131,7 @@ export function showMenu(save: Save, on: { play: () => void; slots: () => void; 
     });
   }
   ui.querySelector('[data-act=coop]')?.addEventListener('click', on.coop);
+  for (const b of ui.querySelectorAll<HTMLElement>('[data-slot]')) b.addEventListener('click', () => on.playSlot?.(b.dataset.slot!));
   if (on.leave) ui.querySelector('[data-act=leave]')!.addEventListener('click', on.leave);
 }
 
@@ -203,7 +219,7 @@ export function showSlots(
 }
 
 /** Koop: Raum öffnen oder mit Code beitreten */
-export function showCoop(on: { host: () => void; join: (code: string) => void; back: () => void }, code = '', islandTitle = '') {
+export function showCoop(on: { host: () => void; join: (code: string) => void; back: () => void; island: () => Promise<string> }, code = '', islandTitle = '') {
   clear();
   ui.className = 'ui-custom';
   ui.innerHTML = `
@@ -212,6 +228,8 @@ export function showCoop(on: { host: () => void; join: (code: string) => void; b
       <p>Dein Freund besucht deine Insel. Ihr teilt Holz, Samen und Rüben und könnt zusammen fällen, farmen und bauen.</p>
       <button class="pbtn green" data-act="host">Meine Insel öffnen${islandTitle ? `<small class="sub">${esc(islandTitle)}</small>` : ''}</button>
       <p class="tip">Die Insel wird ein gemeinsamer Spielstand – auch dein Freund kann sie später öffnen.</p>
+      <button class="pbtn blue small" data-act="island">Insel-Link schicken</button>
+      <p class="tip island-tip">Mit dem Insel-Link spielt dein Freund <b>jederzeit</b> auf deiner Insel weiter – auch wenn du offline bist. Alles wird abgeglichen.</p>
       <div class="or">oder</div>
       <label class="name-row">Code <input class="name code" maxlength="4" placeholder="ABCD" value="${esc(code)}" autocomplete="off" autocapitalize="characters" /></label>
       <button class="pbtn" data-act="join">Freund besuchen</button>
@@ -219,6 +237,12 @@ export function showCoop(on: { host: () => void; join: (code: string) => void; b
     </div>`;
   const input = ui.querySelector<HTMLInputElement>('.code')!;
   input.addEventListener('input', () => (input.value = input.value.toUpperCase().replace(/[^A-Z]/g, '').slice(0, 4)));
+  const ib = ui.querySelector<HTMLButtonElement>('[data-act=island]')!;
+  ib.addEventListener('click', () =>
+    void on.island().then((t) => {
+      if (t) ui.querySelector('.island-tip')!.textContent = t;
+    }),
+  );
   ui.querySelector('[data-act=host]')!.addEventListener('click', on.host);
   ui.querySelector('[data-act=back]')!.addEventListener('click', on.back);
   const join = () => (input.value.length === 4 ? on.join(input.value) : input.focus());
