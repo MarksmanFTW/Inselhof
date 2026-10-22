@@ -22,7 +22,7 @@ import { campfire, mealIcon, axe, bucket, cropStage, hoe, house, logIcon, saplin
 import { MAX_SLOTS, activeSlot, addSlot, loadSave, removeSlot, writeSave, type Save, type Slot } from './save';
 import { butterfly, gull, makeSprites } from './sprites';
 import { PROTOCOL, Room, cleanCode, type Action, type Fx, type Msg, type PlayerState } from './net/room';
-import { showCoop, showCustomize, showHud, showMenu, showSlots, showWait, type Hud, type ToolId, type TradeData } from './ui';
+import { showCoop, showCustomize, showHud, showMenu, showSettings, showSlots, showWait, textScale, type Hud, type ToolId, type TradeData } from './ui';
 import { BUILDS, FIRE_COST, HOUSE_COST, HOUSE_FOOT, STABLE_FOOT, World, type BuildKind } from './world';
 
 const screen = document.querySelector<HTMLCanvasElement>('#screen')!;
@@ -594,6 +594,56 @@ function ghostSpot() {
 }
 
 // ---------- Kamera ----------
+// ---------- Grafik-Qualität: Auflösung passt sich schwachen Handys an ----------
+export type Gfx = 'auto' | 'high' | 'low';
+const GFX_KEY = 'cozyisland.gfx';
+const CAP_KEY = 'cozyisland.dprcap';
+const CAPS = [3, 2, 1.5, 1];
+const store = {
+  get: (k: string) => {
+    try {
+      return localStorage.getItem(k);
+    } catch {
+      return null;
+    }
+  },
+  set: (k: string, v: string) => {
+    try {
+      localStorage.setItem(k, v);
+    } catch {
+      /* egal */
+    }
+  },
+};
+let gfx: Gfx = (['auto', 'high', 'low'] as const).find((g) => g === store.get(GFX_KEY)) ?? 'auto';
+let autoCap = CAPS.includes(Number(store.get(CAP_KEY))) ? Number(store.get(CAP_KEY)) : 3;
+const dprCap = () => (gfx === 'high' ? 3 : gfx === 'low' ? 1.25 : autoCap);
+function setGfx(g: Gfx) {
+  gfx = g;
+  store.set(GFX_KEY, g);
+  if (g === 'auto') {
+    autoCap = 3;
+    store.set(CAP_KEY, '3');
+  }
+  resize();
+}
+/** Bildzeiten messen; ruckelt es dauerhaft, eine Stufe weniger Pixel */
+const perf = { sum: 0, n: 0 };
+function watchPerf(ms: number) {
+  if (gfx !== 'auto' || mode !== 'play' || document.visibilityState !== 'visible' || ms > 250) return;
+  perf.sum += ms;
+  perf.n++;
+  if (perf.n < 120) return;
+  const avg = perf.sum / perf.n;
+  perf.sum = perf.n = 0;
+  const i = CAPS.indexOf(autoCap);
+  if (avg > 26 && i < CAPS.length - 1 && (window.devicePixelRatio || 1) > CAPS[i + 1]) {
+    autoCap = CAPS[i + 1];
+    store.set(CAP_KEY, String(autoCap));
+    resize();
+  }
+}
+
 /** sichtbarer Teil der Insel (Welt-Pixel) */
 const VIEW = { w: 300, h: 270 };
 /** beim Spielen näher dran */
@@ -615,7 +665,7 @@ let minZoom = 1;
 let playZoom = 2;
 const cam = { x: W / 2, y: H / 2 };
 function resize() {
-  const dpr = Math.min(3, window.devicePixelRatio || 1);
+  const dpr = Math.min(dprCap(), window.devicePixelRatio || 1);
   cw = screen.width = Math.round(innerWidth * dpr);
   ch = screen.height = Math.round(innerHeight * dpr);
   screen.style.width = `${innerWidth}px`;
@@ -835,6 +885,7 @@ function openMenu() {
   hint.classList.add('gone');
   zoom = minZoom;
   showMenu(save, {
+    settings: openSettings,
     play: startPlay,
     slots: openSlots,
     look: () => openCustom(false),
@@ -852,6 +903,36 @@ function openMenu() {
     note: linkNote,
   });
   linkNote = '';
+}
+// ---------- Als App (PWA) ----------
+let installPrompt: (Event & { prompt: () => Promise<void> }) | null = null;
+addEventListener('beforeinstallprompt', (e) => {
+  e.preventDefault();
+  installPrompt = e as typeof installPrompt;
+});
+const standalone = () => matchMedia('(display-mode: standalone), (display-mode: fullscreen)').matches || (navigator as { standalone?: boolean }).standalone === true;
+const isIos = () => /iphone|ipad|ipod/i.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+if (import.meta.env.PROD && 'serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost')) void navigator.serviceWorker.register('./sw.js').catch(() => {});
+function openSettings() {
+  hud = null;
+  mode = 'custom';
+  showSettings({
+    gfx,
+    setGfx,
+    install: standalone()
+      ? { kind: 'done' }
+      : installPrompt
+        ? {
+            kind: 'prompt',
+            run: () => {
+              const p = installPrompt;
+              installPrompt = null;
+              void p?.prompt().finally(openSettings);
+            },
+          }
+        : { kind: isIos() ? 'ios' : 'none' },
+    back: openMenu,
+  });
 }
 function openCustom(first: boolean) {
   hud = null;
@@ -1374,6 +1455,7 @@ if (pendingJoin) {
 let last = performance.now();
 function frame(now: number) {
   requestAnimationFrame(frame);
+  watchPerf(now - last);
   const dt = Math.min(0.05, (now - last) / 1000);
   last = now;
   const t = (window as unknown as { __t?: number }).__t ?? now / 1000;
@@ -1612,7 +1694,7 @@ function frame(now: number) {
   if (mode === 'play' && mate && (mate.in ?? -1) === inside) {
     const dpr = cw / innerWidth;
     ctx.setTransform(1, 0, 0, 1, 0, 0);
-    ctx.font = `700 ${Math.round(14 * dpr)}px 'Pixelify Sans', sans-serif`;
+    ctx.font = `700 ${Math.round(14 * dpr * textScale)}px 'Pixelify Sans', sans-serif`;
     ctx.textAlign = 'center';
     const sx = ox + mate.x * zoom;
     const sy = oy + (mate.y - 25) * zoom;
@@ -1636,7 +1718,7 @@ function frame(now: number) {
       if (near) {
         const sy = oy + (p.y - (isFoal(h, nowMs) ? 18 : 30)) * zoom;
         const label = (save.slots.find((x) => x.id === save.active)?.fav === i ? '♥ ' : '') + h.name;
-        ctx.font = `700 ${Math.round(12 * dpr)}px 'Pixelify Sans', sans-serif`;
+        ctx.font = `700 ${Math.round(12 * dpr * textScale)}px 'Pixelify Sans', sans-serif`;
         const w = ctx.measureText(label).width + 10 * dpr;
         ctx.fillStyle = 'rgba(120,40,80,0.6)';
         ctx.fillRect(sx - w / 2, sy - 12 * dpr, w, 16 * dpr);
@@ -1644,7 +1726,7 @@ function frame(now: number) {
         ctx.fillText(label, sx, sy);
       }
       if (tod?.night && !p.moving) {
-        ctx.font = `700 ${Math.round(11 * dpr)}px 'Pixelify Sans', sans-serif`;
+        ctx.font = `700 ${Math.round(11 * dpr * textScale)}px 'Pixelify Sans', sans-serif`;
         ctx.fillStyle = 'rgba(230,240,255,0.85)';
         for (let k = 0; k < 3; k++) {
           const ph = ((t * 0.5 + k / 3 + i * 0.37) % 1);
@@ -1659,7 +1741,7 @@ function frame(now: number) {
   if (floats.length) {
     const dpr = cw / innerWidth;
     ctx.setTransform(1, 0, 0, 1, 0, 0);
-    ctx.font = `700 ${Math.round(20 * dpr)}px 'Pixelify Sans', sans-serif`;
+    ctx.font = `700 ${Math.round(20 * dpr * textScale)}px 'Pixelify Sans', sans-serif`;
     ctx.textAlign = 'center';
     for (let k = floats.length - 1; k >= 0; k--) {
       const f = floats[k];
@@ -1817,6 +1899,7 @@ function drawPlayer() {
 // ---------- Tag & Nacht, Regen ----------
 let tod: TimeOfDay | null = null;
 const shade = document.createElement('canvas');
+const SHADE_DIV = 4;
 const drops: { x: number; y: number; v: number }[] = [];
 const flies2 = Array.from({ length: 26 }, (_, i) => ({ x: 70 + ((i * 53) % (W - 140)), y: 80 + ((i * 97) % (H - 160)), ph: i * 1.7 }));
 /** Fenster der Häuser (relativ zum Fußpunkt) */
@@ -1850,11 +1933,15 @@ function drawWeather(t: number, dt: number, ox: number, oy: number) {
   // Nacht: Dunkelheit mit Lichtern (Fenster, Feuer, wir selbst)
   const dark = Math.max(T.dark * 0.66, T.rain ? 0.18 : 0);
   if (dark > 0.01) {
-    if (shade.width !== cw || shade.height !== ch) {
-      shade.width = cw;
-      shade.height = ch;
+    // Dunkelheit in 1/4 Auflösung – die Lichter sind ohnehin weich (viel schneller)
+    const sw = Math.ceil(cw / SHADE_DIV);
+    const sh = Math.ceil(ch / SHADE_DIV);
+    if (shade.width !== sw || shade.height !== sh) {
+      shade.width = sw;
+      shade.height = sh;
     }
     const g = shade.getContext('2d')!;
+    g.setTransform(1 / SHADE_DIV, 0, 0, 1 / SHADE_DIV, 0, 0);
     g.globalCompositeOperation = 'source-over';
     g.clearRect(0, 0, cw, ch);
     g.fillStyle = `rgba(12,18,52,${dark.toFixed(3)})`;
@@ -1878,7 +1965,9 @@ function drawWeather(t: number, dt: number, ox: number, oy: number) {
       }
       for (const fl of flies2) light(fl.x + Math.sin(t * 0.6 + fl.ph) * 14, fl.y + Math.cos(t * 0.45 + fl.ph) * 9, 6, 0.6);
     }
-    ctx.drawImage(shade, 0, 0);
+    ctx.imageSmoothingEnabled = true;
+    ctx.drawImage(shade, 0, 0, sw, sh, 0, 0, sw * SHADE_DIV, sh * SHADE_DIV);
+    ctx.imageSmoothingEnabled = false;
     // Feuerschein warm
     for (const f of world.fires) {
       const rr = 40 * zoom;

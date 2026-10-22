@@ -238,6 +238,12 @@ export class Shore {
   private px: Uint32Array;
   private idx: Int32Array;
   private dist: Uint8Array;
+  /** Farben einmal vorrechnen (statt pro Pixel) */
+  private ring = Array.from({ length: 256 }, (_, a) => rgba('#56bcc4', a));
+  private edge = rgba('#86d2d8');
+  /** nur der Bereich mit Ufer wird neu geschrieben */
+  private box = { x: 0, y: 0, w: 1, h: 1 };
+  private lastStep = -1;
 
   constructor(isl: Island) {
     this.canvas.width = W;
@@ -254,12 +260,27 @@ export class Shore {
       }
     this.idx = Int32Array.from(idx);
     this.dist = Uint8Array.from(dist);
+    let x0 = W;
+    let y0 = H;
+    let x1 = 0;
+    let y1 = 0;
+    for (const i of idx) {
+      const x = i % W;
+      const y = (i / W) | 0;
+      x0 = Math.min(x0, x);
+      y0 = Math.min(y0, y);
+      x1 = Math.max(x1, x);
+      y1 = Math.max(y1, y);
+    }
+    if (idx.length) this.box = { x: x0, y: y0, w: x1 - x0 + 1, h: y1 - y0 + 1 };
   }
 
   update(t: number) {
-    const { px, idx, dist } = this;
-    const edge = rgba('#86d2d8');
-    px.fill(0);
+    // die Wellen atmen langsam – 12 Bilder pro Sekunde reichen (spart viel Rechenzeit)
+    const step = Math.floor(t * 12);
+    if (step === this.lastStep) return;
+    this.lastStep = step;
+    const { px, idx, dist, ring, edge } = this;
     for (let k = 0; k < idx.length; k++) {
       const i = idx[k];
       const d = dist[k];
@@ -271,9 +292,10 @@ export class Shore {
       else {
         // breiter heller Ring wie auf der Vorlage, nach außen auslaufend
         const a = Math.max(0, Math.round(150 * Math.min(1, 1.25 - d / 18)));
-        px[i] = rgba('#56bcc4', d > 16 && (x + y) % 2 ? Math.round(a * 0.5) : a);
+        px[i] = ring[d > 16 && (x + y) % 2 ? Math.round(a * 0.5) : a];
       }
     }
-    this.g.putImageData(this.img, 0, 0);
+    const b = this.box;
+    this.g.putImageData(this.img, 0, 0, b.x, b.y, b.w, b.h);
   }
 }

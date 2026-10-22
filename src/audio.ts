@@ -33,10 +33,11 @@ type Sfx =
 const PREF_KEY = 'cozyisland.audio';
 export const prefs = (() => {
   try {
-    const p = JSON.parse(localStorage.getItem(PREF_KEY) ?? '{}') as { music?: boolean; sound?: boolean };
-    return { music: p.music !== false, sound: p.sound !== false };
+    const p = JSON.parse(localStorage.getItem(PREF_KEY) ?? '{}') as { music?: boolean; sound?: boolean; musicVol?: number; soundVol?: number };
+    const vol = (v: unknown) => (typeof v === 'number' && v >= 0 && v <= 1 ? v : 0.8);
+    return { music: p.music !== false, sound: p.sound !== false, musicVol: vol(p.musicVol), soundVol: vol(p.soundVol) };
   } catch {
-    return { music: true, sound: true };
+    return { music: true, sound: true, musicVol: 0.8, soundVol: 0.8 };
   }
 })();
 export function setPrefs(p: Partial<typeof prefs>) {
@@ -46,9 +47,13 @@ export function setPrefs(p: Partial<typeof prefs>) {
   } catch {
     /* egal */
   }
-  if (musicBus) musicBus.gain.value = prefs.music ? 0.32 : 0;
-  if (sfxBus) sfxBus.gain.value = prefs.sound ? 0.8 : 0;
-  if (ambBus) ambBus.gain.value = prefs.sound ? 0.55 : 0;
+  applyVolumes();
+}
+/** Lautstärken (an/aus × Regler) auf die Kanäle */
+function applyVolumes() {
+  if (musicBus) musicBus.gain.value = prefs.music ? 0.4 * prefs.musicVol : 0;
+  if (sfxBus) sfxBus.gain.value = prefs.sound ? prefs.soundVol : 0;
+  if (ambBus) ambBus.gain.value = prefs.sound ? 0.7 * prefs.soundVol : 0;
 }
 
 let ac: AudioContext | null = null;

@@ -9,6 +9,98 @@ import { MAX_SLOTS, activeSlot, type Save, type Slot } from './save';
 
 const ui = document.querySelector<HTMLElement>('#ui')!;
 
+// ---------- Textgröße (Einstellungen) ----------
+const TEXT_KEY = 'cozyisland.text';
+export const TEXT_SIZES = [
+  { v: 1, name: 'Normal' },
+  { v: 1.15, name: 'Groß' },
+  { v: 1.3, name: 'Sehr groß' },
+];
+export let textScale = (() => {
+  try {
+    const v = Number(localStorage.getItem(TEXT_KEY));
+    return TEXT_SIZES.some((t) => t.v === v) ? v : 1;
+  } catch {
+    return 1;
+  }
+})();
+export function setTextScale(v: number) {
+  textScale = v;
+  document.documentElement.style.setProperty('--fs', String(v));
+  try {
+    localStorage.setItem(TEXT_KEY, String(v));
+  } catch {
+    /* egal */
+  }
+}
+document.documentElement.style.setProperty('--fs', String(textScale));
+
+/** Einstellungen: Lautstärke, Textgröße, Grafik, als App installieren */
+export function showSettings(o: {
+  gfx: string;
+  setGfx: (g: 'auto' | 'high' | 'low') => void;
+  install: { kind: 'prompt' | 'ios' | 'done' | 'none'; run?: () => void };
+  back: () => void;
+}) {
+  clear();
+  ui.className = 'ui-custom';
+  const vol = (on: boolean, v: number) => Math.round((on ? v : 0) * 100);
+  const seg = (name: string, items: { id: string; label: string }[], cur: string) =>
+    `<div class="seg" data-seg="${name}">${items.map((i) => `<button class="pbtn small${i.id === cur ? ' green' : ''}" data-v="${i.id}">${i.label}</button>`).join('')}</div>`;
+  const render = () => {
+    ui.innerHTML = `
+    <div class="panel coop-panel settings-panel">
+      <h2>Einstellungen</h2>
+      <label class="set-row">Musik <input type="range" min="0" max="100" step="5" data-vol="music" value="${vol(prefs.music, prefs.musicVol)}" /></label>
+      <label class="set-row">Töne <input type="range" min="0" max="100" step="5" data-vol="sound" value="${vol(prefs.sound, prefs.soundVol)}" /></label>
+      <h3 class="sub">Textgröße</h3>
+      ${seg('text', TEXT_SIZES.map((t) => ({ id: String(t.v), label: t.name })), String(textScale))}
+      <h3 class="sub">Grafik</h3>
+      ${seg('gfx', [{ id: 'auto', label: 'Auto' }, { id: 'high', label: 'Schön' }, { id: 'low', label: 'Sparsam' }], o.gfx)}
+      <p class="tip">„Auto“ macht das Bild etwas gröber, wenn dein Handy ruckelt. „Sparsam“ schont den Akku.</p>
+      <h3 class="sub">Als App</h3>
+      ${
+        o.install.kind === 'done'
+          ? '<p class="tip">Cozy Island läuft schon als App – schön!</p>'
+          : o.install.kind === 'prompt'
+            ? '<button class="pbtn blue" data-act="install">Als App installieren</button><p class="tip">Dann hast du Cozy Island mit eigenem Symbol am Startbildschirm, im Vollbild.</p>'
+            : o.install.kind === 'ios'
+              ? '<p class="tip install-ios">Im Safari unten auf <b>Teilen</b> (Viereck mit Pfeil) tippen, dann <b>„Zum Home-Bildschirm“</b>. Schon hast du Cozy Island als App mit eigenem Symbol.</p>'
+              : '<p class="tip">Im Browser-Menü (⋮) auf <b>„App installieren“</b> oder <b>„Zum Startbildschirm hinzufügen“</b> tippen.</p>'
+      }
+      <button class="pbtn small ghost" data-act="back">Zurück</button>
+    </div>`;
+  };
+  render();
+  ui.addEventListener('input', onInput);
+  function onInput(e: Event) {
+    const t = e.target as HTMLInputElement;
+    const k = t.dataset.vol as 'music' | 'sound' | undefined;
+    if (!k) return;
+    const v = Number(t.value) / 100;
+    setPrefs(k === 'music' ? { music: v > 0, musicVol: v || prefs.musicVol } : { sound: v > 0, soundVol: v || prefs.soundVol });
+  }
+  ui.addEventListener('click', onClick);
+  function onClick(e: Event) {
+    const t = e.target as HTMLElement;
+    if (t.closest('[data-act=back]')) {
+      ui.removeEventListener('input', onInput);
+      ui.removeEventListener('click', onClick);
+      return o.back();
+    }
+    if (t.closest('[data-act=install]')) return o.install.run?.();
+    const b = t.closest<HTMLElement>('[data-v]');
+    const sg = t.closest<HTMLElement>('[data-seg]')?.dataset.seg;
+    if (!b || !sg) return;
+    if (sg === 'text') setTextScale(Number(b.dataset.v));
+    if (sg === 'gfx') {
+      o.gfx = b.dataset.v!;
+      o.setGfx(o.gfx as 'auto' | 'high' | 'low');
+    }
+    render();
+  }
+}
+
 const esc = (s: string) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]!);
 
 /** Kleine Bühne: Figur auf einem Grasfleck, groß und pixelscharf */
@@ -70,6 +162,7 @@ export function hideUI() {
 export function showMenu(
   save: Save,
   on: {
+    settings: () => void;
     play: () => void;
     slots: () => void;
     look: () => void;
@@ -101,12 +194,9 @@ export function showMenu(
       </div>
       ${on.leave ? `<button class="pbtn blue" data-act="leave">Koop beenden</button>` : `<button class="pbtn blue" data-act="coop">Mit Freund spielen</button>`}
       ${on.coopText ? `<p class="coop-note">${esc(on.coopText)}</p>` : ''}
-      <div class="two sound">
-        <button class="pbtn small ghost" data-act="music">Musik: ${prefs.music ? 'an' : 'aus'}</button>
-        <button class="pbtn small ghost" data-act="sound">Töne: ${prefs.sound ? 'an' : 'aus'}</button>
-      </div>
+      <button class="pbtn small ghost" data-act="settings">Einstellungen</button>
     </div>
-    <p class="foot">Im Aufbau · bald: farmen, bauen, überleben</p>
+    <p class="foot">Bauen, farmen, Pferde lieben – allein oder zu zweit</p>
     </div>`;
   stage = new Stage(3);
   stage.set(save.look);
@@ -123,13 +213,7 @@ export function showMenu(
   ui.querySelector('[data-act=play]')!.addEventListener('click', on.play);
   ui.querySelector('[data-act=look]')!.addEventListener('click', on.look);
   ui.querySelector('[data-act=slots]')!.addEventListener('click', on.slots);
-  for (const k of ['music', 'sound'] as const) {
-    const b = ui.querySelector<HTMLElement>(`[data-act=${k}]`)!;
-    b.addEventListener('click', () => {
-      setPrefs({ [k]: !prefs[k] });
-      b.textContent = `${k === 'music' ? 'Musik' : 'Töne'}: ${prefs[k] ? 'an' : 'aus'}`;
-    });
-  }
+  ui.querySelector('[data-act=settings]')!.addEventListener('click', on.settings);
   ui.querySelector('[data-act=coop]')?.addEventListener('click', on.coop);
   for (const b of ui.querySelectorAll<HTMLElement>('[data-slot]')) b.addEventListener('click', () => on.playSlot?.(b.dataset.slot!));
   if (on.leave) ui.querySelector('[data-act=leave]')!.addEventListener('click', on.leave);

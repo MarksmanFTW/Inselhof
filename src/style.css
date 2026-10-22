@@ -1,4 +1,8 @@
 :root {
+  /* Textgröße (Einstellungen): 1, 1.15, 1.3 */
+  --fs: 1;
+}
+:root {
   --ink: #2a1a10;
   --wood: #6b4428;
   --paper: #f6e7c1;
@@ -49,7 +53,7 @@ body {
   background: rgba(20, 40, 60, 0.6);
   clip-path: var(--px-corner);
   color: #fff;
-  font: 500 15px/1.2 'Pixelify Sans', system-ui, sans-serif;
+  font: 500 calc(15px * var(--fs))/1.2 'Pixelify Sans', system-ui, sans-serif;
   width: max-content;
   max-width: 88vw;
   text-align: center;
@@ -92,7 +96,7 @@ body {
     inset 0 4px 0 var(--orange-hi);
   clip-path: var(--px-corner);
   color: #fff;
-  font: 700 24px/1 'Pixelify Sans', system-ui, sans-serif;
+  font: 700 calc(24px * var(--fs))/1 'Pixelify Sans', system-ui, sans-serif;
   letter-spacing: 0.02em;
   text-shadow: 2px 2px 0 rgba(60, 25, 5, 0.7);
   cursor: pointer;
@@ -111,7 +115,7 @@ body {
   box-shadow: inset 0 -2px 0 var(--green-dark);
 }
 .pbtn.small {
-  font-size: 20px;
+  font-size: calc(20px * var(--fs));
   padding: 10px 14px 13px;
 }
 .arrow {
@@ -123,7 +127,7 @@ body {
   box-shadow: inset 0 -4px 0 #c4a46a, inset 0 3px 0 #fff2cc;
   clip-path: polygon(0 4px, 4px 4px, 4px 0, calc(100% - 4px) 0, calc(100% - 4px) 4px, 100% 4px, 100% calc(100% - 4px), calc(100% - 4px) calc(100% - 4px), calc(100% - 4px) 100%, 4px 100%, 4px calc(100% - 4px), 0 calc(100% - 4px));
   color: var(--ink);
-  font: 700 22px/1 'Pixelify Sans', system-ui, sans-serif;
+  font: 700 calc(22px * var(--fs))/1 'Pixelify Sans', system-ui, sans-serif;
   cursor: pointer;
 }
 .arrow:active {
@@ -191,7 +195,7 @@ body {
   background: rgba(20, 40, 60, 0.55);
   clip-path: var(--px-corner);
   color: #fff;
-  font-size: 17px;
+  font-size: calc(17px * var(--fs));
 }
 .menu-panel {
   width: min(300px, 86vw);
@@ -208,12 +212,12 @@ body {
 .hello {
   margin: 0 0 4px;
   text-align: center;
-  font-size: 18px;
+  font-size: calc(18px * var(--fs));
 }
 .foot {
   margin: 14px 0 0;
   color: rgba(255, 255, 255, 0.85);
-  font-size: 14px;
+  font-size: calc(14px * var(--fs));
   text-shadow: 2px 2px 0 rgba(8, 30, 48, 0.8);
 }
 
@@ -256,7 +260,7 @@ body {
 .custom-panel h2 {
   margin: 0 0 6px;
   text-align: center;
-  font-size: 28px;
+  font-size: calc(28px * var(--fs));
 }
 .stage {
   display: flex;
@@ -269,7 +273,7 @@ body {
   align-items: center;
   gap: 10px;
   margin: 6px 0 10px;
-  font-size: 18px;
+  font-size: calc(18px * var(--fs));
   font-weight: 700;
 }
 .name {
@@ -279,7 +283,7 @@ body {
   border: 3px solid var(--ink);
   background: #fffaf0;
   box-shadow: inset 0 3px 0 #e8d8b0;
-  font: 500 18px 'Pixelify Sans', system-ui, sans-serif;
+  font: 500 calc(18px * var(--fs)) 'Pixelify Sans', system-ui, sans-serif;
   color: var(--ink);
   outline: none;
   user-select: text;
@@ -294,7 +298,7 @@ body {
   grid-template-columns: 1fr 40px 104px 40px;
   align-items: center;
   gap: 6px;
-  font-size: 17px;
+  font-size: calc(17px * var(--fs));
 }
 .row .lbl {
   font-weight: 700;
@@ -304,7 +308,7 @@ body {
   align-items: center;
   justify-content: center;
   gap: 6px;
-  font-size: 16px;
+  font-size: calc(16px * var(--fs));
 }
 .sw {
   width: 22px;
@@ -314,7 +318,7 @@ body {
 }
 .num {
   color: #7a5a3a;
-  font-size: 14px;
+  font-size: calc(14px * var(--fs));
 }
 .btns {
   display: grid;
@@ -361,12 +365,12 @@ body {
   align-items: center;
   gap: 8px;
   padding: 8px 14px 10px 10px;
-  font-size: 24px;
+  font-size: calc(24px * var(--fs));
   font-weight: 700;
 }
 .wood {
   padding: 4px 12px 6px 8px;
-  font-size: 20px;
+  font-size: calc(20px * var(--fs));
   min-width: 70px;
   box-sizing: border-box;
   justify-content: space-between;
@@ -391,7 +395,7 @@ body {
   background: rgba(20, 40, 60, 0.6);
   clip-path: var(--px-corner);
   color: #fff;
-  font-size: 14px;
+  font-size: calc(14px * var(--fs));
   line-height: 1.25;
   text-align: right;
   pointer-events: none !important;
@@ -425,7 +429,7 @@ body {
   position: absolute;
   right: 2px;
   bottom: 0;
-  font: 700 13px/1 'Pixelify Sans', system-ui, sans-serif;
+  font: 700 calc(13px * var(--fs))/1 'Pixelify Sans', system-ui, sans-serif;
   color: var(--ink);
   text-shadow: 1px 1px 0 #fff, -1px -1px 0 #fff, 1px -1px 0 #fff, -1px 1px 0 #fff;
 }
@@ -460,7 +464,7 @@ body {
   align-items: center;
   gap: 8px;
   padding: 6px 12px 9px 8px;
-  font-size: 18px;
+  font-size: calc(18px * var(--fs));
 }
 .pbtn.build img {
   width: 34px;
@@ -499,7 +503,7 @@ body {
 }
 .place-bar p {
   margin: 0 0 4px;
-  font-size: 16px;
+  font-size: calc(16px * var(--fs));
 }
 .pbtn:disabled {
   filter: grayscale(0.8);
@@ -517,7 +521,7 @@ body {
   background: rgba(20, 40, 60, 0.8);
   clip-path: var(--px-corner);
   color: #fff;
-  font-size: 17px;
+  font-size: calc(17px * var(--fs));
   line-height: 1.25;
   text-align: center;
   pointer-events: none !important;
@@ -537,7 +541,7 @@ body {
 .build-panel h2 {
   margin: 0 0 10px;
   text-align: center;
-  font-size: 26px;
+  font-size: calc(26px * var(--fs));
 }
 .build-card {
   display: flex;
@@ -553,11 +557,11 @@ body {
   image-rendering: pixelated;
 }
 .build-card b {
-  font-size: 20px;
+  font-size: calc(20px * var(--fs));
 }
 .build-card p {
   margin: 4px 0 0;
-  font-size: 15px;
+  font-size: calc(15px * var(--fs));
 }
 .build-card .cost {
   display: flex;
@@ -580,7 +584,7 @@ body {
 .need {
   margin: 8px 0 0;
   text-align: center;
-  font-size: 15px;
+  font-size: calc(15px * var(--fs));
   color: #b0402c;
 }
 
@@ -603,7 +607,7 @@ body {
 .coop-note {
   margin: 8px 0 0;
   text-align: center;
-  font-size: 15px;
+  font-size: calc(15px * var(--fs));
 }
 .coop-panel {
   width: min(340px, 92vw);
@@ -612,11 +616,11 @@ body {
 }
 .coop-panel h2 {
   margin: 0 0 8px;
-  font-size: 26px;
+  font-size: calc(26px * var(--fs));
 }
 .coop-panel p {
   margin: 0 0 6px;
-  font-size: 16px;
+  font-size: calc(16px * var(--fs));
   line-height: 1.3;
 }
 .coop-panel .or {
@@ -626,7 +630,7 @@ body {
 .code {
   text-transform: uppercase;
   letter-spacing: 0.3em;
-  font-size: 22px;
+  font-size: calc(22px * var(--fs));
   text-align: center;
 }
 .code-big {
@@ -642,7 +646,7 @@ body {
   place-items: center;
   background: #fff6dc;
   border: 4px solid var(--ink);
-  font-size: 34px;
+  font-size: calc(34px * var(--fs));
   font-weight: 700;
 }
 .coop-chip {
@@ -654,7 +658,7 @@ body {
   background: rgba(46, 95, 152, 0.85);
   clip-path: var(--px-corner);
   color: #fff;
-  font-size: 15px;
+  font-size: calc(15px * var(--fs));
   pointer-events: none !important;
 }
 
@@ -662,7 +666,7 @@ body {
 .pbtn .sub {
   display: block;
   margin-top: 4px;
-  font-size: 14px;
+  font-size: calc(14px * var(--fs));
   font-weight: 500;
   opacity: 0.9;
 }
@@ -672,10 +676,10 @@ body {
   gap: 8px;
 }
 .two .pbtn {
-  font-size: 18px;
+  font-size: calc(18px * var(--fs));
 }
 .tip {
-  font-size: 14px !important;
+  font-size: calc(14px * var(--fs)) !important;
   color: #7a5a3a;
 }
 .slots-panel {
@@ -710,7 +714,7 @@ body {
   border: 0;
   border-bottom: 2px dashed transparent;
   background: none;
-  font: 700 19px 'Pixelify Sans', system-ui, sans-serif;
+  font: 700 calc(19px * var(--fs)) 'Pixelify Sans', system-ui, sans-serif;
   color: var(--ink);
   outline: none;
   user-select: text;
@@ -723,11 +727,11 @@ body {
   padding: 2px 6px;
   background: var(--green);
   color: #fff;
-  font-size: 12px;
+  font-size: calc(12px * var(--fs));
 }
 .slot-card p {
   margin: 2px 0 0 !important;
-  font-size: 14px !important;
+  font-size: calc(14px * var(--fs)) !important;
 }
 .slot-card .shared {
   color: #2e5f98;
@@ -742,7 +746,7 @@ body {
   gap: 8px;
 }
 .slot-btns .pbtn {
-  font-size: 16px;
+  font-size: calc(16px * var(--fs));
   padding: 7px 8px 10px;
 }
 
@@ -757,7 +761,7 @@ body {
 }
 .lvl b {
   display: block;
-  font-size: 17px;
+  font-size: calc(17px * var(--fs));
   line-height: 1;
 }
 .xpbar {
@@ -797,19 +801,19 @@ body {
 }
 .levelup small {
   display: block;
-  font-size: 16px;
+  font-size: calc(16px * var(--fs));
   color: #7a5a3a;
 }
 .levelup b {
   display: block;
-  font-size: 64px;
+  font-size: calc(64px * var(--fs));
   line-height: 1;
   color: #e8a83a;
   text-shadow: 3px 3px 0 var(--ink);
 }
 .levelup p {
   margin: 6px 0 0;
-  font-size: 17px;
+  font-size: calc(17px * var(--fs));
 }
 .levelup .gift {
   color: #3a7d32;
@@ -824,7 +828,7 @@ body {
 .lvl .clock {
   display: block;
   margin-top: 4px;
-  font-size: 13px;
+  font-size: calc(13px * var(--fs));
   color: #6a4a2a;
   white-space: nowrap;
 }
@@ -852,7 +856,7 @@ body {
 }
 button.wood {
   font: inherit;
-  font-size: 20px;
+  font-size: calc(20px * var(--fs));
   font-weight: 700;
   color: var(--ink);
   cursor: pointer;
@@ -868,18 +872,18 @@ button.wood:active {
 .build-panel .have {
   margin: -4px 0 8px;
   text-align: center;
-  font-size: 16px;
+  font-size: calc(16px * var(--fs));
 }
 .build-panel .build-card {
   margin-bottom: 8px;
 }
 .build-card .pbtn {
   margin-top: 6px;
-  font-size: 16px;
+  font-size: calc(16px * var(--fs));
   padding: 7px 10px 10px;
 }
 .two.sound .pbtn {
-  font-size: 15px;
+  font-size: calc(15px * var(--fs));
   padding: 6px 8px 9px;
 }
 
@@ -895,7 +899,7 @@ button.wood:active {
   padding: 6px 10px;
   background: #fff6dc;
   border: 3px solid #c4a46a;
-  font-size: 17px;
+  font-size: calc(17px * var(--fs));
 }
 .furn-grid {
   display: grid;
@@ -922,10 +926,10 @@ button.wood:active {
   image-rendering: pixelated;
 }
 .furn b {
-  font-size: 14px;
+  font-size: calc(14px * var(--fs));
 }
 .furn small {
-  font-size: 12px;
+  font-size: calc(12px * var(--fs));
   color: #7a5a3a;
 }
 .furn.poor {
@@ -938,7 +942,7 @@ button.wood:active {
   place-items: center;
   background: #0a0a18;
   color: #fff;
-  font-size: 24px;
+  font-size: calc(24px * var(--fs));
   animation: fade-in 0.8s ease-out;
   transition: opacity 0.7s;
 }
@@ -965,7 +969,7 @@ button.wood:active {
 .stable-panel .mine {
   margin: 0 0 8px;
   text-align: center;
-  font-size: 15px;
+  font-size: calc(15px * var(--fs));
   color: #7a5a3a;
 }
 .stable-panel .have b {
@@ -999,7 +1003,7 @@ button.wood:active {
   margin-bottom: 8px;
 }
 .stable-panel .two .pbtn {
-  font-size: 15px;
+  font-size: calc(15px * var(--fs));
   padding: 7px 6px 10px;
 }
 .care {
@@ -1013,7 +1017,7 @@ button.wood:active {
   align-items: center;
   justify-content: center;
   gap: 4px;
-  font-size: 14px;
+  font-size: calc(14px * var(--fs));
   padding: 7px 4px 10px;
 }
 .care .pbtn img {
@@ -1022,7 +1026,7 @@ button.wood:active {
   image-rendering: pixelated;
 }
 .stable-panel .mine.small {
-  font-size: 13px;
+  font-size: calc(13px * var(--fs));
   margin-top: 2px;
 }
 @media (max-width: 420px) {
@@ -1049,7 +1053,7 @@ button.wood:active {
   image-rendering: pixelated;
 }
 .lvl .coins b {
-  font-size: 15px;
+  font-size: calc(15px * var(--fs));
 }
 .pbtn.album {
   width: 52px !important;
@@ -1065,7 +1069,7 @@ button.wood:active {
 }
 .build-panel h3.sub {
   margin: 10px 0 6px;
-  font-size: 17px;
+  font-size: calc(17px * var(--fs));
   text-align: center;
 }
 .trade .purse {
@@ -1074,7 +1078,7 @@ button.wood:active {
   align-items: center;
   gap: 6px;
   margin: 0 0 8px;
-  font-size: 20px;
+  font-size: calc(20px * var(--fs));
 }
 img.c,
 .trade .purse img {
@@ -1090,7 +1094,7 @@ img.c,
   margin-bottom: 8px;
 }
 .tabs .pbtn {
-  font-size: 16px;
+  font-size: calc(16px * var(--fs));
 }
 .trade-list {
   display: grid;
@@ -1122,15 +1126,15 @@ img.c,
   display: grid;
 }
 .trade-row b {
-  font-size: 16px;
+  font-size: calc(16px * var(--fs));
 }
 .trade-row small {
-  font-size: 12px;
+  font-size: calc(12px * var(--fs));
   color: #7a5a3a;
 }
 .trade-row .pbtn {
   flex: none;
-  font-size: 15px;
+  font-size: calc(15px * var(--fs));
   padding: 6px 8px 9px;
   min-width: 46px;
 }
@@ -1146,7 +1150,7 @@ img.c,
   flex-wrap: wrap;
   justify-content: center;
   gap: 6px;
-  font-size: 13px;
+  font-size: calc(13px * var(--fs));
 }
 .rewards span {
   display: flex;
@@ -1196,7 +1200,7 @@ img.c,
 .inv .wood {
   gap: 4px;
   padding: 5px 8px 7px 6px;
-  font-size: 18px;
+  font-size: calc(18px * var(--fs));
 }
 .inv .wood img {
   width: 24px;
@@ -1217,7 +1221,7 @@ img.c,
   max-width: min(230px, calc(100vw - 200px));
   padding: 4px 9px 5px 22px;
   border: 0;
-  font: 500 13px/1.25 'Pixelify Sans', system-ui, sans-serif;
+  font: 500 calc(13px * var(--fs))/1.25 'Pixelify Sans', system-ui, sans-serif;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1278,11 +1282,11 @@ img.c,
   gap: 6px;
 }
 .lvl .st-row b {
-  font-size: 16px;
+  font-size: calc(16px * var(--fs));
 }
 .lvl .st-row .clock {
   margin: 0;
-  font-size: 12px;
+  font-size: calc(12px * var(--fs));
 }
 .lvl .st-bar {
   display: flex;
@@ -1293,7 +1297,7 @@ img.c,
 .lvl .st-bar small {
   width: 30px;
   flex: none;
-  font-size: 11px;
+  font-size: calc(11px * var(--fs));
   color: #6a4a2a;
 }
 .lvl .st-bar .xpbar,
@@ -1316,7 +1320,7 @@ img.c,
   align-items: center;
   gap: 3px;
   padding: 2px 5px;
-  font: 700 16px/1 'Pixelify Sans', system-ui, sans-serif;
+  font: 700 calc(16px * var(--fs))/1 'Pixelify Sans', system-ui, sans-serif;
   color: var(--ink);
   background: none;
   border: 0;
@@ -1371,7 +1375,7 @@ img.c,
   top: auto;
   bottom: calc(env(safe-area-inset-bottom, 0px) + 96px);
   left: 12px;
-  font-size: 13px;
+  font-size: calc(13px * var(--fs));
 }
 .actions {
   gap: 8px;
@@ -1389,7 +1393,7 @@ img.c,
   align-items: center;
   justify-content: center;
   gap: 1px;
-  font-size: 12px;
+  font-size: calc(12px * var(--fs));
 }
 .act-row .pbtn img {
   width: 30px;
@@ -1455,10 +1459,10 @@ img.c,
   image-rendering: pixelated;
 }
 .acc b {
-  font-size: 12px;
+  font-size: calc(12px * var(--fs));
 }
 .acc small {
-  font-size: 11px;
+  font-size: calc(11px * var(--fs));
   color: #a08a6a;
 }
 .acc.locked {
@@ -1466,4 +1470,73 @@ img.c,
 }
 .acc.locked img {
   filter: grayscale(1);
+}
+
+/* ---------- Einstellungen ---------- */
+.settings-panel .set-row {
+  display: grid;
+  grid-template-columns: 70px 1fr;
+  align-items: center;
+  gap: 10px;
+  margin: 6px 0;
+  font-size: calc(17px * var(--fs));
+  font-weight: 700;
+}
+.settings-panel input[type='range'] {
+  width: 100%;
+  accent-color: #4f9a44;
+  height: 28px;
+}
+.seg {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+  margin-bottom: 6px;
+}
+.seg .pbtn {
+  font-size: calc(14px * var(--fs));
+  padding: 7px 2px 10px;
+}
+.settings-panel h3.sub {
+  margin: 12px 0 6px;
+}
+
+/* größere Schrift: Kästen wachsen mit */
+.lvl {
+  width: calc(168px * var(--fs));
+}
+.lvl .st-row {
+  white-space: nowrap;
+}
+.res {
+  top: calc(env(safe-area-inset-top, 0px) + 76px + (var(--fs) - 1) * 70px);
+}
+.goal {
+  top: calc(env(safe-area-inset-top, 0px) + 112px + (var(--fs) - 1) * 100px);
+}
+.seg .pbtn {
+  font-size: calc(12px * var(--fs));
+  white-space: normal;
+  line-height: 1.1;
+  min-width: 0;
+}
+.two {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+}
+.two > .pbtn {
+  min-width: 0;
+  width: auto;
+}
+.menu-panel .two .pbtn {
+  padding-left: 4px;
+  padding-right: 4px;
+  font-size: calc(16px * var(--fs));
+}
+.seg .pbtn {
+  font-size: calc(11px * var(--fs));
+  padding-left: 0;
+  padding-right: 0;
+}
+.lvl .st-bar small {
+  width: calc(30px * var(--fs));
 }
