@@ -20,7 +20,7 @@ import { newClock, timeOf, type TimeOfDay } from './time';
 import { campfire, mealIcon, axe, bucket, cropStage, hoe, house, logIcon, sapling, seedBag, soilTile, toUrl, treeStump, turnipIcon, wateringCan } from './props';
 import { activeSlot, addSlot, loadSave, removeSlot, writeSave, type Save, type Slot } from './save';
 import { butterfly, gull, makeSprites } from './sprites';
-import { Room, cleanCode, type Action, type Fx, type Msg, type PlayerState } from './net/room';
+import { PROTOCOL, Room, cleanCode, type Action, type Fx, type Msg, type PlayerState } from './net/room';
 import { showCoop, showCustomize, showHud, showMenu, showSlots, showWait, type Hud, type ToolId, type TradeData } from './ui';
 import { BUILDS, FIRE_COST, HOUSE_COST, HOUSE_FOOT, STABLE_FOOT, World, type BuildKind } from './world';
 
@@ -60,9 +60,9 @@ const bfImgs = ['#ffffff', '#ffd23f', '#ff9fc4'].map(butterfly);
 const flies = (() => {
   const r = rng(77);
   const out: { x: number; y: number; ph: number; c: number }[] = [];
-  while (out.length < 4) {
-    const x = Math.round(W / 2 + (r() - 0.5) * 180);
-    const y = Math.round(H / 2 + (r() - 0.5) * 140);
+  while (out.length < 7) {
+    const x = Math.round(W / 2 + (r() - 0.5) * (W - 160));
+    const y = Math.round(H / 2 + (r() - 0.5) * 160);
     if (island.ground[y * W + x] === Ground.Grass) out.push({ x, y, ph: r() * 9, c: out.length % 3 });
   }
   return out;
@@ -1039,7 +1039,7 @@ function joinRoom(code: string) {
   hud = null;
   showWait('Verbinde …', `<p>mit der Insel <b>${code}</b></p>`, { back: () => (leaveCoop(), openMenu()) });
   r.onTry = (n) => n > 1 && room === r && mode === 'custom' && showWait('Verbinde …', `<p>Direkt klappt es nicht – verbinde über die Website mit <b>${code}</b> …</p>`, { back: () => (leaveCoop(), openMenu()) });
-  r.onOpen = () => r.send({ t: 'hi', v: 1, name: save.name, look: save.look });
+  r.onOpen = () => r.send({ t: 'hi', v: PROTOCOL, name: save.name, look: save.look });
   r.join(code);
 }
 function leaveCoop() {
@@ -1086,11 +1086,17 @@ function onNet(m: Msg) {
     // ----- beim Gastgeber -----
     case 'hi':
       if (role !== 'host') return;
+      if (m.v !== PROTOCOL) {
+        const text = 'Ihr habt verschiedene Spiel-Versionen – bitte beide die Seite neu laden.';
+        r.send({ t: 'msg', text });
+        hud?.toast(text);
+        return;
+      }
       mate = makeMate(m.name, m.look, { x: player.x + 12, y: player.y, d: Dir.Down, f: 0, s: 0, tl: '' });
       persist();
       r.send({
         t: 'welcome',
-        v: 1,
+        v: PROTOCOL,
         name: save.name,
         look: save.look,
         state: islandState(),
@@ -1112,6 +1118,13 @@ function onNet(m: Msg) {
     // ----- beim Gast -----
     case 'welcome': {
       if (role !== 'guest') return;
+      if (m.v !== PROTOCOL) {
+        leaveCoop();
+        mode = 'custom';
+        hud = null;
+        showWait('Andere Version', '<p>Dein Freund hat noch eine ältere Version von Cozy Island. Bitte beide die Seite neu laden (oder die App neu öffnen) und nochmal versuchen.</p>', { back: openMenu });
+        return;
+      }
       // eigenen (neueren) Stand dieser gemeinsamen Insel mitbringen?
       // (gemeinsame Inseln gleichen sich über die Cloud ab – der Gastgeber hat den neuesten Stand)
       const mine = save.slots.find((x) => x.id === m.slot.id);
@@ -1354,7 +1367,7 @@ function frame(now: number) {
     // Menü: Kamera schwebt langsam über die Insel
     // Hochformat: Insel etwas über der Mitte (Schild unten); Querformat: Insel links, Menü rechts
     const wide = cw > ch * 1.2;
-    cam.x = W / 2 + Math.sin(t * 0.07) * 24 + (wide ? (cw * 0.2) / zoom : 0);
+    cam.x = W / 2 + Math.sin(t * 0.05) * 110 + (wide ? (cw * 0.2) / zoom : 0);
     cam.y = H / 2 + Math.cos(t * 0.05) * 16 + (wide ? 0 : (ch * 0.1) / zoom);
   }
   if (inside < 0) clampCam();
@@ -1682,7 +1695,7 @@ function drawPlayer() {
 let tod: TimeOfDay | null = null;
 const shade = document.createElement('canvas');
 const drops: { x: number; y: number; v: number }[] = [];
-const flies2 = Array.from({ length: 14 }, (_, i) => ({ x: 70 + ((i * 53) % 200), y: 80 + ((i * 97) % 150), ph: i * 1.7 }));
+const flies2 = Array.from({ length: 26 }, (_, i) => ({ x: 70 + ((i * 53) % (W - 140)), y: 80 + ((i * 97) % (H - 160)), ph: i * 1.7 }));
 /** Fenster der Häuser (relativ zum Fußpunkt) */
 const WINDOWS = [
   [-11, -13],

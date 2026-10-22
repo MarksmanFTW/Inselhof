@@ -5,50 +5,58 @@
  * fest an ihren Plätzen; Gras und Strand-Krümel kommen aus einem Seed.
  */
 export const TILE = 8;
+/**
+ * Karte: links die ursprüngliche Insel (Kacheln unverändert, damit alte
+ * Spielstände passen), rechts das Ostland mit Wald, Teich und Bucht.
+ */
 const MAP = [
-  '~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~',
-  '~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~',
-  '~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~',
-  '~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~',
-  '~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~',
-  '~~~~~~~~~~~~~~~sssssssssssssss~~~~~~~~~~~~',
-  '~~~~~~~~~~~~~~~ssssssssssssssss~~~~~~~~~~~',
-  '~~~~~~~~sssssssssggggggggggggsss~~~~~~~~~~',
-  '~~~~~~~ssssssssgggggggggggggggsss~~~~~~~~~',
-  '~~~~~~sssggggggggggggggggggggggss~~~~~~~~~',
-  '~~~~~ssssggggggggggggggggggggggss~~~~~~~~~',
-  '~~~~~ssssggggggggggggggggggggggsss~~~~~~~~',
-  '~~~~~sssgggggggggggggggggggggggssss~~~~~~~',
-  '~~~~~sssgggggggggggggggggggggggggsss~~~~~~',
-  '~~~~~sssgggggggggggggggggggggggggssss~~~~~',
-  '~~~~~ssssggggggggggggggggggggggggssss~~~~~',
-  '~~~~~ssssssggggggggggggggggggggggssss~~~~~',
-  '~~~~~ssssssggggggggggggggggggggggssss~~~~~',
-  '~~~~~ssssssggggggggggggggggggggggssss~~~~~',
-  '~~~~~ssssssggggggggggggggggggggggssss~~~~~',
-  '~~~~~ssssssggggggggggggggggggggggssss~~~~~',
-  '~~~~~ssssssggggggggggggggggggggggssss~~~~~',
-  '~~~~~~sssssggggggggggggggggggggggssss~~~~~',
-  '~~~~~~~ssssgggggggggggggggggggggsssss~~~~~',
-  '~~~~~~~ssssggggggggggggggggggggssssss~~~~~',
-  '~~~~~~~ssssggggggggggggggggssssssssss~~~~~',
-  '~~~~~~~ssssggggggggggggggggsssssssss~~~~~~',
-  '~~~~~~~ssssssggggggggggssssssssssss~~~~~~~',
-  '~~~~~~~~sssssgggggggggggsssssssssss~~~~~~~',
-  '~~~~~~~~~ssssssssssssssssssssssss~~~~~~~~~',
-  '~~~~~~~~~~sssssssssssssssssssssss~~~~~~~~~',
-  '~~~~~~~~~~~ssssssssssssssssssss~~~~~~~~~~~',
-  '~~~~~~~~~~~~ssssssssssssssssss~~~~~~~~~~~~',
-  '~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~',
-  '~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~',
-  '~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~',
-  '~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~',
-  '~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~',
+  '~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~',
+  '~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~',
+  '~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~',
+  '~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~',
+  '~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~sssss~~~~~~sss~~~~~~~~~~~~~~~~',
+  '~~~~~~~~~~~~~~~sssssssssssssss~~~~~~~~~~~~~~~~~~ssssssssssssssssss~~~~~~~~~~~~~~',
+  '~~~~~~~~~~~~~~~ssssssssssssssss~~~~~~~~~~~~~~~sssggggggggggggggggss~~~~~~~~~~~~~',
+  '~~~~~~~~sssssssssggggggggggggsss~~~~~~~~~sssssssggggggggggggggggggsss~~~~~~~~~~~',
+  '~~~~~~~ssssssssgggggggggggggggsss~~~~~~~~ssssssggggggggggggggggggggsss~~~~~~~~~~',
+  '~~~~~~sssggggggggggggggggggggggssssssssssssssssgggggggggggggsggggggsss~~~~~~~~~~',
+  '~~~~~ssssggggggggggggggggggggggsssssssssssssssgggggggggggsssssssgggssss~~~~~~~~~',
+  '~~~~~ssssgggggggggggggggggggggggggggggggggssssggggggggggss~~~~~ssgggssss~~~~~~~~',
+  '~~~~~sssggggggggggggggggggggggggggggggggggsggggggggggggss~~~~~~~ssgggsssss~~~~~~',
+  '~~~~~sssgggggggggggggggggggggggggggggggggggggggggggggggss~~~~~~~ssggggsssss~~~~~',
+  '~~~~~sssgggggggggggggggggggggggggggggggggggggggggggggggss~~~~~~~ssgggggggsss~~~~',
+  '~~~~~ssssgggggggggggggggggggggggggggggggggggggggggggggggss~~~~~ssgggggggggsss~~~',
+  '~~~~~ssssssggggggggggggggggggggggggggggggggggggggggggggggsssssssgggggggggggss~~~',
+  '~~~~~ssssssgggggggggggggggggggggggggggggggggggggggggggggggggsggggggggggggggss~~~',
+  '~~~~~ssssssgggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggss~~~~',
+  '~~~~~ssssssggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggsss~~~~',
+  '~~~~~ssssssggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggsss~~~~',
+  '~~~~~ssssssggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggsss~~~~',
+  '~~~~~~sssssggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggsss~~~~',
+  '~~~~~~~ssssgggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggss~~~~',
+  '~~~~~~~ssssgggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggss~~~~',
+  '~~~~~~~ssssggggggggggggggggsssgggggggggggggggggggggggggggggggggggggggggggsss~~~~',
+  '~~~~~~~ssssggggggggggggggggsssssssssssssgggggggggggggggggggggggggggggggsssss~~~~',
+  '~~~~~~~ssssssggggggggggssssssssssssssssssssggggggggggggggggggggsssssssssss~~~~~~',
+  '~~~~~~~~sssssgggggggggggsssssssssss~~~~~ssssssggggggggggggggggs~~~~~~~~~~~~~~~~~',
+  '~~~~~~~~~ssssssssssssssssssssssss~~~~~~~~~ssssssgggggggggggggs~~~~~~~~~~~~~~~~~~',
+  '~~~~~~~~~~sssssssssssssssssssssss~~~~~~~~~~~~ssssggggggggggggs~~~~~~~~~~~~~~~~~~',
+  '~~~~~~~~~~~ssssssssssssssssssss~~~~~~~~~~~~~~~sssggggggggggggs~~~~~~~~~~~~~~~~~~',
+  '~~~~~~~~~~~~ssssssssssssssssss~~~~~~~~~~~~~~~~~sssgggggggssggs~~~~~~~~~~~~~~~~~~',
+  '~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~sssggggsssssss~~~~~~~~~~~~~~~~~~',
+  '~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~sssssssssssss~~~~~~~~~~~~~~~~~~',
+  '~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~sss~~~~~~~~~~~~~~~~~~~~~~~~~~',
+  '~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~',
+  '~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~',
+  '~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~',
+  '~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~',
 ];
 export const COLS = MAP[0].length;
 export const ROWS = MAP.length;
 export const W = COLS * TILE;
 export const H = ROWS * TILE;
+/** ab hier beginnt das Ostland (Welt-Pixel) */
+export const EAST_X = 37 * TILE;
 
 export const enum Ground {
   Water = 0,
@@ -130,9 +138,15 @@ export function generate(seed = 7): Island {
     }
   // Uferzone im Wasser (0 = am Strand, bis 12 px)
   const shore = new Uint8Array(W * H).fill(255);
+  // offenes Meer überspringen: nur Kacheln mit Land in der Nähe genau rechnen
+  const near = new Uint8Array(COLS * ROWS);
+  for (let r = 0; r < ROWS; r++)
+    for (let c = 0; c < COLS; c++)
+      for (let dr = -4; dr <= 4 && !near[r * COLS + c]; dr++) for (let dc = -4; dc <= 4; dc++) if (tileVal(c + dc, r + dr) > 0) near[r * COLS + c] = 1;
   for (let y = 0; y < H; y++)
     for (let x = 0; x < W; x++) {
       if (ground[y * W + x] !== Ground.Water) continue;
+      if (!near[((y / TILE) | 0) * COLS + ((x / TILE) | 0)]) continue;
       let best = 255;
       for (let dy = -22; dy <= 22; dy += 2)
         for (let dx = -22; dx <= 22; dx += 2) {
@@ -177,6 +191,41 @@ export function generate(seed = 7): Island {
   for (const [x, y] of tufts)
     for (let k = 0; k < 1 + Math.floor(rr() * 2); k++) put('grass', x + Math.round((rr() - 0.5) * 12), y + Math.round((rr() - 0.5) * 8), Math.floor(rr() * 3), rr() < 0.5);
   decor.sort((a, b) => a.y - b.y);
+  // Ostland: kommt hinten dran, damit die Nummern der alten Bäume gleich bleiben
+  const east: Decor[] = [];
+  const er = rng(seed * 31 + 5);
+  const tile = (x: number, y: number) => tileVal(Math.floor(x / TILE), Math.floor(y / TILE));
+  /** ringsum ganz auf Wiese bzw. Sand */
+  const onAll = (x: number, y: number, v: number, m: number) => [[-m, 0], [m, 0], [0, -m], [0, m], [0, 0]].every(([dx, dy]) => tile(x + dx, y + dy) === v);
+  const far = (x: number, y: number, d: number) => east.every((e) => e.kind === 'grass' || Math.hypot(e.x - x, (e.y - y) * 1.4) > d);
+  const add = (kind: DecorKind, n: number, v: number, m: number, d: number, area: (x: number, y: number) => boolean, variants: number) => {
+    for (let k = 0, tries = 0; k < n && tries < 4000; tries++) {
+      const x = Math.round(EAST_X + er() * (W - EAST_X));
+      const y = Math.round(er() * H);
+      if (!area(x, y) || !onAll(x, y, v, m) || !far(x, y, d)) continue;
+      // Baumkronen ragen nach oben – dort auch kein Wasser
+      if ((kind === 'tree' || kind === 'palm') && !onAll(x, y - 26, v === 1 ? 1 : 2, 12) && !(kind === 'palm' && tile(x, y - 26) > 0)) continue;
+      east.push({ kind, x, y, variant: Math.floor(er() * variants), phase: hash(x, y, 3) * 6.28, flip: er() < 0.5 });
+      k++;
+    }
+  };
+  const forest = (x: number, y: number) => x > 380 && x < 520 && y > 50 && y < 120;
+  const anywhere = () => true;
+  add('tree', 10, 2, 12, 26, forest, 3);
+  add('tree', 7, 2, 12, 36, (x) => x > 330, 3);
+  add('bush', 10, 2, 9, 22, anywhere, 2);
+  add('palm', 7, 1, 5, 30, anywhere, 2);
+  add('boulder', 3, 2, 10, 40, anywhere, 1);
+  add('rock', 6, 1, 4, 24, anywhere, 2);
+  add('stump', 3, 2, 8, 30, anywhere, 1);
+  for (let k = 0; k < 18; k++) {
+    const before = east.length;
+    add('grass', 1, 2, 6, 10, anywhere, 3);
+    const g = east[before];
+    if (g) for (let j = 0; j < 1 + Math.floor(er() * 2); j++) east.push({ ...g, x: g.x + Math.round((er() - 0.5) * 12), y: g.y + Math.round((er() - 0.5) * 8), variant: Math.floor(er() * 3), flip: er() < 0.5 });
+  }
+  east.sort((a, b) => a.y - b.y);
+  decor.push(...east.filter((e) => tile(e.x, e.y) > 0));
 
   // Steg unten
   const dock = { x: 123, y: 244, w: 27, h: 46 };
@@ -185,7 +234,7 @@ export function generate(seed = 7): Island {
   const details: Detail[] = [];
   const r = rng(seed * 13 + 1);
   const gAt = (x: number, y: number) => (x < 0 || y < 0 || x >= W || y >= H ? Ground.Water : ground[(y | 0) * W + (x | 0)]);
-  for (let k = 0; k < 900; k++) {
+  for (let k = 0; k < Math.round((900 * W * H) / (336 * 304)); k++) {
     const x = Math.floor(r() * W);
     const y = Math.floor(r() * H);
     const g = gAt(x, y);

@@ -453,11 +453,16 @@ export function showHud(on: HudActions, icons: HudIcons, costs: { house: number;
     `<button class="slot" data-tool="${t}" aria-label="${TOOL_NAMES[t]}"><img src="${icon}" alt="" /><small></small></button>`;
   ui.innerHTML = `
     <button class="pbtn icon" data-act="menu" aria-label="Menü"><i></i><i></i><i></i></button>
-    <div class="panel lvl"><b>Stufe 1</b><div class="xpbar"><i></i></div><div class="enbar" title="Energie"><i></i></div><small class="clock"></small><small class="coins"><img src="${icons.coin}" alt="" /><b class="n-coins">0</b></small></div>
-    <div class="inv">
-      <div class="panel wood"><img src="${icons.log}" alt="" /><b class="n-wood">0</b></div>
-      <button class="panel wood eat" data-eat="raw" aria-label="Rübe essen"><img class="turnip" src="${icons.turnip}" alt="" /><b class="n-turnip">0</b></button>
-      <button class="panel wood eat" data-eat="cooked" aria-label="Ofenrübe essen"><img class="meal" src="${icons.meal}" alt="" /><b class="n-meal">0</b></button>
+    <div class="panel lvl">
+      <div class="st-row"><b>Stufe 1</b><small class="clock"></small></div>
+      <div class="st-bar"><small>EP</small><div class="xpbar"><i></i></div></div>
+      <div class="st-bar"><small>Kraft</small><div class="enbar" title="Energie"><i></i></div></div>
+    </div>
+    <div class="panel res">
+      <span class="r" title="Holz"><img src="${icons.log}" alt="" /><b class="n-wood">0</b></span>
+      <button class="r eat" data-eat="raw" aria-label="Rübe essen"><img class="turnip" src="${icons.turnip}" alt="" /><b class="n-turnip">0</b></button>
+      <button class="r eat" data-eat="cooked" aria-label="Ofenrübe essen"><img class="meal" src="${icons.meal}" alt="" /><b class="n-meal">0</b></button>
+      <span class="r" title="Münzen"><img class="coin" src="${icons.coin}" alt="" /><b class="n-coins">0</b></span>
     </div>
     <button class="goal" hidden aria-label="Aufgabe"></button>
     <p class="coop-chip" hidden></p>
@@ -465,8 +470,10 @@ export function showHud(on: HudActions, icons: HudIcons, costs: { house: number;
       ${slot('axe', icons.axe)}${slot('hoe', icons.hoe)}${slot('seeds', icons.seeds)}${slot('water', icons.bucket)}${slot('scythe', icons.scythe)}
     </div>
     <div class="actions">
-      <button class="pbtn album" data-act="album" aria-label="Sammelalbum"><img src="${icons.book}" alt="" /></button>
-      <button class="pbtn build" data-act="build" aria-label="Bauen"><img src="${icons.house}" alt="" /><span>Bauen</span></button>
+      <div class="act-row">
+        <button class="pbtn album" data-act="album" aria-label="Sammelalbum"><img src="${icons.book}" alt="" /><span>Album</span></button>
+        <button class="pbtn build" data-act="build" aria-label="Bauen"><img src="${icons.house}" alt="" /><span>Bauen</span></button>
+      </div>
       <button class="pbtn green use off" data-act="use" aria-label="Benutzen"><img src="${icons.axe}" alt="" /></button>
     </div>
     <div class="place-bar" hidden>

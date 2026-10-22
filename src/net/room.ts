@@ -6,7 +6,8 @@
 import Peer, { type DataConnection, type PeerOptions } from 'peerjs';
 import { RELAY_DEAD_MS, Relay } from './relay';
 
-export const PROTOCOL = 1;
+/** 2: große Insel – ältere Versionen passen nicht mehr zusammen */
+export const PROTOCOL = 2;
 const PREFIX = 'cozyisland-v1-';
 const LETTERS = 'ABCDEFGHJKLMNPQRSTUVWXYZ';
 

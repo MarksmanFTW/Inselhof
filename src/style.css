@@ -1262,3 +1262,141 @@ img.c,
 .coop-chip {
   top: calc(env(safe-area-inset-top, 0px) + 148px);
 }
+
+/* ---------- Anzeige im Spiel, aufgeräumt ----------
+   oben links: Menü + Status (Stufe, Uhr, EP, Kraft), darunter eine Vorrats-Leiste;
+   oben rechts: Aufgabe; unten links Werkzeuge, unten rechts Album/Bauen + Aktion */
+.lvl {
+  left: 72px;
+  width: 168px;
+  padding: 5px 9px 7px;
+}
+.lvl .st-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 6px;
+}
+.lvl .st-row b {
+  font-size: 16px;
+}
+.lvl .st-row .clock {
+  margin: 0;
+  font-size: 12px;
+}
+.lvl .st-bar {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin-top: 4px;
+}
+.lvl .st-bar small {
+  width: 30px;
+  flex: none;
+  font-size: 11px;
+  color: #6a4a2a;
+}
+.lvl .st-bar .xpbar,
+.lvl .st-bar .enbar {
+  flex: 1;
+  margin: 0;
+  height: 6px;
+}
+.res {
+  position: fixed;
+  top: calc(env(safe-area-inset-top, 0px) + 76px);
+  left: 12px;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 4px 6px 6px;
+}
+.res .r {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  padding: 2px 5px;
+  font: 700 16px/1 'Pixelify Sans', system-ui, sans-serif;
+  color: var(--ink);
+  background: none;
+  border: 0;
+}
+.res .r + .r {
+  border-left: 2px solid #d8c49a;
+}
+.res button.r {
+  cursor: pointer;
+}
+.res button.r:active {
+  transform: translateY(1px);
+}
+.res img {
+  width: 20px;
+  height: 15px;
+  image-rendering: pixelated;
+}
+.res img.turnip {
+  width: 13px;
+  height: 16px;
+}
+.res img.meal {
+  width: 17px;
+  height: 16px;
+}
+.res img.coin {
+  width: 15px;
+  height: 15px;
+}
+.res .pop b {
+  animation: pop 0.35s ease-out;
+  display: inline-block;
+}
+.goal {
+  top: calc(env(safe-area-inset-top, 0px) + 12px);
+  max-width: calc(100vw - 268px);
+  min-width: 34px;
+  min-height: 26px;
+}
+@media (min-width: 0px) {
+  /* Aufgabe unter der Vorrats-Leiste – hat dort Platz für den ganzen Satz */
+  .goal {
+    top: calc(env(safe-area-inset-top, 0px) + 112px);
+    left: 12px;
+    right: auto;
+    max-width: calc(100vw - 24px);
+    text-align: left;
+  }
+}
+.coop-chip {
+  top: auto;
+  bottom: calc(env(safe-area-inset-bottom, 0px) + 96px);
+  left: 12px;
+  font-size: 13px;
+}
+.actions {
+  gap: 8px;
+}
+.act-row {
+  display: flex;
+  gap: 8px;
+}
+.act-row .pbtn {
+  width: 64px !important;
+  height: 58px;
+  padding: 4px 0 8px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1px;
+  font-size: 12px;
+}
+.act-row .pbtn img {
+  width: 30px;
+  height: 30px;
+  object-fit: contain;
+  image-rendering: pixelated;
+}
+.act-row .pbtn span {
+  line-height: 1;
+}
