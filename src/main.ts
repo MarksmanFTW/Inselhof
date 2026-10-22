@@ -2,8 +2,8 @@ import '@fontsource/pixelify-sans/latin-500.css';
 import '@fontsource/pixelify-sans/latin-700.css';
 import './style.css';
 import { CH, CW, Dir, FOOT_X, FOOT_Y, PANTS, makeCharacter, type CharSheet, type Look } from './character';
-import { BREEDS, MAX_LOVE, STABLE_COST, STABLE_SPACE, TRUST, breedById, horsePose, pasture, type HorsePose } from './horses';
-import { HH, HOX, HOY, HW, heartIcon, horseSheet, saddle, stable as stableArt } from './horseart';
+import { BREEDS, FOAL_GROW_MS, GATE, MAX_LOVE, PADDOCK_COST, PADDOCK_FOOT, STABLE_COST, STABLE_SPACE, TRUST, breedById, foalBreed, horsePose, isFoal, pasture, type HorsePose, type Paddock } from './horses';
+import { FENCE, HH, HOX, HOY, HW, hayIcon, hayTile, heartIcon, horseSheet, paddockIcon, saddle, scythe, stable as stableArt } from './horseart';
 import { Ground, H, TILE, W, generate, rng } from './island';
 import { Shore, paintDock, paintLand, paintShadows, waveTile } from './paint';
 import { setScene, sfx, unlockAudio } from './audio';
@@ -11,7 +11,7 @@ import { FURNITURE } from './furniture';
 import { DOOR, ROOM_H, ROOM_W, furnitureIcon, nearSpot, paintRoom, roomFree } from './interior';
 import { Player } from './player';
 import { httpApi, syncIsland } from './cloud';
-import { CAN_GOAL, Farm, RIPE } from './farm';
+import { CAN_GOAL, Farm, RIPE, key as plotKey } from './farm';
 import { applyOp, farmUnder as farmUnderOf, link, tileFree as tileFreeOf, type Op } from './ops';
 import { PERKS, levelProgress, questAt } from './progress';
 import { newClock, timeOf, type TimeOfDay } from './time';
@@ -101,7 +101,7 @@ function horseAt(i: number, now = Date.now()): HorsePose | null {
   if (!h || !st || i === riding || (mate && (mate.in ?? -1) === -1 && mate.rh === i)) return null;
   let slot = 0;
   for (let k = 0; k < i; k++) if (world.horses[k].stable === h.stable) slot++;
-  const p = horsePose(h, slot, st, now, pastureFree, !!tod?.night);
+  const p = horsePose(h, slot, st, now, pastureFree, !!tod?.night, world.paddockOf(h.stable));
   const rel = released.get(i);
   if (!rel) return p;
   const k = (now - rel.at) / 4000;
@@ -131,11 +131,19 @@ const soilWet = soilTile(true);
 const crops = [0, 1, 2, 3].map(cropStage);
 const fireImgs = [0, 1, 2].map(campfire);
 const stableImg = stableArt();
+const scytheImg = scythe();
+const hayTiles = { fresh: hayTile('fresh'), dry: hayTile('dry'), stubble: hayTile('stubble') };
+/** Rasse fürs Bild: Fohlen haben eigene kleine Bilder */
+const lookOf = (id: string, foal = false) => {
+  const b = breedById(id) ?? BREEDS[0];
+  return foal ? foalBreed(b) : b;
+};
 /** Pferd fürs Fenster und den Knopf: Seitenansicht */
 const horseIcons = new Map<string, string>();
-function horseIcon(id: string) {
-  let u = horseIcons.get(id);
-  if (!u) horseIcons.set(id, (u = toUrl(horseSheet(breedById(id) ?? BREEDS[0])[2][0])));
+function horseIcon(id: string, foal = false) {
+  const k = id + (foal ? '~f' : '');
+  let u = horseIcons.get(k);
+  if (!u) horseIcons.set(k, (u = toUrl(horseSheet(lookOf(id, foal))[2][0])));
   return u;
 }
 const hearts: [string, string] = [toUrl(heartIcon(true)), toUrl(heartIcon(false))];
@@ -152,6 +160,9 @@ const icons = {
   meal: toUrl(mealIcon()),
   stable: toUrl(stableImg.img),
   horse: horseIcon('haflinger'),
+  scythe: toUrl(scytheImg),
+  hay: toUrl(hayIcon()),
+  paddock: toUrl(paddockIcon()),
 };
 
 /** Boden + Schatten neu malen, wenn Bäume fallen oder Häuser dazukommen */
@@ -187,7 +198,7 @@ let tool: ToolId = 'axe';
 /** Schwung (Sekunden, läuft rückwärts); swingTool = was gerade benutzt wird */
 let swing = 0;
 const SWING = 0.34;
-let swingTool: ToolId | 'harvest' | 'refill' | 'cook' = 'axe';
+let swingTool: ToolId | 'harvest' | 'refill' | 'cook' | 'rake' = 'axe';
 let swingTile: [number, number] = [0, 0];
 const shake = new Map<number, number>();
 interface Bit {
@@ -228,6 +239,10 @@ const FX_SOUND: Partial<Record<Fx['k'], Parameters<typeof sfx>[0]>> = {
   sleep: 'sleep',
   horse: 'neigh',
   feed: 'eat',
+  brush: 'brush',
+  foal: 'neigh',
+  mow: 'mow',
+  rake: 'harvest',
 };
 function playFx(fx: Fx) {
   const snd = FX_SOUND[fx.k];
@@ -245,7 +260,10 @@ function playFx(fx: Fx) {
   else if (fx.k === 'harvest') burst(fx.x, fx.y, 4, 10, ['#4f9a44', '#8a5e3a', '#b05a9a']);
   else if (fx.k === 'build') burst(fx.x, fx.y, 2, 30, ['#e8dcc8', '#c8b498', '#ffffff'], 45);
   else if (fx.k === 'can') hud?.toast('Belohnung: Eisen-Gießkanne!');
-  else if (fx.k === 'feed' || fx.k === 'horse') burst(fx.x, fx.y, 6, 8, ['#e0485a', '#ff9aa8', '#ffffff'], 16);
+  else if (fx.k === 'mow') burst(fx.x, fx.y, 3, 10, ['#5a9a3a', '#7ab84a', '#a8d870'], 22);
+  else if (fx.k === 'rake') burst(fx.x, fx.y, 3, 8, ['#e0b84a', '#f4d878', '#b08a2a'], 18);
+  else if (fx.k === 'brush') burst(fx.x, fx.y, 8, 10, ['#ffffff', '#fff3a0', '#ffd23f'], 14);
+  else if (fx.k === 'feed' || fx.k === 'horse' || fx.k === 'foal') burst(fx.x, fx.y, 6, 8, ['#e0485a', '#ff9aa8', '#ffffff'], 16);
   else if (fx.k === 'cook') burst(fx.x, fx.y, 6, 8, ['#ffd23f', '#ff9a2a', '#ffffff'], 18);
   else if (fx.k === 'quest') hud?.toast(fx.text ?? 'Aufgabe geschafft!');
   else if (fx.k === 'level' && fx.n) hud?.levelUp(fx.n, PERKS.find((p) => p.level === fx.n)?.text);
@@ -281,10 +299,15 @@ function perform(a: Action, actor: { x: number; y: number }): string | null {
       const st = world.stables[a.house ?? -1];
       const h = world.horses[world.horses.length - 1];
       if (st && h) emit({ k: 'horse', x: st.x, y: st.y + 4, text: `${h.name} zieht ein!` });
-    } else if (a.kind === 'feed') {
-      const p = horseAt(a.horse ?? -1);
-      if (p) emit({ k: 'feed', x: p.x, y: p.y - 18, text: '+1 Vertrauen' });
-    }
+    } else if (a.kind === 'feed' || a.kind === 'brush') {
+      const p = horseAt(a.horse ?? -1) ?? actor;
+      emit({ k: a.kind, x: p.x, y: p.y - 18, text: a.kind === 'brush' ? 'Glänzt! +1 Vertrauen' : a.item === 'turnip' ? 'Lecker! +1 Vertrauen' : 'Mampf! +1 Vertrauen' });
+    } else if (a.kind === 'foal') {
+      const h = world.horses[world.horses.length - 1];
+      const p = horseAt(a.horse ?? -1) ?? actor;
+      if (h) emit({ k: 'foal', x: p.x, y: p.y - 20, text: `${h.name} ist geboren!` });
+    } else if (a.kind === 'mow') emit({ k: 'mow', x: cx, y: cy });
+    else if (a.kind === 'rake') emit({ k: 'rake', x: cx, y: cy, text: `+${res.hay ?? 0} Heu` });
     else if (a.kind === 'cook') emit({ k: 'cook', x: actor.x, y: actor.y - 6, text: '+1 Ofenrübe' });
   }
   // Aufgaben & Stufen
@@ -330,7 +353,7 @@ function facingWater() {
   }
   return false;
 }
-type Intent = ToolId | 'harvest' | 'refill' | 'cook' | 'enter' | 'exit' | 'sleep' | 'chest' | 'furnish' | 'stable' | 'horse' | 'dismount' | null;
+type Intent = ToolId | 'harvest' | 'refill' | 'cook' | 'rake' | 'enter' | 'exit' | 'sleep' | 'chest' | 'furnish' | 'stable' | 'horse' | 'dismount' | null;
 /** Was würde der Aktions-Knopf jetzt tun? */
 /** Haustür vor der Figur? (Index des Hauses) */
 function doorAhead() {
@@ -372,6 +395,8 @@ function intent(): { kind: Intent; tree: number; tile: [number, number] } {
   if (hn >= 0) return { kind: 'horse', tree: hn, tile };
   const p = farm.plot(...tile);
   if (p?.crop && p.crop.stage >= RIPE) return { kind: 'harvest', tree: -1, tile };
+  // trockenes Heu liegt vor einem: einsammeln
+  if (farm.mown(...tile, Date.now()) === 'dry') return { kind: 'rake', tree: -1, tile };
   // am Lagerfeuer mit Rüben im Gepäck: braten
   if (farm.turnips > 0 && world.fireNear(player.x, player.y, 20) >= 0) return { kind: 'cook', tree: -1, tile };
   if (tool === 'axe') {
@@ -379,6 +404,11 @@ function intent(): { kind: Intent; tree: number; tile: [number, number] } {
     return { kind: tr >= 0 ? 'axe' : null, tree: tr, tile };
   }
   if (tool === 'hoe') return { kind: !p && tileFree(...tile) ? 'hoe' : null, tree: -1, tile };
+  if (tool === 'scythe') {
+    const [c, r] = tile;
+    const grass = island.ground[(r * TILE + 4) * W + c * TILE + 4] === Ground.Grass;
+    return { kind: grass && !p && !farm.meadow.has(plotKey(c, r)) && tileFree(c, r) ? 'scythe' : null, tree: -1, tile };
+  }
   if (tool === 'seeds') return { kind: p && !p.crop && farm.seeds > 0 ? 'seeds' : null, tree: -1, tile };
   if (facingWater() && farm.water < farm.capacity) return { kind: 'refill', tree: -1, tile };
   return { kind: p && !p.wetAt && farm.water > 0 ? 'water' : null, tree: -1, tile };
@@ -388,10 +418,11 @@ const toolHint: Record<ToolId, string> = {
   hoe: 'Stell dich vor ein freies Stück Wiese',
   seeds: 'Stell dich vor ein leeres Feld',
   water: 'Stell dich vor ein trockenes Feld',
+  scythe: 'Stell dich vor ein Stück Wiese zum Mähen',
 };
 // ---------- Energie ----------
 /** Energie kostet jede Arbeit; Essen und Schlafen füllen sie auf */
-const COST: Partial<Record<Action['kind'], number>> = { axe: 2, hoe: 3, seeds: 1, water: 1, build: 5 };
+const COST: Partial<Record<Action['kind'], number>> = { axe: 2, hoe: 3, seeds: 1, water: 1, build: 5, mow: 2 };
 const FOOD = { raw: 12, cooked: 40 };
 const energy = () => save.energy ?? 100;
 function setEnergy(v: number) {
@@ -425,17 +456,18 @@ function eat(cooked: boolean) {
 
 function useTool() {
   const [c, r] = swingTile;
-  if (!spend(swingTool)) return;
+  const kind = swingTool === 'scythe' ? 'mow' : swingTool;
+  if (!spend(kind)) return;
   // nach Ernten/Auffüllen nicht gleich weitermachen – erst loslassen
-  if (swingTool === 'harvest' || swingTool === 'refill' || swingTool === 'cook') actHeld = false;
-  const err = doAction({ kind: swingTool, c, r, tree: chopTarget });
+  if (swingTool === 'harvest' || swingTool === 'refill' || swingTool === 'cook' || swingTool === 'rake') actHeld = false;
+  const err = doAction({ kind, c, r, tree: chopTarget });
   if (err) hud?.toast(err);
 }
 function syncHud() {
   if (!hud) return;
   hud.setInv(world.wood, farm.turnips, farm.meals);
   hud.setEnergy(energy());
-  hud.setSlots(farm.seeds, farm.water, farm.capacity, farm.hasCan);
+  hud.setSlots(farm.seeds, farm.water, farm.capacity, farm.hasCan, farm.hay);
   const q = questAt(world.prog.quests);
   const have = Math.min(q.goal, world.prog.stats[q.stat] ?? 0);
   const reward = [q.seeds ? `${q.seeds} Samen` : '', q.wood ? `${q.wood} Holz` : '', `${q.xp} EP`].filter(Boolean).join(', ');
@@ -452,6 +484,13 @@ let ghost = { x: 0, y: 0, ok: false };
 function ghostSpot() {
   const px = Math.round(player.x / 2) * 2;
   const py = Math.round(player.y / 2) * 2;
+  if (placeKind === 'paddock') {
+    // Koppel: Tor zeigt zur Figur
+    if (player.dir === Dir.Down) return { x: px, y: py + 52 };
+    if (player.dir === Dir.Up) return { x: px, y: py - 6 };
+    if (player.dir === Dir.Right) return { x: px + 42, y: py + 20 };
+    return { x: px - 42, y: py + 20 };
+  }
   const k = placeKind === 'fire' ? 0.5 : placeKind === 'stable' ? 1.3 : 1;
   if (player.dir === Dir.Down) return { x: px, y: py + Math.round(22 * k) };
   if (player.dir === Dir.Up) return { x: px, y: py - Math.round(6 * k) - (k < 1 ? 4 : 0) };
@@ -744,7 +783,7 @@ function startPlay() {
       },
     },
     icons,
-    { house: HOUSE_COST, fire: FIRE_COST, stable: STABLE_COST },
+    { house: HOUSE_COST, fire: FIRE_COST, stable: STABLE_COST, paddock: PADDOCK_COST },
   );
   hud.setTool(tool);
   syncHud();
@@ -1127,7 +1166,8 @@ function frame(now: number) {
     const [mx, my] = input();
     if (riding >= 0 && !world.horses[riding]) riding = -1;
     const rb = riding >= 0 ? breedById(world.horses[riding].breed) : undefined;
-    player.speedMul = rb ? rb.speed : energy() < 15 ? 0.6 : 1;
+    // je mehr Vertrauen, desto flotter (bis +20 %)
+    player.speedMul = rb ? rb.speed * (1 + world.horses[riding].love * 0.02) : energy() < 15 ? 0.6 : 1;
     // beim Schlagen bleibt man stehen
     if (swing > 0) player.update(0, 0, dt);
     else player.update(mx, my, dt);
@@ -1141,7 +1181,7 @@ function frame(now: number) {
     // Werkzeug benutzen
     if (!placing) {
       const it = intent();
-      hud?.setAction(!!it.kind, it.kind === 'stable' ? icons.stable : it.kind === 'horse' || it.kind === 'dismount' ? horseIcon(world.horses[it.tree]?.breed ?? '') : it.kind && ROOM_ACTS.has(it.kind) ? icons.house : it.kind === 'cook' ? icons.meal : it.kind === 'harvest' ? icons.turnip : it.kind === 'refill' ? (farm.hasCan ? icons.can : icons.bucket) : icons[tool === 'water' ? (farm.hasCan ? 'can' : 'bucket') : tool]);
+      hud?.setAction(!!it.kind, it.kind === 'stable' ? icons.stable : it.kind === 'horse' || it.kind === 'dismount' ? horseIcon(world.horses[it.tree]?.breed ?? '', !!world.horses[it.tree] && isFoal(world.horses[it.tree], Date.now())) : it.kind && ROOM_ACTS.has(it.kind) ? icons.house : it.kind === 'cook' ? icons.meal : it.kind === 'harvest' ? icons.turnip : it.kind === 'rake' ? icons.hay : it.kind === 'refill' ? (farm.hasCan ? icons.can : icons.bucket) : icons[tool === 'water' ? (farm.hasCan ? 'can' : 'bucket') : tool]);
       if (actHeld && swing <= 0 && it.kind && ROOM_ACTS.has(it.kind)) {
         actHeld = false;
         roomAction(it.kind, it.tree);
@@ -1156,7 +1196,7 @@ function frame(now: number) {
           const dy = d.y - player.y;
           player.dir = Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? Dir.Right : Dir.Left) : dy > 0 ? Dir.Down : Dir.Up;
         }
-        swing = it.kind === 'seeds' || it.kind === 'harvest' ? SWING * 0.7 : SWING;
+        swing = it.kind === 'seeds' || it.kind === 'harvest' || it.kind === 'rake' ? SWING * 0.7 : SWING;
       }
     }
     if (swing > 0) {
@@ -1236,6 +1276,10 @@ function frame(now: number) {
     const [c, r] = k.split(',').map(Number);
     ctx.drawImage(p.wetAt ? soilWet : soilDry, c * TILE, r * TILE);
   }
+  for (const k of farm.meadow.keys()) {
+    const [c, r] = k.split(',').map(Number);
+    ctx.drawImage(hayTiles[farm.mown(c, r, Date.now())!], c * TILE, r * TILE);
+  }
 
   // Bäume, Palmen, Büsche, Steine, hohes Gras, Häuser und die Figur – von hinten nach vorn
   const showPlayer = mode === 'play';
@@ -1246,8 +1290,9 @@ function frame(now: number) {
   for (const h of world.stables) items.push({ y: h.y, draw: () => ctx.drawImage(stableImg.img, h.x - stableImg.ox, h.y - stableImg.oy) });
   world.horses.forEach((h, i) => {
     const p = horseAt(i, nowMs);
-    if (p) items.push({ y: p.y, draw: () => drawHorse(h.breed, p.x, p.y, p.dir, p.moving ? Math.floor(t * 7 + i) % 4 : p.graze ? 4 : 0) });
+    if (p) items.push({ y: p.y, draw: () => drawHorse(h.breed, p.x, p.y, p.dir, p.moving ? Math.floor(t * 7 + i) % 4 : p.graze ? 4 : 0, isFoal(h, nowMs)) });
   });
+  for (const pd of world.paddocks) pushFence(items, pd, 1);
   for (const f of world.fires) {
     const im = fireImgs[Math.floor(t * 8 + f.x) % 3];
     items.push({ y: f.y, draw: () => ctx.drawImage(im.img, f.x - im.ox, f.y - im.oy) });
@@ -1385,6 +1430,8 @@ requestAnimationFrame(frame);
 
 function drawDecor(i: number, t: number, nowMs: number) {
   const d = island.decor[i];
+  // hohes Gras ist weggemäht
+  if (d.kind === 'grass' && farm.meadow.has(plotKey(...Farm.tileAt(d.x, d.y)))) return;
   if (world.felled.has(i)) {
     const p = world.stage(i, nowMs) === 'sapling' ? saplingImg : d.kind === 'tree' ? stumpBig : stumpSmall;
     ctx.drawImage(p.img, d.x - p.ox + (d.kind === 'palm' ? 0 : 1), d.y - p.oy);
@@ -1414,7 +1461,7 @@ function drawTool(px: number, py: number, dir: Dir, k: number, tl: string) {
   const side = dir === Dir.Left ? -1 : 1;
   const hx = dir === Dir.Right ? px + 3 : dir === Dir.Left ? px - 3 : px + 4;
   const hy = py - 9;
-  const img = tl === 'hoe' ? hoeImg : tl === 'water' || tl === 'refill' ? (farm.hasCan ? canImg : bucketImg) : tl === 'axe' ? axeImg : null;
+  const img = tl === 'scythe' ? scytheImg : tl === 'hoe' ? hoeImg : tl === 'water' || tl === 'refill' ? (farm.hasCan ? canImg : bucketImg) : tl === 'axe' ? axeImg : null;
   if (!img) return;
   ctx.save();
   ctx.translate(hx, hy);
@@ -1445,12 +1492,12 @@ function drawChar(sh: CharSheet, x: number, y: number, dir: Dir, f: number, k: n
 }
 
 /** Pferd mit Schatten */
-function drawHorse(breed: string, x: number, y: number, dir: number, frame: number) {
-  const b = breedById(breed);
-  if (!b) return;
+function drawHorse(breed: string, x: number, y: number, dir: number, frame: number, foal = false) {
+  if (!breedById(breed)) return;
+  const b = lookOf(breed, foal);
   const px = Math.round(x);
   const py = Math.round(y);
-  const w = dir >= 2 ? [14, 18, 20][b.size] : [8, 9, 11][b.size];
+  const w = dir >= 2 ? [14, 18, 20, 10][b.size] : [8, 9, 11, 6][b.size];
   ctx.fillStyle = 'rgba(8,40,10,0.4)';
   ctx.fillRect(px - w / 2, py - 1, w, 2);
   ctx.fillRect(px - w / 2 + 1, py + 1, w - 2, 1);
@@ -1663,14 +1710,43 @@ function roomAction(kind: Intent, slot: number) {
     const h = world.horses[slot];
     const b = h && breedById(h.breed);
     if (!h || !b) return;
+    const now = Date.now();
+    const foal = isFoal(h, now);
     sfx('neigh');
-    return hud?.openHorse({ name: h.name, breed: b.name, text: b.text, img: horseIcon(b.id), love: h.love, maxLove: MAX_LOVE, canRide: h.love >= TRUST }, farm.turnips, hearts, {
-      feed: () => {
-        const err = doAction({ kind: 'feed', horse: slot });
-        if (err) hud?.toast(err);
+    const care = (a: Action) => {
+      const err = doAction(a);
+      if (err) hud?.toast(err);
+    };
+    const grows = foal ? ` Wird in ${Math.max(1, Math.ceil((h.foal! + FOAL_GROW_MS - now) / 60_000))} Min. groß.` : '';
+    return hud?.openHorse(
+      {
+        name: h.name,
+        breed: foal ? `${b.name}-Fohlen` : b.name,
+        text: b.text + grows,
+        img: horseIcon(b.id, foal),
+        love: h.love,
+        maxLove: MAX_LOVE,
+        canRide: !foal && h.love >= TRUST,
+        foal,
+        fed: world.doneToday(slot, 'fed', now),
+        treat: world.doneToday(slot, 'treat', now),
+        brushed: world.doneToday(slot, 'brushed', now),
+        showFoal: !foal && h.love >= MAX_LOVE,
+        foalBlock: world.foalBlock(slot, now, farm.hay),
       },
-      ride: () => mount(slot),
-    });
+      { turnips: farm.turnips, hay: farm.hay },
+      hearts,
+      {
+        feed: () => care({ kind: 'feed', horse: slot, item: 'hay' }),
+        treat: () => care({ kind: 'feed', horse: slot, item: 'turnip' }),
+        brush: () => care({ kind: 'brush', horse: slot }),
+        ride: () => mount(slot),
+        foal: () =>
+          hud?.askName('Ein Fohlen!', horseIcon(b.id, true), `${h.name} bekommt ein ${b.name}-Fohlen. Wie soll es heißen?`, b.names[Math.floor(Math.random() * b.names.length)], 'Willkommen!', (name) =>
+            care({ kind: 'foal', horse: slot, name }),
+          ),
+      },
+    );
   }
   if (kind === 'enter') return enterHouse(slot);
   if (kind === 'exit') return leaveHouse();
@@ -1725,8 +1801,80 @@ function drawInterior(t: number) {
   void t;
 }
 
+/** Koppel-Zaun als einzelne Stücke (richtig vor/hinter Figuren und Pferden) */
+function pushFence(items: { y: number; draw: () => void }[], pd: Paddock, alpha: number) {
+  const f = PADDOCK_FOOT;
+  const L = pd.x + f.left;
+  const R = pd.x + f.right;
+  const T = pd.y + f.top;
+  const B = pd.y;
+  const post = (x: number, y: number) => {
+    ctx.fillStyle = FENCE.post;
+    ctx.fillRect(x - 1, y - 7, 3, 8);
+    ctx.fillStyle = FENCE.postHi;
+    ctx.fillRect(x - 1, y - 7, 1, 7);
+  };
+  const railH = (x0: number, x1: number, y: number) => {
+    for (const dy of [5, 2]) {
+      ctx.fillStyle = FENCE.rail;
+      ctx.fillRect(x0, y - dy, x1 - x0, 1);
+      ctx.fillStyle = FENCE.railDark;
+      ctx.fillRect(x0, y - dy + 1, x1 - x0, 1);
+    }
+  };
+  const wrap = (fn: () => void) => () => {
+    ctx.globalAlpha = alpha;
+    fn();
+    ctx.globalAlpha = 1;
+  };
+  // hinten: durchgehend
+  items.push({
+    y: T,
+    draw: wrap(() => {
+      railH(L, R, T);
+      for (let x = L; x <= R; x += 8) post(x, T);
+    }),
+  });
+  // Seiten: Pfosten mit Latten nach oben
+  for (const sx of [L, R])
+    for (let y = T + 8; y <= B; y += 8) {
+      const yy = Math.min(y, B);
+      items.push({
+        y: yy,
+        draw: wrap(() => {
+          ctx.fillStyle = FENCE.rail;
+          ctx.fillRect(sx, yy - 13, 1, 9);
+          ctx.fillStyle = FENCE.railDark;
+          ctx.fillRect(sx + 1, yy - 13, 1, 9);
+          post(sx, yy);
+        }),
+      });
+    }
+  // vorn: links und rechts vom Tor
+  items.push({
+    y: B + 0.5,
+    draw: wrap(() => {
+      railH(L, pd.x - GATE, B);
+      railH(pd.x + GATE, R, B);
+      for (let x = L + 8; x < pd.x - GATE; x += 8) post(x, B);
+      for (let x = R - 8; x > pd.x + GATE; x -= 8) post(x, B);
+      post(pd.x - GATE, B);
+      post(pd.x + GATE, B);
+    }),
+  });
+}
+
 function drawGhost() {
   const { x, y, ok } = ghost;
+  if (placeKind === 'paddock') {
+    const f = PADDOCK_FOOT;
+    ctx.fillStyle = ok && world.wood >= PADDOCK_COST ? 'rgba(120,230,110,0.3)' : 'rgba(240,70,60,0.35)';
+    ctx.fillRect(x + f.left, y + f.top, f.right - f.left, f.bottom - f.top);
+    const parts: { y: number; draw: () => void }[] = [];
+    pushFence(parts, { x, y }, 0.75);
+    for (const p of parts) p.draw();
+    return;
+  }
   const im = placeKind === 'fire' ? fireImgs[0] : placeKind === 'stable' ? stableImg : houseImg;
   ctx.globalAlpha = 0.7;
   ctx.drawImage(im.img, x - im.ox, y - im.oy);

@@ -319,8 +319,8 @@ export function showCustomize(save: Save, done: (s: Save) => void, opts: { first
   });
 }
 
-export type ToolId = 'axe' | 'hoe' | 'seeds' | 'water';
-const TOOL_NAMES: Record<ToolId, string> = { axe: 'Axt', hoe: 'Hacke', seeds: 'Samen', water: 'Gießen' };
+export type ToolId = 'axe' | 'hoe' | 'seeds' | 'water' | 'scythe';
+const TOOL_NAMES: Record<ToolId, string> = { axe: 'Axt', hoe: 'Hacke', seeds: 'Samen', water: 'Gießen', scythe: 'Sense' };
 
 export interface HudActions {
   menu: () => void;
@@ -328,7 +328,7 @@ export interface HudActions {
   act: (down: boolean) => void;
   tool: (t: ToolId) => void;
   /** Bau-Fenster: Haus oder Lagerfeuer wählen → platzieren */
-  place: (what: 'house' | 'fire' | 'stable') => void;
+  place: (what: 'house' | 'fire' | 'stable' | 'paddock') => void;
   /** Rübe essen (roh) oder Ofenrübe */
   eat: (cooked: boolean) => void;
   confirm: () => void;
@@ -348,6 +348,9 @@ export interface HudIcons {
   meal: string;
   stable: string;
   horse: string;
+  scythe: string;
+  hay: string;
+  paddock: string;
 }
 
 /** Eintrag im Stall: Rasse zum Aufnehmen */
@@ -369,6 +372,16 @@ export interface HorseCard {
   love: number;
   maxLove: number;
   canRide: boolean;
+  /** Fohlen, wächst noch */
+  foal: boolean;
+  /** heute schon erledigt */
+  fed: boolean;
+  treat: boolean;
+  brushed: boolean;
+  /** Fohlen möglich? sonst Grund */
+  foalBlock: string | null;
+  /** Fohlen-Knopf überhaupt zeigen (volles Vertrauen) */
+  showFoal: boolean;
 }
 
 export interface Hud {
@@ -376,7 +389,7 @@ export interface Hud {
   /** Energie 0..100 */
   setEnergy(v: number): void;
   setTool(t: ToolId): void;
-  setSlots(seeds: number, water: number, cap: number, hasCan: boolean): void;
+  setSlots(seeds: number, water: number, cap: number, hasCan: boolean, hay: number): void;
   /** Aktions-Knopf: aktiv? und welches Bild (z. B. Rübe zum Ernten) */
   setAction(on: boolean, icon?: string): void;
   setGoal(text: string | null): void;
@@ -389,7 +402,9 @@ export interface Hud {
   /** Pferdestall: Rassen zum Aufnehmen, eigene Pferde */
   openStable(o: { breeds: BreedCard[]; turnips: number; level: number; mine: string[]; space: number }, pick: (id: string, name: string) => void): void;
   /** eigenes Pferd: füttern oder reiten */
-  openHorse(h: HorseCard, turnips: number, hearts: [string, string], on: { feed: () => void; ride: () => void }): void;
+  openHorse(h: HorseCard, have: { turnips: number; hay: number }, hearts: [string, string], on: { feed: () => void; treat: () => void; brush: () => void; ride: () => void; foal: () => void }): void;
+  /** Namen eingeben (Fohlen) */
+  askName(title: string, img: string, text: string, name: string, ok: string, done: (name: string) => void): void;
   /** Bildschirm wird schwarz, done läuft in der Mitte */
   sleep(text: string, done: () => void): void;
   /** Uhrzeit-Anzeige */
@@ -404,7 +419,7 @@ export interface Hud {
 }
 
 /** Anzeigen und Knöpfe im Spiel */
-export function showHud(on: HudActions, icons: HudIcons, costs: { house: number; fire: number; stable: number }): Hud {
+export function showHud(on: HudActions, icons: HudIcons, costs: { house: number; fire: number; stable: number; paddock: number }): Hud {
   clear();
   ui.className = 'ui-hud';
   const slot = (t: ToolId, icon: string) =>
@@ -420,7 +435,7 @@ export function showHud(on: HudActions, icons: HudIcons, costs: { house: number;
     <p class="goal" hidden></p>
     <p class="coop-chip" hidden></p>
     <div class="hotbar panel">
-      ${slot('axe', icons.axe)}${slot('hoe', icons.hoe)}${slot('seeds', icons.seeds)}${slot('water', icons.bucket)}
+      ${slot('axe', icons.axe)}${slot('hoe', icons.hoe)}${slot('seeds', icons.seeds)}${slot('water', icons.bucket)}${slot('scythe', icons.scythe)}
     </div>
     <div class="actions">
       <button class="pbtn build" data-act="build" aria-label="Bauen"><img src="${icons.house}" alt="" /><span>Bauen</span></button>
@@ -477,8 +492,9 @@ export function showHud(on: HudActions, icons: HudIcons, costs: { house: number;
     setTool(t) {
       for (const b of ui.querySelectorAll<HTMLElement>('[data-tool]')) b.classList.toggle('on', b.dataset.tool === t);
     },
-    setSlots(seeds, water, cap, hasCan) {
+    setSlots(seeds, water, cap, hasCan, hay) {
       $('[data-tool=seeds] small').textContent = String(seeds);
+      $('[data-tool=scythe] small').textContent = String(hay);
       $('[data-tool=water] small').textContent = `${water}/${cap}`;
       const img = $<HTMLImageElement>('[data-tool=water] img');
       const want = hasCan ? icons.can : icons.bucket;
@@ -567,6 +583,7 @@ export function showHud(on: HudActions, icons: HudIcons, costs: { house: number;
             })
             .join('')}</div>
           ${full ? '<p class="mine">Der Stall ist voll – bau noch einen Stall.</p>' : ''}
+          <p class="mine small">Tipp: Mit der Sense Wiese mähen, trocknen lassen, Heu einsammeln – das fressen Pferde am liebsten. Eine Koppel neben dem Stall wird ihre Weide.</p>
           <button class="pbtn small ghost" data-m="close">Zurück</button>
         </div>`;
       const naming = (b: BreedCard) => `<div class="panel build-panel stable-panel">
@@ -604,21 +621,31 @@ export function showHud(on: HudActions, icons: HudIcons, costs: { house: number;
         }
       });
     },
-    openHorse(h, turnips, hearts, act) {
+    openHorse(h, have, hearts, act) {
       const modal = document.createElement('div');
       modal.className = 'modal';
       const n = Math.ceil(h.maxLove / 2);
       const filled = Math.ceil(h.love / 2);
+      const btn = (m: string, label: string, off: boolean, cls = '') => `<button class="pbtn small${cls}" data-m="${m}"${off ? ' disabled' : ''}>${label}</button>`;
+      const tip = h.foal
+        ? 'Ein Fohlen – es wächst noch und ist zu klein zum Reiten.'
+        : h.canRide
+          ? 'Vertraut dir – du kannst aufsteigen! Je mehr Herzen, desto schneller.'
+          : 'Füttere oder bürste es, dann vertraut es dir.';
       modal.innerHTML = `<div class="panel build-panel stable-panel">
           <h2>${esc(h.name)}</h2>
           <div class="horse-hero"><img src="${h.img}" alt="" /></div>
           <p class="have"><b>${esc(h.breed)}</b> – ${esc(h.text)}</p>
           <div class="hearts">${Array.from({ length: n }, (_, i) => `<img src="${hearts[i < filled ? 0 : 1]}" alt="" />`).join('')}</div>
-          <p class="mine">${h.canRide ? 'Vertraut dir – du kannst aufsteigen!' : 'Füttere es mit einer Rübe, dann vertraut es dir.'}</p>
-          <div class="two">
-            <button class="pbtn small" data-m="feed"${turnips > 0 ? '' : ' disabled'}>${turnips > 0 ? 'Füttern · 1 Rübe' : 'Keine Rüben'}</button>
-            <button class="pbtn green small" data-m="ride"${h.canRide ? '' : ' disabled'}>Reiten</button>
+          <p class="mine">${tip}</p>
+          <div class="care">
+            ${btn('feed', h.fed ? 'Satt' : `<img src="${icons.hay}" alt="" />Heu · ${have.hay}`, h.fed || have.hay <= 0)}
+            ${btn('treat', h.treat ? 'Lecker!' : `<img src="${icons.turnip}" alt="" />Leckerli`, h.treat || have.turnips <= 0)}
+            ${btn('brush', h.brushed ? 'Glänzt' : 'Bürsten', h.brushed)}
           </div>
+          <p class="mine small">Füttern, Leckerli und Bürsten geht je einmal am Tag.</p>
+          ${h.foal ? '' : `<div class="${h.showFoal ? 'two' : ''}">${h.showFoal ? btn('foal', h.foalBlock ? 'Fohlen?' : 'Fohlen · 5 Heu', !!h.foalBlock) : ''}${btn('ride', 'Reiten', !h.canRide, ' green')}</div>`}
+          ${h.showFoal && h.foalBlock ? `<p class="mine small">${esc(h.foalBlock)}</p>` : ''}
           <button class="pbtn small ghost" data-m="close">Zurück</button>
         </div>`;
       ui.appendChild(modal);
@@ -628,8 +655,32 @@ export function showHud(on: HudActions, icons: HudIcons, costs: { house: number;
         const m = t.closest<HTMLButtonElement>('[data-m]');
         if (!m || m.disabled) return;
         modal.remove();
-        if (m.dataset.m === 'feed') act.feed();
-        if (m.dataset.m === 'ride') act.ride();
+        const k = m.dataset.m as 'feed' | 'treat' | 'brush' | 'ride' | 'foal';
+        act[k]();
+      });
+    },
+    askName(title, img, text, name, ok, done) {
+      const modal = document.createElement('div');
+      modal.className = 'modal';
+      modal.innerHTML = `<div class="panel build-panel stable-panel">
+          <h2>${esc(title)}</h2>
+          <div class="horse-hero"><img src="${img}" alt="" /></div>
+          <p class="have">${esc(text)}</p>
+          <label class="name-row">Name <input class="name" maxlength="12" value="${esc(name)}" autocomplete="off" /></label>
+          <div class="two">
+            <button class="pbtn small ghost" data-m="close">Zurück</button>
+            <button class="pbtn green small" data-m="ok">${esc(ok)}</button>
+          </div>
+        </div>`;
+      ui.appendChild(modal);
+      modal.addEventListener('click', (e) => {
+        const t = e.target as HTMLElement;
+        if (e.target === modal || t.closest('[data-m=close]')) return modal.remove();
+        if (t.closest('[data-m=ok]')) {
+          const v = modal.querySelector<HTMLInputElement>('input.name')!.value.trim() || name;
+          modal.remove();
+          done(v);
+        }
       });
     },
     sleep(text, done) {
@@ -660,7 +711,7 @@ export function showHud(on: HudActions, icons: HudIcons, costs: { house: number;
       $<HTMLButtonElement>('[data-act=confirm]').disabled = !valid;
     },
     openBuild(wood) {
-      const card = (what: 'house' | 'fire' | 'stable', img: string, title: string, text: string) => {
+      const card = (what: 'house' | 'fire' | 'stable' | 'paddock', img: string, title: string, text: string) => {
         const cost = costs[what];
         const enough = wood >= cost;
         return `<div class="build-card${enough ? '' : ' poor'}">
@@ -678,13 +729,14 @@ export function showHud(on: HudActions, icons: HudIcons, costs: { house: number;
           ${card('house', icons.house, 'Kleines Haus', 'Zum Schlafen, mit Platz für Möbel.')}
           ${card('fire', icons.fire, 'Lagerfeuer', 'Brät Rüben zu Ofenrüben – macht richtig satt.')}
           ${card('stable', icons.stable, 'Pferdestall', 'Platz für 4 Pferde – such dir deine Lieblingsrassen aus.')}
+          ${card('paddock', icons.paddock, 'Koppel', 'Eingezäunte Weide beim Stall – dort grasen deine Pferde.')}
           <button class="pbtn small ghost" data-m="close">Zurück</button>
         </div>`;
       ui.appendChild(modal);
       modal.addEventListener('click', (e) => {
         const m = (e.target as HTMLElement).closest<HTMLButtonElement>('[data-m]');
         if (e.target === modal || m?.dataset.m === 'close') modal.remove();
-        if (m && !m.disabled && (m.dataset.m === 'house' || m.dataset.m === 'fire' || m.dataset.m === 'stable')) {
+        if (m && !m.disabled && (m.dataset.m === 'house' || m.dataset.m === 'fire' || m.dataset.m === 'stable' || m.dataset.m === 'paddock')) {
           modal.remove();
           on.place(m.dataset.m);
         }

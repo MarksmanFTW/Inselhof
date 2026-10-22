@@ -5,6 +5,7 @@
  */
 import { Farm } from './farm';
 import { SLOT_COUNT, furnitureById } from './furniture';
+import { FOAL_HAY } from './horses';
 import { gain, type Gain, type Stat } from './progress';
 import { napOffset, newClock, sleepOffset, sleepyHour, timeOf } from './time';
 import { TILE } from './island';
@@ -29,6 +30,8 @@ export interface OpResult {
   felled?: boolean;
   harvest?: { seeds: number; gotCan: boolean };
   built?: boolean;
+  /** eingesammeltes Heu */
+  hay?: number;
   /** geschlafen: ganze Nacht oder Nickerchen */
   slept?: 'night' | 'nap';
   done: boolean;
@@ -41,7 +44,7 @@ export function link(world: World, farm: Farm) {
   farm.perks = () => world.perks;
 }
 
-const STAT: Partial<Record<Action['kind'], Stat>> = { hoe: 'tilled', seeds: 'planted', water: 'watered', harvest: 'harvested', build: 'built', adopt: 'adopted' };
+const STAT: Partial<Record<Action['kind'], Stat>> = { hoe: 'tilled', seeds: 'planted', water: 'watered', harvest: 'harvested', build: 'built', adopt: 'adopted', foal: 'adopted', mow: 'mowed', feed: 'cared', brush: 'cared' };
 
 /** Aktion ausführen und Fortschritt verbuchen */
 export function applyOp(world: World, farm: Farm, op: Op): OpResult {
@@ -131,14 +134,27 @@ function run(world: World, farm: Farm, op: Op): OpResult {
       farm.version++;
       return true;
     });
-  } else if (a.kind === 'feed') {
-    if (!world.horses[a.horse ?? -1]) err = 'Dieses Pferd gibt es nicht';
-    else if (farm.turnips <= 0) err = 'Keine Rüben zum Füttern';
-    else {
-      farm.turnips--;
+  } else if (a.kind === 'feed' || a.kind === 'brush') {
+    // Heu (Standard), Leckerli = Rübe, Bürsten kostet nichts
+    const what = a.kind === 'brush' ? 'brushed' : a.item === 'turnip' ? 'treat' : 'fed';
+    err = world.care(a.horse ?? -1, what, t, () => {
+      if (what === 'brushed') return true;
+      if (what === 'treat' ? farm.turnips <= 0 : farm.hay <= 0) return false;
+      if (what === 'treat') farm.turnips--;
+      else farm.hay--;
       farm.version++;
-      world.feed(a.horse!);
-    }
+      return true;
+    });
+  } else if (a.kind === 'foal') {
+    err = world.foal(a.horse ?? -1, a.name ?? '', t, farm.hay, () => {
+      farm.hay -= FOAL_HAY;
+      farm.version++;
+    });
+  } else if (a.kind === 'mow') {
+    err = farm.mow(c, r, tileFree(world, c, r, actor), t);
+  } else if (a.kind === 'rake') {
+    const got = farm.rake(c, r, t);
+    return { err: null, done: got > 0, hay: got };
   } else if (a.kind === 'furnish') {
     const f = furnitureById(a.item ?? '');
     if (!f || (a.slot ?? -1) < 0 || (a.slot ?? 0) >= SLOT_COUNT) err = 'Unbekanntes Möbelstück';

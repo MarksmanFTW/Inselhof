@@ -5,6 +5,7 @@
  * Positionen übers Netz gehen. Reine Logik.
  */
 import { Ground, H, W, type Island } from './island';
+import { DAY_MS, type Clock } from './time';
 
 export type Pattern = 'none' | 'blaze' | 'pinto' | 'spots' | 'dapple' | 'dun';
 
@@ -23,8 +24,8 @@ export interface Breed {
   mark?: string;
   /** langer Behang an den Hufen (Kaltblut) */
   feather?: boolean;
-  /** 0 = Pony, 1 = Pferd, 2 = großes Kaltblut */
-  size: 0 | 1 | 2;
+  /** 0 = Pony, 1 = Pferd, 2 = großes Kaltblut, 3 = Fohlen */
+  size: 0 | 1 | 2 | 3;
   /** Preis in Rüben */
   cost: number;
   /** ab Insel-Stufe */
@@ -61,6 +62,22 @@ export const STABLE_SPACE = 4;
 export const TRUST = 1;
 export const MAX_LOVE = 10;
 export const NAME_MAX = 12;
+/** Fohlen: Heu-Preis, wächst so lange, nächstes erst nach … Inseltagen */
+export const FOAL_HAY = 5;
+export const FOAL_GROW_MS = 2 * DAY_MS;
+export const FOAL_PAUSE_DAYS = 3;
+
+/** Koppel: Zaun rund um eine Wiese, Tor unten in der Mitte */
+export interface Paddock {
+  x: number;
+  y: number;
+}
+export const PADDOCK_FOOT = { left: -34, right: 34, top: -40, bottom: 1 };
+export const PADDOCK_COST = 8;
+/** halbe Breite des Tors */
+export const GATE = 7;
+/** Koppel gehört zum Stall, wenn sie so nah ist */
+export const PADDOCK_REACH = 110;
 
 export interface Stable {
   x: number;
@@ -75,7 +92,21 @@ export interface Horse {
   t: number;
   /** wie oft gefüttert (Vertrauen) */
   love: number;
+  /** Inseltag: zuletzt Heu bekommen, Leckerli, gebürstet, Fohlen bekommen */
+  fed?: number;
+  treat?: number;
+  brushed?: number;
+  bred?: number;
+  /** Fohlen: geboren um … */
+  foal?: number;
 }
+export type Care = 'fed' | 'treat' | 'brushed';
+
+/** Inseltag zur Zeit t (für „einmal am Tag“) */
+export const islandDay = (clock: Clock | null, t: number) => Math.floor((t + (clock?.offset ?? 0)) / DAY_MS);
+export const isFoal = (h: Horse, now: number) => h.foal !== undefined && now - h.foal < FOAL_GROW_MS;
+/** Fohlen haben eigene (kleine) Bilder */
+export const foalBreed = (b: Breed): Breed => ({ ...b, id: `${b.id}~fohlen`, size: 3 });
 
 export function cleanHorses(list: unknown, stables: number): Horse[] {
   if (!Array.isArray(list)) return [];
@@ -88,6 +119,7 @@ export function cleanHorses(list: unknown, stables: number): Horse[] {
       stable: Math.floor(h.stable),
       t: typeof h.t === 'number' ? h.t : 0,
       love: Math.max(0, Math.min(MAX_LOVE, Math.floor(h.love ?? 0))),
+      ...Object.fromEntries((['fed', 'treat', 'brushed', 'bred', 'foal'] as const).filter((k) => typeof h[k] === 'number').map((k) => [k, h[k]])),
     });
   }
   return out;
@@ -122,14 +154,30 @@ export interface HorsePose {
 }
 
 /** Wo steht/läuft das Pferd zur Zeit t? free(x, y) = darf dort stehen */
-export function horsePose(h: Horse, slot: number, st: Stable, t: number, free: (x: number, y: number) => boolean, night = false): HorsePose {
-  const home = homeSpot(st, slot);
+export interface Area {
+  x0: number;
+  x1: number;
+  y0: number;
+  y1: number;
+}
+/** Innenfläche einer Koppel (mit Abstand zum Zaun) */
+export const paddockArea = (p: Paddock): Area => ({ x0: p.x + PADDOCK_FOOT.left + 9, x1: p.x + PADDOCK_FOOT.right - 9, y0: p.y + PADDOCK_FOOT.top + 6, y1: p.y - 5 });
+/** Weide vor dem Stall */
+const frontArea = (st: Stable): Area => ({ x0: st.x - RANGE.x, x1: st.x + RANGE.x, y0: st.y + 12, y1: st.y + 12 + RANGE.y });
+
+/**
+ * Wo steht/läuft das Pferd zur Zeit t? free(x, y) = darf dort stehen.
+ * Mit Koppel grasen die Pferde darin (und schlafen dort), sonst vor dem Stall.
+ */
+export function horsePose(h: Horse, slot: number, st: Stable, t: number, free: (x: number, y: number) => boolean, night = false, paddock?: Paddock): HorsePose {
+  const area = paddock ? paddockArea(paddock) : frontArea(st);
+  const home = paddock ? { x: Math.round(area.x0 + 6 + (slot % 5) * 11), y: Math.round(area.y1 - 2 - (slot % 2) * 6) } : homeSpot(st, slot);
   const seed = Math.floor(h.t / 1000) + slot * 7919;
   const target = (k: number) => {
     if (night) return home;
     for (let n = 0; n < 4; n++) {
-      const x = Math.round(st.x + (hash(seed, k * 4 + n) * 2 - 1) * RANGE.x);
-      const y = Math.round(st.y + 12 + hash(seed + 1, k * 4 + n) * RANGE.y);
+      const x = Math.round(area.x0 + hash(seed, k * 4 + n) * (area.x1 - area.x0));
+      const y = Math.round(area.y0 + hash(seed + 1, k * 4 + n) * (area.y1 - area.y0));
       if (free(x, y)) return { x, y };
     }
     return home;

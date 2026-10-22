@@ -1002,3 +1002,36 @@ button.wood:active {
   font-size: 15px;
   padding: 7px 6px 10px;
 }
+.care {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+  margin-bottom: 4px;
+}
+.care .pbtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  font-size: 14px;
+  padding: 7px 4px 10px;
+}
+.care .pbtn img {
+  width: 18px;
+  height: 15px;
+  image-rendering: pixelated;
+}
+.stable-panel .mine.small {
+  font-size: 13px;
+  margin-top: 2px;
+}
+@media (max-width: 420px) {
+  .hotbar .slot {
+    width: 44px;
+    height: 44px;
+  }
+  .hotbar .slot img {
+    width: 30px;
+    height: 30px;
+  }
+}

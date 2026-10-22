@@ -5,6 +5,8 @@
  */
 
 type Sfx =
+  | 'mow'
+  | 'brush'
   | 'neigh'
   | 'hoof'
   | 'chop'
@@ -193,6 +195,15 @@ export function sfx(name: Sfx) {
     case 'step':
       stepAlt = !stepAlt;
       noise(0.04, { freq: stepAlt ? 700 : 550, vol: 0.06 });
+      break;
+    case 'mow':
+      // Sense: Schwung durchs Gras
+      noise(0.22, { freq: 4200, type: 'bandpass', vol: 0.35, q: 0.7, attack: 0.04 });
+      noise(0.12, { freq: 2600, type: 'highpass', vol: 0.12, at: t + 0.12 });
+      break;
+    case 'brush':
+      for (let i = 0; i < 3; i++) noise(0.12, { freq: 3000, type: 'bandpass', vol: 0.18, q: 1.2, at: t + i * 0.14, attack: 0.04 });
+      tone(1568, 0.2, { type: 'triangle', vol: 0.06, at: t + 0.4 });
       break;
     case 'neigh':
       // Wiehern: hoher Ton mit schnellem Zittern, fällt ab

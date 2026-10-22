@@ -15,6 +15,19 @@ export const CAN_GOAL = 5;
 export const CAPACITY = { bucket: 4, can: 15 } as const;
 /** ab Insel-Stufe 4 */
 export const CAPACITY_BIG = { bucket: 6, can: 20 } as const;
+/** Heu: gemähtes Gras trocknet, wird eingesammelt, die Wiese wächst nach (ms) */
+export const HAY_DRY_MS = 45_000;
+export const MEADOW_REGROW_MS = 120_000;
+export const HAY_PER_TILE = 2;
+/** gemähte Wiesen-Kachel */
+export interface Mown {
+  /** gemäht um */
+  t: number;
+  /** Heu eingesammelt um */
+  got?: number;
+}
+export type MownStage = 'fresh' | 'dry' | 'stubble';
+
 /** was die Insel-Stufe am Ackerbau ändert (kommt von World.perks) */
 export interface FarmPerks {
   bigWater: boolean;
@@ -38,9 +51,11 @@ export interface FarmSave {
   water: number;
   hasCan: boolean;
   harvested: number;
+  hay?: number;
+  meadow?: Record<string, Mown>;
 }
 
-export type Tool = 'axe' | 'hoe' | 'seeds' | 'water';
+export type Tool = 'axe' | 'hoe' | 'seeds' | 'water' | 'scythe';
 
 export const key = (c: number, r: number) => `${c},${r}`;
 
@@ -52,6 +67,8 @@ export class Farm {
   water: number = CAPACITY.bucket;
   hasCan = false;
   harvested = 0;
+  hay = 0;
+  meadow = new Map<string, Mown>();
   version = 0;
   /** Fähigkeiten der Insel-Stufe (wird mit der World verbunden) */
   perks: () => FarmPerks = () => NO_PERKS;
@@ -72,6 +89,9 @@ export class Farm {
     const max = this.hasCan ? CAPACITY_BIG.can : CAPACITY_BIG.bucket;
     this.water = Math.max(0, Math.min(max, Math.floor(save.water ?? this.capacity)));
     this.harvested = Math.max(0, Math.floor(save.harvested ?? 0));
+    this.hay = Math.max(0, Math.floor(save.hay ?? 0));
+    for (const [k, m] of Object.entries(save.meadow ?? {}))
+      if (/^\d+,\d+$/.test(k) && m && typeof m.t === 'number') this.meadow.set(k, { t: m.t, ...(typeof m.got === 'number' ? { got: m.got } : {}) });
   }
 
   get capacity() {
@@ -89,6 +109,8 @@ export class Farm {
     this.water = f.water;
     this.hasCan = f.hasCan;
     this.harvested = f.harvested;
+    this.hay = f.hay;
+    this.meadow = f.meadow;
     this.version++;
   }
 
@@ -101,6 +123,7 @@ export class Farm {
       water: this.water,
       hasCan: this.hasCan,
       harvested: this.harvested,
+      ...(this.hay || this.meadow.size ? { hay: this.hay, meadow: Object.fromEntries([...this.meadow].map(([k, m]) => [k, { ...m }])) } : {}),
     };
   }
 
@@ -120,8 +143,39 @@ export class Farm {
     return this.plots.get(key(c, r));
   }
 
+  mown(c: number, r: number, now: number): MownStage | null {
+    const m = this.meadow.get(key(c, r));
+    if (!m) return null;
+    return m.got !== undefined ? 'stubble' : now - m.t >= HAY_DRY_MS ? 'dry' : 'fresh';
+  }
+
+  /** Sense: Wiese mähen (free = nichts im Weg, vom Aufrufer geprüft) */
+  mow(c: number, r: number, free: boolean, now: number): string | null {
+    if (this.plot(c, r)) return 'Hier ist ein Feld';
+    if (this.meadow.has(key(c, r))) return 'Hier ist schon gemäht';
+    if (!free || !this.groundOk(c, r)) return 'Hier wächst kein Gras zum Mähen';
+    this.meadow.set(key(c, r), { t: now });
+    this.version++;
+    return null;
+  }
+
+  /** trockenes Heu einsammeln */
+  rake(c: number, r: number, now: number): number {
+    const m = this.meadow.get(key(c, r));
+    if (!m || m.got !== undefined || now - m.t < HAY_DRY_MS) return 0;
+    m.got = now;
+    this.hay += HAY_PER_TILE;
+    this.version++;
+    return HAY_PER_TILE;
+  }
+
   /** Wachsen und Austrocknen nachholen; Regen gießt alle Felder */
   update(now: number, raining = false) {
+    for (const [k, m] of this.meadow)
+      if (m.got !== undefined && now - m.got >= MEADOW_REGROW_MS) {
+        this.meadow.delete(k);
+        this.version++;
+      }
     for (const p of this.plots.values()) {
       if (raining && !p.wetAt && !(p.crop && p.crop.stage >= RIPE)) {
         p.wetAt = now;
@@ -144,8 +198,11 @@ export class Farm {
   /** free: liegt dort nichts (Baum, Stein, Haus)? → vom Aufrufer geprüft */
   till(c: number, r: number, free: boolean): string | null {
     if (this.plot(c, r)) return 'Hier ist schon ein Feld';
+    const m = this.meadow.get(key(c, r));
+    if (m && m.got === undefined) return 'Hier liegt noch Heu';
     if (!free || !this.groundOk(c, r)) return 'Hier kann man nicht hacken';
     this.plots.set(key(c, r), { wetAt: 0 });
+    this.meadow.delete(key(c, r));
     this.version++;
     return null;
   }

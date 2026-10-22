@@ -18,6 +18,8 @@ function dims(b: Breed) {
     { L: 12, BH: 6, LEG: 4, NECK: 3, HEADW: 5, HEADH: 4, LW: 2, CW: 8 },
     { L: 16, BH: 7, LEG: 6, NECK: 4, HEADW: 6, HEADH: 4, LW: 2, CW: 9 },
     { L: 18, BH: 8, LEG: 6, NECK: 4, HEADW: 6, HEADH: 5, LW: 3, CW: 11 },
+    // Fohlen: klein, mit langen Beinen
+    { L: 9, BH: 5, LEG: 5, NECK: 3, HEADW: 4, HEADH: 3, LW: 1, CW: 6 },
   ][b.size];
 }
 
@@ -307,4 +309,74 @@ export function heartIcon(full: boolean): HTMLCanvasElement {
   const rows = ['.XX...XX.', 'XXXX.XXXX', 'XXXXXXXXX', 'XXXXXXXXX', '.XXXXXXX.', '..XXXXX..', '...XXX...', '....X....'];
   rows.forEach((r, y) => [...r].forEach((c, x) => c === 'X' && g.set(x, y, full ? (y < 2 && x % 4 === 1 ? '#ff9aa8' : '#e0485a') : '#d8c8b0')));
   return g.render(false);
+}
+
+/** Sense (Klinge oben, wie die Axt geschwungen) */
+export function scythe(): HTMLCanvasElement {
+  const g = new Grid(12, 11);
+  for (let i = 0; i < 9; i++) g.set(1 + i, 9 - i, i < 2 ? '#5a3a20' : '#8c6440');
+  g.set(4, 7, '#5a3a20'); // Griff
+  g.set(5, 8, '#5a3a20');
+  // gebogene Klinge nach links
+  for (const [x, y] of [[9, 0], [8, 0], [7, 0], [6, 0], [5, 1], [4, 1], [3, 2], [2, 3]]) g.set(x, y, '#c8c6d0');
+  for (const [x, y] of [[8, 1], [7, 1], [6, 1], [5, 2], [4, 2]]) g.set(x, y, '#8a8894');
+  g.set(10, 1, '#5a3a20');
+  return g.render();
+}
+
+/** Heubündel für die Anzeige */
+export function hayIcon(): HTMLCanvasElement {
+  const g = new Grid(14, 11);
+  g.rect(1, 2, 12, 8, '#e0b84a');
+  g.rect(1, 2, 12, 1, '#f4d878');
+  for (const x of [3, 6, 9, 11]) g.rect(x, 3, 1, 6, '#c89a34');
+  g.rect(1, 9, 12, 1, '#a87a24');
+  g.rect(4, 2, 1, 8, '#a0522d'); // Schnur
+  g.rect(9, 2, 1, 8, '#a0522d');
+  g.set(0, 4, '#e8c860');
+  g.set(13, 6, '#e8c860');
+  return g.render();
+}
+
+/** gemähte Wiese: frisches Gras im Schwad, trockenes Heu, Stoppeln */
+export function hayTile(stage: 'fresh' | 'dry' | 'stubble'): HTMLCanvasElement {
+  const c = document.createElement('canvas');
+  c.width = 8;
+  c.height = 8;
+  const g = c.getContext('2d')!;
+  // kurze Stoppeln
+  g.fillStyle = 'rgba(230,240,150,0.28)';
+  g.fillRect(0, 0, 8, 8);
+  g.fillStyle = 'rgba(190,210,110,0.7)';
+  for (const [x, y] of [[1, 1], [5, 2], [3, 5], [6, 6], [0, 6], [4, 0]]) g.fillRect(x, y, 1, 1);
+  if (stage === 'stubble') return c;
+  const [main, hi, dark] = stage === 'fresh' ? ['#8cc85a', '#b4e478', '#2e6a24'] : ['#e0b84a', '#f4d878', '#b08a2a'];
+  // Schwad: zwei Reihen gemähtes Gras
+  for (const y of [2, 5]) {
+    g.fillStyle = dark;
+    g.fillRect(0, y + 1, 8, 1);
+    g.fillStyle = main;
+    g.fillRect(0, y, 8, 1);
+    g.fillStyle = hi;
+    for (let x = (y % 2) * 1; x < 8; x += 3) g.fillRect(x, y - 1, 2, 1);
+  }
+  return c;
+}
+
+/** Zaunpfosten (Koppel) */
+export const FENCE = { post: '#6a4428', postHi: '#8c6440', rail: '#b88a58', railDark: '#7a5432' };
+
+/** kleine Koppel fürs Bau-Menü */
+export function paddockIcon(): HTMLCanvasElement {
+  const g = new Grid(30, 22);
+  g.rect(2, 4, 26, 15, '#6dbb5a');
+  for (const y of [6, 18]) {
+    g.rect(1, y - 3, 28, 1, FENCE.rail);
+    g.rect(1, y - 1, 28, 1, FENCE.rail);
+  }
+  g.rect(12, 16, 6, 3, '#6dbb5a'); // Tor
+  for (let x = 1; x < 30; x += 7) for (const y of [2, 14]) g.rect(x, y, 2, 6, FENCE.post);
+  g.rect(1, 2, 1, 18, FENCE.rail);
+  g.rect(28, 2, 1, 18, FENCE.rail);
+  return g.render();
 }

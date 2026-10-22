@@ -3,7 +3,7 @@
  * Rucksack, gebaute Häuser. Reine Logik ohne Zeichnen – lässt sich testen.
  */
 import { Ground, H, W, type Decor, type Island } from './island';
-import { STABLE_COST, STABLE_SPACE, MAX_LOVE, breedById, cleanHorses, cleanName, type Horse, type Stable } from './horses';
+import { FOAL_HAY, FOAL_PAUSE_DAYS, GATE, MAX_LOVE, PADDOCK_COST, PADDOCK_FOOT, PADDOCK_REACH, STABLE_COST, STABLE_SPACE, breedById, cleanHorses, cleanName, isFoal, islandDay, type Care, type Horse, type Paddock, type Stable } from './horses';
 import { cleanProgress, levelOf, newProgress, perks, type Progress } from './progress';
 import type { Clock } from './time';
 
@@ -33,7 +33,7 @@ export interface Fire {
   x: number;
   y: number;
 }
-export type BuildKind = 'house' | 'fire' | 'stable';
+export type BuildKind = 'house' | 'fire' | 'stable' | 'paddock';
 /** Grundfläche des Lagerfeuers */
 export const FIRE_FOOT = { left: -6, right: 6, top: -4, bottom: 1 };
 /** Grundfläche des Pferdestalls */
@@ -42,6 +42,7 @@ export const BUILDS: Record<BuildKind, { cost: number; foot: typeof HOUSE_FOOT }
   house: { cost: HOUSE_COST, foot: HOUSE_FOOT },
   fire: { cost: FIRE_COST, foot: FIRE_FOOT },
   stable: { cost: STABLE_COST, foot: STABLE_FOOT },
+  paddock: { cost: PADDOCK_COST, foot: PADDOCK_FOOT },
 };
 
 export interface WorldSave {
@@ -56,6 +57,7 @@ export interface WorldSave {
   clock?: Clock;
   stables?: Stable[];
   horses?: Horse[];
+  paddocks?: Paddock[];
 }
 
 export type TreeStage = 'tree' | 'stump' | 'sapling';
@@ -78,6 +80,7 @@ export class World {
   fires: Fire[] = [];
   stables: Stable[] = [];
   horses: Horse[] = [];
+  paddocks: Paddock[] = [];
   clock: Clock | null = null;
   prog: Progress = newProgress();
   /** Treffer am aktuellen Baum (nicht gespeichert) */
@@ -100,6 +103,7 @@ export class World {
       this.fires = (save.fires ?? []).filter((h) => typeof h?.x === 'number' && typeof h?.y === 'number');
       this.stables = (save.stables ?? []).filter((h) => typeof h?.x === 'number' && typeof h?.y === 'number');
       this.horses = cleanHorses(save.horses, this.stables.length);
+      this.paddocks = (save.paddocks ?? []).filter((h) => typeof h?.x === 'number' && typeof h?.y === 'number');
       const c = save.clock;
       this.clock = c && typeof c.offset === 'number' && typeof c.day0 === 'number' ? { offset: c.offset, day0: c.day0 } : null;
     }
@@ -116,6 +120,7 @@ export class World {
     this.clock = w.clock;
     this.stables = w.stables;
     this.horses = w.horses;
+    this.paddocks = w.paddocks;
     this.version++;
   }
 
@@ -126,6 +131,7 @@ export class World {
       houses: this.houses.map((h) => ({ ...h, ...(h.furn ? { furn: { ...h.furn } } : {}) })),
       fires: this.fires.map((f) => ({ ...f })),
       ...(this.stables.length ? { stables: this.stables.map((f) => ({ ...f })), horses: this.horses.map((h) => ({ ...h })) } : {}),
+      ...(this.paddocks.length ? { paddocks: this.paddocks.map((f) => ({ ...f })) } : {}),
       ...(this.clock ? { clock: { ...this.clock } } : {}),
       prog: { xp: this.prog.xp, stats: { ...this.prog.stats }, quests: this.prog.quests },
     };
@@ -180,7 +186,25 @@ export class World {
       [this.stables, STABLE_FOOT],
     ] as const)
       for (const h of list) if (x + fw > h.x + f.left && x - fw < h.x + f.right && y + fh > h.y + f.top && y - fh < h.y + f.bottom) return true;
+    for (const p of this.paddocks) if (this.onFence(p, x, y, fw, fh)) return true;
     return false;
+  }
+
+  /** Koppel-Zaun: nur die Ränder sperren, innen ist Wiese, unten ein Tor */
+  onFence(p: Paddock, x: number, y: number, fw: number, fh: number) {
+    const f = PADDOCK_FOOT;
+    const hit = (x0: number, x1: number, y0: number, y1: number) => x + fw > x0 && x - fw < x1 && y + fh > y0 && y - fh < y1;
+    const L = p.x + f.left;
+    const R = p.x + f.right;
+    const T = p.y + f.top;
+    const B = p.y;
+    return (
+      hit(L, R, T - 1, T + 1) ||
+      hit(L - 1, L + 1, T, B + 1) ||
+      hit(R - 1, R + 1, T, B + 1) ||
+      hit(L, p.x - GATE, B - 1, B + 1) ||
+      hit(p.x + GATE, R, B - 1, B + 1)
+    );
   }
 
   /** Nächster fällbarer Baum in Reichweite */
@@ -252,6 +276,7 @@ export class World {
       [this.houses, HOUSE_FOOT],
       [this.fires, FIRE_FOOT],
       [this.stables, STABLE_FOOT],
+      [this.paddocks, PADDOCK_FOOT],
     ] as const)
       for (const h of list)
         if (x + f.right + 4 > h.x + g.left && x + f.left - 4 < h.x + g.right && y + f.bottom + 4 > h.y + g.top - 6 && y + f.top - 8 < h.y + g.bottom) return false;
@@ -263,7 +288,7 @@ export class World {
     const cost = BUILDS[kind].cost;
     if (this.wood < cost || !this.canPlace(x, y, player, kind)) return false;
     this.wood -= cost;
-    (kind === 'fire' ? this.fires : kind === 'stable' ? this.stables : this.houses).push({ x: Math.round(x), y: Math.round(y) });
+    (kind === 'fire' ? this.fires : kind === 'stable' ? this.stables : kind === 'paddock' ? this.paddocks : this.houses).push({ x: Math.round(x), y: Math.round(y) });
     this.version++;
     return true;
   }
@@ -298,13 +323,65 @@ export class World {
     return null;
   }
 
-  /** Pferd füttern → mehr Vertrauen */
-  feed(horse: number) {
+  /** Koppel des Stalls (die nächste in Reichweite) */
+  paddockOf(stable: number) {
+    const st = this.stables[stable];
+    if (!st) return undefined;
+    let best: Paddock | undefined;
+    let bestD = PADDOCK_REACH;
+    for (const p of this.paddocks) {
+      const d = Math.hypot(p.x - st.x, p.y + PADDOCK_FOOT.top / 2 - st.y);
+      if (d < bestD) {
+        bestD = d;
+        best = p;
+      }
+    }
+    return best;
+  }
+
+  /** Was heute bei diesem Pferd schon erledigt ist */
+  doneToday(horse: number, what: Care, t: number) {
+    return this.horses[horse]?.[what] === islandDay(this.clock, t);
+  }
+
+  /**
+   * Pflege: Heu füttern, Leckerli (Rübe) oder bürsten – je einmal am Tag, jedes gibt Vertrauen.
+   * pay prüft und zieht das Futter ab.
+   */
+  care(horse: number, what: Care, t: number, pay: () => boolean) {
     const h = this.horses[horse];
-    if (!h) return false;
+    if (!h) return 'Dieses Pferd gibt es nicht';
+    if (this.doneToday(horse, what, t)) return what === 'brushed' ? `${h.name} glänzt schon` : what === 'fed' ? `${h.name} ist satt` : `${h.name} hatte heute schon ein Leckerli`;
+    if (!pay()) return what === 'fed' ? 'Kein Heu – mäh die Wiese mit der Sense' : 'Keine Rüben';
+    h[what] = islandDay(this.clock, t);
     h.love = Math.min(MAX_LOVE, h.love + 1);
     this.version++;
-    return true;
+    return null;
+  }
+
+  /** Warum (noch) kein Fohlen? null = geht */
+  foalBlock(horse: number, t: number, hay: number) {
+    const h = this.horses[horse];
+    if (!h) return 'Dieses Pferd gibt es nicht';
+    if (isFoal(h, t)) return 'Noch selbst ein Fohlen';
+    if (h.love < MAX_LOVE) return 'Braucht volles Vertrauen';
+    if (h.bred !== undefined && islandDay(this.clock, t) - h.bred < FOAL_PAUSE_DAYS) return 'Braucht noch ein paar Tage Pause';
+    if (!this.horses.some((o, i) => i !== horse && o.stable === h.stable && !isFoal(o, t) && o.love >= MAX_LOVE)) return 'Braucht ein zweites Pferd mit vollem Vertrauen im Stall';
+    if (this.horsesIn(h.stable) >= STABLE_SPACE) return 'Der Stall ist voll';
+    if (hay < FOAL_HAY) return `Braucht ${FOAL_HAY} Heu`;
+    return null;
+  }
+
+  /** Fohlen kommt zur Welt (pay zieht das Heu ab) */
+  foal(horse: number, name: string, t: number, hay: number, pay: () => void) {
+    const err = this.foalBlock(horse, t, hay);
+    if (err) return err;
+    const h = this.horses[horse];
+    pay();
+    h.bred = islandDay(this.clock, t);
+    this.horses.push({ breed: h.breed, name: cleanName(name) || breedById(h.breed)!.names[0], stable: h.stable, t, love: 2, foal: t });
+    this.version++;
+    return null;
   }
 
   /** Feuer in der Nähe (zum Kochen) */

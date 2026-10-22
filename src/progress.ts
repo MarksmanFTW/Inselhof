@@ -4,7 +4,7 @@
  * (bei gemeinsamen Inseln levelt man also zusammen) und ist reine Logik.
  */
 
-export type Stat = 'felled' | 'tilled' | 'planted' | 'watered' | 'harvested' | 'built' | 'wood' | 'adopted';
+export type Stat = 'felled' | 'tilled' | 'planted' | 'watered' | 'harvested' | 'built' | 'wood' | 'adopted' | 'mowed' | 'cared';
 
 export interface Progress {
   xp: number;
@@ -22,7 +22,7 @@ export function cleanProgress(p: Partial<Progress> | undefined): Progress {
 }
 
 /** XP je Aktion */
-export const XP: Record<Exclude<Stat, 'wood'>, number> = { felled: 5, tilled: 2, planted: 1, watered: 1, harvested: 4, built: 25, adopted: 20 };
+export const XP: Record<Exclude<Stat, 'wood'>, number> = { felled: 5, tilled: 2, planted: 1, watered: 1, harvested: 4, built: 25, adopted: 20, mowed: 1, cared: 2 };
 
 /** XP bis Stufe L: 30 · L(L-1)/2 → 30, 90, 180, 300 … */
 export const xpFor = (level: number) => (30 * level * (level - 1)) / 2;
