@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="de">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no" />
+    <meta name="theme-color" content="#7fd3e8" />
+    <title>Cozy Island 3D – Probe</title>
+    <style>
+      html, body { margin: 0; height: 100%; overflow: hidden; background: #7fd3e8; touch-action: none; user-select: none; -webkit-user-select: none; font-family: 'Trebuchet MS', 'Arial Rounded MT Bold', system-ui, sans-serif; }
+      canvas { display: block; }
+      .badge { position: fixed; left: 12px; top: calc(env(safe-area-inset-top, 0px) + 12px); padding: 8px 14px; border-radius: 18px; background: #fffaf0ee; color: #6a4a2a; font-weight: 700; font-size: 15px; box-shadow: 0 3px 0 #e0c89a; }
+      .badge small { display: block; font-weight: 400; font-size: 12px; color: #9a7a5a; }
+      .act { position: fixed; right: 18px; bottom: calc(env(safe-area-inset-bottom, 0px) + 22px); display: grid; gap: 10px; justify-items: end; }
+      .act button { border: 0; border-radius: 999px; padding: 14px 22px 16px; font: 700 18px inherit; font-family: inherit; color: #fff; background: #f08ac0; box-shadow: 0 5px 0 #c8508e, 0 8px 18px #0003; }
+      .act button.green { background: #6cc46a; box-shadow: 0 5px 0 #3e8a3a, 0 8px 18px #0003; }
+      .act button:active { transform: translateY(3px); box-shadow: 0 2px 0 #0003; }
+      .act button[hidden] { display: none; }
+      .stick { position: fixed; width: 110px; height: 110px; border-radius: 50%; background: #ffffff55; border: 3px solid #ffffffaa; pointer-events: none; display: none; }
+      .stick i { position: absolute; left: 50%; top: 50%; width: 46px; height: 46px; margin: -23px; border-radius: 50%; background: #fffaf0; box-shadow: 0 3px 0 #e0c89a; }
+      .hint { position: fixed; left: 50%; bottom: calc(env(safe-area-inset-bottom, 0px) + 110px); transform: translateX(-50%); padding: 8px 14px; border-radius: 16px; background: #00000055; color: #fff; font-size: 14px; white-space: nowrap; transition: opacity 0.6s; }
+    </style>
+  </head>
+  <body>
+    <div class="badge">Cozy Island 3D<small>Probeentwurf · nur zum Anschauen</small></div>
+    <div class="hint">Wischen = laufen · zu den Pferden gehen</div>
+    <div class="stick"><i></i></div>
+    <div class="act">
+      <button data-act="pet" hidden>Streicheln</button>
+      <button class="green" data-act="ride" hidden>Reiten</button>
+    </div>
+    <script type="module" src="./main.ts"></script>
+  </body>
+</html>

@@ -8,9 +8,13 @@
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview --host",
     "test": "vitest run",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "proto": "vite --config vite.proto.config.ts",
+    "proto:build": "vite build --config vite.proto.config.ts"
   },
   "devDependencies": {
+    "@types/three": "^0.186.0",
+    "three": "^0.186.1",
     "typescript": "^7.0.2",
     "vite": "^8.3.4",
     "vitest": "^5.0.5"
