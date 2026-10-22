@@ -41,7 +41,7 @@ export function link(world: World, farm: Farm) {
   farm.perks = () => world.perks;
 }
 
-const STAT: Partial<Record<Action['kind'], Stat>> = { hoe: 'tilled', seeds: 'planted', water: 'watered', harvest: 'harvested', build: 'built' };
+const STAT: Partial<Record<Action['kind'], Stat>> = { hoe: 'tilled', seeds: 'planted', water: 'watered', harvest: 'harvested', build: 'built', adopt: 'adopted' };
 
 /** Aktion ausführen und Fortschritt verbuchen */
 export function applyOp(world: World, farm: Farm, op: Op): OpResult {
@@ -57,8 +57,8 @@ export function applyOp(world: World, farm: Farm, op: Op): OpResult {
     merge(gain(world.prog, 'felled', 1, give));
     merge(gain(world.prog, 'wood', res.wood ?? 0, give));
   } else {
-    // nur Häuser zählen als „gebaut“ (nicht das Lagerfeuer)
-    const stat = op.a.kind === 'build' && op.a.what === 'fire' ? undefined : STAT[op.a.kind];
+    // nur Häuser zählen als „gebaut“ (nicht Lagerfeuer und Stall)
+    const stat = op.a.kind === 'build' && op.a.what && op.a.what !== 'house' ? undefined : STAT[op.a.kind];
     if (res.done && stat) merge(gain(world.prog, stat, 1, give));
   }
   if (res.gain && (res.gain.quests.length || res.gain.levels.length)) {
@@ -124,6 +124,21 @@ function run(world: World, farm: Farm, op: Op): OpResult {
   } else if (a.kind === 'cook') {
     if (world.fireNear(actor.x, actor.y, 22) < 0) err = 'Kochen geht nur am Lagerfeuer';
     else if (!farm.cook()) err = 'Keine Rüben zum Kochen';
+  } else if (a.kind === 'adopt') {
+    err = world.adopt(a.house ?? -1, a.item ?? '', a.name ?? '', t, (cost) => {
+      if (farm.turnips < cost) return false;
+      farm.turnips -= cost;
+      farm.version++;
+      return true;
+    });
+  } else if (a.kind === 'feed') {
+    if (!world.horses[a.horse ?? -1]) err = 'Dieses Pferd gibt es nicht';
+    else if (farm.turnips <= 0) err = 'Keine Rüben zum Füttern';
+    else {
+      farm.turnips--;
+      farm.version++;
+      world.feed(a.horse!);
+    }
   } else if (a.kind === 'furnish') {
     const f = furnitureById(a.item ?? '');
     if (!f || (a.slot ?? -1) < 0 || (a.slot ?? 0) >= SLOT_COUNT) err = 'Unbekanntes Möbelstück';

@@ -3,6 +3,7 @@
  * Rucksack, gebaute Häuser. Reine Logik ohne Zeichnen – lässt sich testen.
  */
 import { Ground, H, W, type Decor, type Island } from './island';
+import { STABLE_COST, STABLE_SPACE, MAX_LOVE, breedById, cleanHorses, cleanName, type Horse, type Stable } from './horses';
 import { cleanProgress, levelOf, newProgress, perks, type Progress } from './progress';
 import type { Clock } from './time';
 
@@ -32,12 +33,15 @@ export interface Fire {
   x: number;
   y: number;
 }
-export type BuildKind = 'house' | 'fire';
+export type BuildKind = 'house' | 'fire' | 'stable';
 /** Grundfläche des Lagerfeuers */
 export const FIRE_FOOT = { left: -6, right: 6, top: -4, bottom: 1 };
+/** Grundfläche des Pferdestalls */
+export const STABLE_FOOT = { left: -24, right: 24, top: -14, bottom: 1 };
 export const BUILDS: Record<BuildKind, { cost: number; foot: typeof HOUSE_FOOT }> = {
   house: { cost: HOUSE_COST, foot: HOUSE_FOOT },
   fire: { cost: FIRE_COST, foot: FIRE_FOOT },
+  stable: { cost: STABLE_COST, foot: STABLE_FOOT },
 };
 
 export interface WorldSave {
@@ -50,6 +54,8 @@ export interface WorldSave {
   fires?: Fire[];
   /** Uhrzeit der Insel */
   clock?: Clock;
+  stables?: Stable[];
+  horses?: Horse[];
 }
 
 export type TreeStage = 'tree' | 'stump' | 'sapling';
@@ -70,6 +76,8 @@ export class World {
   felled = new Map<number, number>();
   houses: House[] = [];
   fires: Fire[] = [];
+  stables: Stable[] = [];
+  horses: Horse[] = [];
   clock: Clock | null = null;
   prog: Progress = newProgress();
   /** Treffer am aktuellen Baum (nicht gespeichert) */
@@ -90,6 +98,8 @@ export class World {
       this.houses = (save.houses ?? []).filter((h) => typeof h?.x === 'number' && typeof h?.y === 'number');
       this.prog = cleanProgress(save.prog);
       this.fires = (save.fires ?? []).filter((h) => typeof h?.x === 'number' && typeof h?.y === 'number');
+      this.stables = (save.stables ?? []).filter((h) => typeof h?.x === 'number' && typeof h?.y === 'number');
+      this.horses = cleanHorses(save.horses, this.stables.length);
       const c = save.clock;
       this.clock = c && typeof c.offset === 'number' && typeof c.day0 === 'number' ? { offset: c.offset, day0: c.day0 } : null;
     }
@@ -104,6 +114,8 @@ export class World {
     this.prog = w.prog;
     this.fires = w.fires;
     this.clock = w.clock;
+    this.stables = w.stables;
+    this.horses = w.horses;
     this.version++;
   }
 
@@ -113,6 +125,7 @@ export class World {
       felled: Object.fromEntries(this.felled),
       houses: this.houses.map((h) => ({ ...h, ...(h.furn ? { furn: { ...h.furn } } : {}) })),
       fires: this.fires.map((f) => ({ ...f })),
+      ...(this.stables.length ? { stables: this.stables.map((f) => ({ ...f })), horses: this.horses.map((h) => ({ ...h })) } : {}),
       ...(this.clock ? { clock: { ...this.clock } } : {}),
       prog: { xp: this.prog.xp, stats: { ...this.prog.stats }, quests: this.prog.quests },
     };
@@ -164,6 +177,7 @@ export class World {
     for (const [list, f] of [
       [this.houses, HOUSE_FOOT],
       [this.fires, FIRE_FOOT],
+      [this.stables, STABLE_FOOT],
     ] as const)
       for (const h of list) if (x + fw > h.x + f.left && x - fw < h.x + f.right && y + fh > h.y + f.top && y - fh < h.y + f.bottom) return true;
     return false;
@@ -237,6 +251,7 @@ export class World {
     for (const [list, g] of [
       [this.houses, HOUSE_FOOT],
       [this.fires, FIRE_FOOT],
+      [this.stables, STABLE_FOOT],
     ] as const)
       for (const h of list)
         if (x + f.right + 4 > h.x + g.left && x + f.left - 4 < h.x + g.right && y + f.bottom + 4 > h.y + g.top - 6 && y + f.top - 8 < h.y + g.bottom) return false;
@@ -248,7 +263,7 @@ export class World {
     const cost = BUILDS[kind].cost;
     if (this.wood < cost || !this.canPlace(x, y, player, kind)) return false;
     this.wood -= cost;
-    (kind === 'fire' ? this.fires : this.houses).push({ x: Math.round(x), y: Math.round(y) });
+    (kind === 'fire' ? this.fires : kind === 'stable' ? this.stables : this.houses).push({ x: Math.round(x), y: Math.round(y) });
     this.version++;
     return true;
   }
@@ -263,6 +278,33 @@ export class World {
     h.furn = { ...h.furn, [slot]: item };
     this.version++;
     return null;
+  }
+
+  /** Pferde in einem Stall */
+  horsesIn(stable: number) {
+    return this.horses.filter((h) => h.stable === stable).length;
+  }
+
+  /** Pferd im Stall aufnehmen; bezahlt wird mit Rüben (pay prüft und zieht ab) */
+  adopt(stable: number, breed: string, name: string, t: number, pay: (cost: number) => boolean) {
+    const b = breedById(breed);
+    if (!this.stables[stable]) return 'Diesen Stall gibt es nicht';
+    if (!b) return 'Unbekannte Rasse';
+    if (this.level < b.level) return `${b.name} gibt es ab Insel-Stufe ${b.level}`;
+    if (this.horsesIn(stable) >= STABLE_SPACE) return 'Der Stall ist voll – bau noch einen';
+    if (!pay(b.cost)) return 'Zu wenig Rüben';
+    this.horses.push({ breed: b.id, name: cleanName(name) || b.names[0], stable, t, love: 0 });
+    this.version++;
+    return null;
+  }
+
+  /** Pferd füttern → mehr Vertrauen */
+  feed(horse: number) {
+    const h = this.horses[horse];
+    if (!h) return false;
+    h.love = Math.min(MAX_LOVE, h.love + 1);
+    this.version++;
+    return true;
   }
 
   /** Feuer in der Nähe (zum Kochen) */

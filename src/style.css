@@ -950,3 +950,55 @@ button.wood:active {
     opacity: 0;
   }
 }
+
+/* ---------- Pferde ---------- */
+.build-panel {
+  max-height: calc(100dvh - 32px);
+  overflow-y: auto;
+}
+.breed-grid img {
+  height: 40px;
+}
+.furn.locked img {
+  filter: grayscale(1) brightness(0.6);
+}
+.stable-panel .mine {
+  margin: 0 0 8px;
+  text-align: center;
+  font-size: 15px;
+  color: #7a5a3a;
+}
+.stable-panel .have b {
+  color: var(--ink);
+}
+.horse-hero {
+  display: grid;
+  place-items: center;
+  margin: -4px 0 6px;
+}
+.horse-hero img {
+  width: 136px;
+  height: 120px;
+  image-rendering: pixelated;
+}
+.stable-panel .name-row {
+  margin-bottom: 10px;
+}
+.hearts {
+  display: flex;
+  justify-content: center;
+  gap: 4px;
+  margin-bottom: 6px;
+}
+.hearts img {
+  width: 27px;
+  height: 24px;
+  image-rendering: pixelated;
+}
+.stable-panel .two {
+  margin-bottom: 8px;
+}
+.stable-panel .two .pbtn {
+  font-size: 15px;
+  padding: 7px 6px 10px;
+}

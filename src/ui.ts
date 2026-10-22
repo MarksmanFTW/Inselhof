@@ -328,7 +328,7 @@ export interface HudActions {
   act: (down: boolean) => void;
   tool: (t: ToolId) => void;
   /** Bau-Fenster: Haus oder Lagerfeuer wählen → platzieren */
-  place: (what: 'house' | 'fire') => void;
+  place: (what: 'house' | 'fire' | 'stable') => void;
   /** Rübe essen (roh) oder Ofenrübe */
   eat: (cooked: boolean) => void;
   confirm: () => void;
@@ -346,6 +346,29 @@ export interface HudIcons {
   turnip: string;
   fire: string;
   meal: string;
+  stable: string;
+  horse: string;
+}
+
+/** Eintrag im Stall: Rasse zum Aufnehmen */
+export interface BreedCard {
+  id: string;
+  name: string;
+  text: string;
+  cost: number;
+  level: number;
+  img: string;
+  names: string[];
+}
+/** ein eigenes Pferd im Fenster */
+export interface HorseCard {
+  name: string;
+  breed: string;
+  text: string;
+  img: string;
+  love: number;
+  maxLove: number;
+  canRide: boolean;
 }
 
 export interface Hud {
@@ -363,6 +386,10 @@ export interface Hud {
   setInside(on: boolean): void;
   openChest(items: [string, number][]): void;
   openFurnish(list: { id: string; name: string; cost: number; img: string }[], wood: number, pick: (id: string) => void): void;
+  /** Pferdestall: Rassen zum Aufnehmen, eigene Pferde */
+  openStable(o: { breeds: BreedCard[]; turnips: number; level: number; mine: string[]; space: number }, pick: (id: string, name: string) => void): void;
+  /** eigenes Pferd: füttern oder reiten */
+  openHorse(h: HorseCard, turnips: number, hearts: [string, string], on: { feed: () => void; ride: () => void }): void;
   /** Bildschirm wird schwarz, done läuft in der Mitte */
   sleep(text: string, done: () => void): void;
   /** Uhrzeit-Anzeige */
@@ -377,7 +404,7 @@ export interface Hud {
 }
 
 /** Anzeigen und Knöpfe im Spiel */
-export function showHud(on: HudActions, icons: HudIcons, costs: { house: number; fire: number }): Hud {
+export function showHud(on: HudActions, icons: HudIcons, costs: { house: number; fire: number; stable: number }): Hud {
   clear();
   ui.className = 'ui-hud';
   const slot = (t: ToolId, icon: string) =>
@@ -523,6 +550,88 @@ export function showHud(on: HudActions, icons: HudIcons, costs: { house: number;
         }
       });
     },
+    openStable(o, pick) {
+      const modal = document.createElement('div');
+      modal.className = 'modal';
+      const full = o.mine.length >= o.space;
+      const list = () => `<div class="panel build-panel stable-panel">
+          <h2>Pferdestall</h2>
+          <p class="have">Du hast ${o.turnips} Rüben · Platz ${o.mine.length}/${o.space}</p>
+          ${o.mine.length ? `<p class="mine">Hier wohnen: ${o.mine.map(esc).join(', ')}</p>` : '<p class="mine">Noch leer – nimm ein Pferd auf!</p>'}
+          <div class="furn-grid breed-grid">${o.breeds
+            .map((b) => {
+              const locked = o.level < b.level;
+              const poor = o.turnips < b.cost;
+              return `<button class="furn${locked || poor || full ? ' poor' : ''}${locked ? ' locked' : ''}" data-b="${b.id}"${locked || full ? ' disabled' : ''}>
+                <img src="${b.img}" alt="" /><b>${esc(b.name)}</b><small>${locked ? `ab Stufe ${b.level}` : `${b.cost} Rüben`}</small></button>`;
+            })
+            .join('')}</div>
+          ${full ? '<p class="mine">Der Stall ist voll – bau noch einen Stall.</p>' : ''}
+          <button class="pbtn small ghost" data-m="close">Zurück</button>
+        </div>`;
+      const naming = (b: BreedCard) => `<div class="panel build-panel stable-panel">
+          <h2>${esc(b.name)}</h2>
+          <div class="horse-hero"><img src="${b.img}" alt="" /></div>
+          <p class="have">${esc(b.text)}</p>
+          <label class="name-row">Name <input class="name" maxlength="12" value="${esc(b.names[Math.floor(Math.random() * b.names.length)])}" autocomplete="off" /></label>
+          <div class="two">
+            <button class="pbtn small ghost" data-m="list">Zurück</button>
+            <button class="pbtn green small" data-m="adopt"${o.turnips < b.cost ? ' disabled' : ''}>${o.turnips < b.cost ? `Noch ${b.cost - o.turnips} Rüben` : `Aufnehmen · ${b.cost} Rüben`}</button>
+          </div>
+        </div>`;
+      let chosen: BreedCard | null = null;
+      modal.innerHTML = list();
+      ui.appendChild(modal);
+      modal.addEventListener('click', (e) => {
+        const t = e.target as HTMLElement;
+        if (e.target === modal || t.closest('[data-m=close]')) return modal.remove();
+        if (t.closest('[data-m=list]')) {
+          chosen = null;
+          modal.innerHTML = list();
+          return;
+        }
+        const adopt = t.closest<HTMLButtonElement>('[data-m=adopt]');
+        if (adopt && !adopt.disabled && chosen) {
+          const name = modal.querySelector<HTMLInputElement>('input.name')!.value.trim() || chosen.names[0];
+          modal.remove();
+          pick(chosen.id, name);
+          return;
+        }
+        const b = t.closest<HTMLButtonElement>('[data-b]');
+        if (b && !b.disabled) {
+          chosen = o.breeds.find((x) => x.id === b.dataset.b) ?? null;
+          if (chosen) modal.innerHTML = naming(chosen);
+        }
+      });
+    },
+    openHorse(h, turnips, hearts, act) {
+      const modal = document.createElement('div');
+      modal.className = 'modal';
+      const n = Math.ceil(h.maxLove / 2);
+      const filled = Math.ceil(h.love / 2);
+      modal.innerHTML = `<div class="panel build-panel stable-panel">
+          <h2>${esc(h.name)}</h2>
+          <div class="horse-hero"><img src="${h.img}" alt="" /></div>
+          <p class="have"><b>${esc(h.breed)}</b> – ${esc(h.text)}</p>
+          <div class="hearts">${Array.from({ length: n }, (_, i) => `<img src="${hearts[i < filled ? 0 : 1]}" alt="" />`).join('')}</div>
+          <p class="mine">${h.canRide ? 'Vertraut dir – du kannst aufsteigen!' : 'Füttere es mit einer Rübe, dann vertraut es dir.'}</p>
+          <div class="two">
+            <button class="pbtn small" data-m="feed"${turnips > 0 ? '' : ' disabled'}>${turnips > 0 ? 'Füttern · 1 Rübe' : 'Keine Rüben'}</button>
+            <button class="pbtn green small" data-m="ride"${h.canRide ? '' : ' disabled'}>Reiten</button>
+          </div>
+          <button class="pbtn small ghost" data-m="close">Zurück</button>
+        </div>`;
+      ui.appendChild(modal);
+      modal.addEventListener('click', (e) => {
+        const t = e.target as HTMLElement;
+        if (e.target === modal || t.closest('[data-m=close]')) return modal.remove();
+        const m = t.closest<HTMLButtonElement>('[data-m]');
+        if (!m || m.disabled) return;
+        modal.remove();
+        if (m.dataset.m === 'feed') act.feed();
+        if (m.dataset.m === 'ride') act.ride();
+      });
+    },
     sleep(text, done) {
       const el = document.createElement('div');
       el.className = 'sleepfade';
@@ -551,7 +660,7 @@ export function showHud(on: HudActions, icons: HudIcons, costs: { house: number;
       $<HTMLButtonElement>('[data-act=confirm]').disabled = !valid;
     },
     openBuild(wood) {
-      const card = (what: 'house' | 'fire', img: string, title: string, text: string) => {
+      const card = (what: 'house' | 'fire' | 'stable', img: string, title: string, text: string) => {
         const cost = costs[what];
         const enough = wood >= cost;
         return `<div class="build-card${enough ? '' : ' poor'}">
@@ -568,13 +677,14 @@ export function showHud(on: HudActions, icons: HudIcons, costs: { house: number;
           <p class="have">Du hast ${wood} Holz</p>
           ${card('house', icons.house, 'Kleines Haus', 'Zum Schlafen, mit Platz für Möbel.')}
           ${card('fire', icons.fire, 'Lagerfeuer', 'Brät Rüben zu Ofenrüben – macht richtig satt.')}
+          ${card('stable', icons.stable, 'Pferdestall', 'Platz für 4 Pferde – such dir deine Lieblingsrassen aus.')}
           <button class="pbtn small ghost" data-m="close">Zurück</button>
         </div>`;
       ui.appendChild(modal);
       modal.addEventListener('click', (e) => {
         const m = (e.target as HTMLElement).closest<HTMLButtonElement>('[data-m]');
         if (e.target === modal || m?.dataset.m === 'close') modal.remove();
-        if (m && !m.disabled && (m.dataset.m === 'house' || m.dataset.m === 'fire')) {
+        if (m && !m.disabled && (m.dataset.m === 'house' || m.dataset.m === 'fire' || m.dataset.m === 'stable')) {
           modal.remove();
           on.place(m.dataset.m);
         }

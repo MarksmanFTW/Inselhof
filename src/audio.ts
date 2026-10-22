@@ -5,6 +5,8 @@
  */
 
 type Sfx =
+  | 'neigh'
+  | 'hoof'
   | 'chop'
   | 'fell'
   | 'hoe'
@@ -191,6 +193,18 @@ export function sfx(name: Sfx) {
     case 'step':
       stepAlt = !stepAlt;
       noise(0.04, { freq: stepAlt ? 700 : 550, vol: 0.06 });
+      break;
+    case 'neigh':
+      // Wiehern: hoher Ton mit schnellem Zittern, fällt ab
+      for (let i = 0; i < 9; i++) tone(900 - i * 55 + (i % 2) * 120, 0.07, { type: 'sawtooth', vol: 0.06, at: t + i * 0.055 });
+      noise(0.5, { freq: 1800, type: 'bandpass', vol: 0.08, q: 2, at: t + 0.05 });
+      tone(260, 0.25, { to: 180, type: 'square', vol: 0.05, at: t + 0.5 });
+      break;
+    case 'hoof':
+      // Klapp-klapp
+      stepAlt = !stepAlt;
+      tone(stepAlt ? 520 : 430, 0.035, { type: 'square', vol: 0.05 });
+      noise(0.03, { freq: stepAlt ? 1400 : 1100, type: 'bandpass', vol: 0.18, q: 3 });
       break;
     case 'click':
       tone(700, 0.04, { type: 'square', vol: 0.06 });
