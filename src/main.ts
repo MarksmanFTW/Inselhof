@@ -583,7 +583,17 @@ function ghostSpot() {
 /** sichtbarer Teil der Insel (Welt-Pixel) */
 const VIEW = { w: 300, h: 270 };
 /** beim Spielen näher dran */
-const PLAY_VIEW = { w: 150, h: 200 };
+const PLAY_VIEW = { w: 175, h: 235 };
+/** eigene Zoom-Stufe (mit zwei Fingern) merken: Stufen über/unter dem Standard */
+const ZOOM_KEY = 'cozyisland.zoom';
+const zoomPref = () => {
+  try {
+    return Number(localStorage.getItem(ZOOM_KEY)) || 0;
+  } catch {
+    return 0;
+  }
+};
+const clampZoom = (z: number) => Math.max(minZoom, Math.min(minZoom * 4, Math.round(z)));
 let cw = 0;
 let ch = 0;
 let zoom = 0;
@@ -608,7 +618,13 @@ function clampCam() {
   cam.y = Math.max(40, Math.min(H + (mode === 'play' ? -40 : 120), cam.y));
 }
 function setZoom(z: number) {
-  zoom = Math.max(minZoom, Math.min(minZoom * 4, Math.round(z)));
+  zoom = clampZoom(z);
+  if (mode === 'play' && inside < 0)
+    try {
+      localStorage.setItem(ZOOM_KEY, String(zoom - playZoom));
+    } catch {
+      /* egal */
+    }
 }
 addEventListener('resize', resize);
 resize();
@@ -836,7 +852,7 @@ function openCustom(first: boolean) {
 function startPlay() {
   if (!save.created) return openCustom(true);
   mode = 'play';
-  zoom = playZoom;
+  zoom = clampZoom(playZoom + zoomPref());
   cam.x = player.x;
   cam.y = player.y - 10;
   placing = false;
@@ -983,6 +999,10 @@ function newRoom(host: boolean) {
     if (role === 'host') {
       if (mate) hud?.toast(`${mate.name} hat deine Insel verlassen`);
       mate = null;
+      // hängende Verbindung lösen, damit der Freund wieder beitreten kann
+      const c = r.conn;
+      r.conn = null;
+      c?.close();
       updateCoopChip();
     } else {
       leaveCoop();
@@ -1033,14 +1053,35 @@ function leaveCoop() {
     role = 'guest';
     persist();
     role = 'solo';
+    // auf der gemeinsamen Insel bleiben (allein weiterspielen, Cloud gleicht ab) –
+    // die eigene Insel ist weiter unter „Spielstände“
+    const copy = hostSlot && save.slots.find((x) => x.id === hostSlot!.id);
     hostSlot = null;
-    applySlot(mySlot());
+    applySlot(copy ?? mySlot());
+    if (copy) {
+      setTimeout(() => hud?.toast(`Du spielst auf „${copy.title}“ weiter – alles bleibt gespeichert`), 600);
+      void cloudSync();
+    }
   }
   syncHud();
   updateCoopChip();
 }
+/** wann zuletzt etwas vom Mitspieler kam – bleibt es aus, ist er weg (App zu, Netz weg) */
+let lastHeard = 0;
+const SILENT_MS = 15_000;
+setInterval(() => {
+  const r = room;
+  if (!r || !mate || document.visibilityState !== 'visible') return;
+  if (Date.now() - lastHeard > SILENT_MS) r.onClose();
+}, 2000);
+// nach dem Zurückholen der App kurz Zeit geben, bis wieder Nachrichten kommen
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible') lastHeard = Date.now();
+});
+addEventListener('pagehide', () => room?.connected && room.send({ t: 'bye' }));
 function onNet(m: Msg) {
   const r = room!;
+  lastHeard = Date.now();
   switch (m.t) {
     // ----- beim Gastgeber -----
     case 'hi':
@@ -1788,7 +1829,7 @@ function leaveHouse() {
   player.y = h ? h.y + 7 : outsidePos.y;
   player.dir = Dir.Down;
   hud?.setInside(false);
-  zoom = playZoom;
+  zoom = clampZoom(playZoom + zoomPref());
   cam.x = player.x;
   cam.y = player.y - 10;
   sfx('door');

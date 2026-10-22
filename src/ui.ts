@@ -459,7 +459,7 @@ export function showHud(on: HudActions, icons: HudIcons, costs: { house: number;
       <button class="panel wood eat" data-eat="raw" aria-label="Rübe essen"><img class="turnip" src="${icons.turnip}" alt="" /><b class="n-turnip">0</b></button>
       <button class="panel wood eat" data-eat="cooked" aria-label="Ofenrübe essen"><img class="meal" src="${icons.meal}" alt="" /><b class="n-meal">0</b></button>
     </div>
-    <p class="goal" hidden></p>
+    <button class="goal" hidden aria-label="Aufgabe"></button>
     <p class="coop-chip" hidden></p>
     <div class="hotbar panel">
       ${slot('axe', icons.axe)}${slot('hoe', icons.hoe)}${slot('seeds', icons.seeds)}${slot('water', icons.bucket)}${slot('scythe', icons.scythe)}
@@ -492,6 +492,22 @@ export function showHud(on: HudActions, icons: HudIcons, costs: { house: number;
     if (t) on.tool(t);
   });
   let wood = 0;
+  // Aufgabe: klein (eine Zeile), antippen = ganz
+  let goalText = '';
+  let goalHead = '';
+  let goalOpen = false;
+  let goalTimer = 0;
+  const drawGoal = () => {
+    const g = $('.goal');
+    const t = goalOpen ? goalText : goalHead.replace(/^Aufgabe: /, '');
+    if (g.textContent !== t) g.textContent = t;
+    g.classList.toggle('open', goalOpen);
+  };
+  $('.goal').addEventListener('click', () => {
+    goalOpen = !goalOpen;
+    clearTimeout(goalTimer);
+    drawGoal();
+  });
   $('[data-act=build]').addEventListener('click', () => hud.openBuild(wood));
   $('[data-act=album]').addEventListener('click', on.album);
   $('[data-act=cancel]').addEventListener('click', on.cancel);
@@ -544,7 +560,22 @@ export function showHud(on: HudActions, icons: HudIcons, costs: { house: number;
     setGoal(text) {
       const g = $('.goal');
       g.hidden = !text;
-      if (text && g.textContent !== text) g.textContent = text;
+      if (!text) return;
+      const head = text.split('\n')[0];
+      // neue Aufgabe: kurz ganz zeigen, dann wieder klein
+      if (head !== goalHead) {
+        if (goalHead) {
+          goalOpen = true;
+          clearTimeout(goalTimer);
+          goalTimer = window.setTimeout(() => {
+            goalOpen = false;
+            drawGoal();
+          }, 6000);
+        }
+        goalHead = head;
+      }
+      goalText = text;
+      drawGoal();
     },
     setLevel(level, progress) {
       const b = $('.lvl b');

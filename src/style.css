@@ -1187,3 +1187,78 @@ img.c,
   height: 11px;
   vertical-align: -1px;
 }
+
+/* ---------- kompakte Anzeige oben ---------- */
+.inv {
+  flex-direction: row;
+  gap: 4px;
+}
+.inv .wood {
+  gap: 4px;
+  padding: 5px 8px 7px 6px;
+  font-size: 18px;
+}
+.inv .wood img {
+  width: 24px;
+  height: 17px;
+}
+.inv .wood img.turnip {
+  width: 15px;
+  height: 18px;
+  margin: 0 2px;
+}
+.inv .wood img.meal {
+  width: 21px;
+  height: 19px;
+  margin: 0;
+}
+.goal {
+  top: calc(env(safe-area-inset-top, 0px) + 58px);
+  max-width: min(230px, calc(100vw - 200px));
+  padding: 4px 9px 5px 22px;
+  border: 0;
+  font: 500 13px/1.25 'Pixelify Sans', system-ui, sans-serif;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: pointer;
+  pointer-events: auto !important;
+  position: fixed;
+}
+.goal::before {
+  content: '!';
+  position: absolute;
+  left: 7px;
+  top: 4px;
+  color: #ffd84a;
+  font-weight: 700;
+}
+.goal.open {
+  white-space: pre-line;
+  max-width: min(240px, calc(100vw - 24px));
+}
+.inv {
+  top: calc(env(safe-area-inset-top, 0px) + 96px);
+  left: 12px;
+  right: auto;
+}
+.goal {
+  top: calc(env(safe-area-inset-top, 0px) + 12px);
+  max-width: calc(100vw - 214px);
+}
+.goal.open {
+  max-width: min(260px, calc(100vw - 24px));
+  z-index: 1;
+}
+.coop-chip {
+  top: calc(env(safe-area-inset-top, 0px) + 138px);
+}
+.inv {
+  top: calc(env(safe-area-inset-top, 0px) + 106px);
+}
+.goal {
+  max-width: calc(100vw - 196px);
+}
+.coop-chip {
+  top: calc(env(safe-area-inset-top, 0px) + 148px);
+}
