@@ -107,6 +107,34 @@ function slab(extra: number, depth: number, bevel: number, color: string, y: num
 }
 scene.add(slab(2.6, 0.6, 0.5, '#f2d9a6', -0.1)); // Strand
 scene.add(slab(0, 0.7, 0.35, '#7ccf6a', 0.32)); // Wiese
+/** fein unterteilte Deckfläche – die große Kappe der Form biegt sich sonst nicht mit */
+function disc(extra: number, y: number, color: string) {
+  const SEG = 120;
+  const RINGS = 28;
+  const pos: number[] = [];
+  const idx: number[] = [];
+  for (let i = 0; i <= RINGS; i++)
+    for (let j = 0; j <= SEG; j++) {
+      const a = (j / SEG) * Math.PI * 2;
+      const rr = ((radius(a) + extra) * i) / RINGS;
+      pos.push(Math.cos(a) * rr, 0, -Math.sin(a) * rr);
+    }
+  for (let i = 0; i < RINGS; i++)
+    for (let j = 0; j < SEG; j++) {
+      const a = i * (SEG + 1) + j;
+      const b = a + SEG + 1;
+      idx.push(a, b, a + 1, a + 1, b, b + 1);
+    }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  geo.setIndex(idx);
+  geo.computeVertexNormals();
+  const m = mesh(geo, color, { shadow: false });
+  m.position.y = y;
+  return m;
+}
+scene.add(disc(2.6 + 0.45, 0.005, '#f2d9a6'));
+scene.add(disc(0.3, 0.32 + 0.005, '#7ccf6a'));
 /** liegt (x, z) auf der Wiese bzw. auf Land? */
 const polar = (x: number, z: number) => ({ r: Math.hypot(x, z), a: Math.atan2(-z, x) });
 const onGrass = (x: number, z: number, m = 0) => polar(x, z).r < radius(polar(x, z).a) - m;
@@ -316,76 +344,159 @@ interface HorseLook {
   bow?: string;
   blanket?: string;
 }
+/** Mähnen- und Schweifsträhne: weiche Röhre entlang einer Kurve, zur Spitze dünner */
+function strand(pts: [number, number, number][], r: number, color: string) {
+  const curveP = new THREE.CatmullRomCurve3(pts.map(([x, y, z]) => new THREE.Vector3(x, y, z)));
+  const geo = new THREE.TubeGeometry(curveP, 12, r, 7, false);
+  // zur Spitze hin verjüngen
+  const pos = geo.attributes.position;
+  const v = new THREE.Vector3();
+  const segs = 12;
+  const radial = 8;
+  for (let i = 0; i <= segs; i++) {
+    const c = curveP.getPointAt(i / segs);
+    const k = 1 - (i / segs) * 0.75;
+    for (let j = 0; j < radial; j++) {
+      const idx = i * radial + j;
+      v.fromBufferAttribute(pos, idx).sub(c).multiplyScalar(k).add(c);
+      pos.setXYZ(idx, v.x, v.y, v.z);
+    }
+  }
+  geo.computeVertexNormals();
+  return mesh(geo, color, { rough: 0.55 });
+}
+/** Ellipsoid (gestreckte Kugel) */
+function blobPart(r: number, sx: number, sy: number, sz: number, color: string, rough = 0.45) {
+  const m = mesh(sphere(r, 28), color, { rough });
+  m.scale.set(sx, sy, sz);
+  return m;
+}
 function makeHorse(l: HorseLook) {
   const g = new THREE.Group();
-  const body = mesh(new THREE.CapsuleGeometry(0.42, 0.75, 8, 18), l.coat, { rough: 0.6 });
-  body.rotation.z = Math.PI / 2;
-  body.position.y = 1.05;
-  g.add(body);
+  // Rumpf: Brust, Bauch, Kruppe – weich ineinander
+  g.add(at(blobPart(0.46, 2.0, 0.97, 0.93, l.coat), -0.04, 1.1, 0)); // ein durchgehender Rumpf
+  g.add(at(blobPart(0.34, 1, 1.08, 0.95, l.coat), 0.46, 1.12, 0)); // Brust
+  g.add(at(blobPart(0.36, 1.05, 1.04, 1.04, l.coat), -0.54, 1.14, 0)); // Kruppe
+  // Hals (verjüngt) mit Kamm
   const neck = new THREE.Group();
-  neck.position.set(0.55, 1.25, 0);
-  const neckM = mesh(new THREE.CapsuleGeometry(0.22, 0.45, 6, 14), l.coat, { rough: 0.6 });
-  neckM.rotation.z = -0.6;
-  neckM.position.set(0.15, 0.25, 0);
-  neck.add(neckM);
+  neck.position.set(0.5, 1.28, 0);
+  const neckM = mesh(new THREE.CylinderGeometry(0.15, 0.24, 1.0, 20), l.coat, { rough: 0.45 });
+  neckM.position.set(0.22, 0.45, 0);
+  neckM.rotation.z = -0.45;
+  neck.add(neckM, at(blobPart(0.17, 1.1, 1.4, 0.85, l.coat), 0.22, 0.5, 0));
+  // Kopf
   const head = new THREE.Group();
-  head.position.set(0.42, 0.62, 0);
-  const skull = mesh(new RoundedBoxGeometry(0.62, 0.36, 0.36, 4, 0.16), l.coat, { rough: 0.6 });
-  skull.rotation.z = -0.35;
-  head.add(skull);
-  head.add(at(mesh(new RoundedBoxGeometry(0.28, 0.24, 0.3, 4, 0.1), '#e8c8a8', { rough: 0.6 }), 0.3, -0.12, 0)); // Maul
+  head.position.set(0.5, 0.95, 0);
+  head.rotation.z = -0.15;
+  head.add(at(blobPart(0.24, 1.15, 1, 0.88, l.coat), 0, 0, 0));
+  const muzzle = blobPart(0.2, 1.55, 0.85, 0.78, l.coat);
+  muzzle.position.set(0.27, -0.13, 0);
+  muzzle.rotation.z = -0.55;
+  head.add(muzzle);
+  head.add(at(blobPart(0.13, 1.1, 0.8, 1.15, '#e9cdb4', 0.6), 0.44, -0.27, 0)); // weiches Maul
+  for (const z of [-1, 1]) head.add(at(mesh(sphere(0.025, 8), '#5a3a32', { shadow: false }), 0.53, -0.25, z * 0.07)); // Nüstern
   if (l.blaze) {
-    const bl = mesh(new RoundedBoxGeometry(0.5, 0.06, 0.12, 2, 0.03), '#fff8ec');
-    bl.rotation.z = -0.35;
-    head.add(at(bl, 0.05, 0.17, 0));
+    const bl = blobPart(0.05, 5, 0.6, 1.4, '#fff8ec', 0.6);
+    bl.position.set(0.2, 0.08, 0);
+    bl.rotation.z = -0.6;
+    head.add(bl);
   }
-  for (const s of [-1, 1]) {
-    head.add(at(mesh(sphere(0.055, 10), '#1a1010', { rough: 0.2, shadow: false }), 0.02, 0.06, s * 0.18));
-    head.add(at(mesh(sphere(0.02, 6), '#ffffff', { shadow: false }), 0.04, 0.08, s * 0.21));
-    const ear = mesh(new THREE.ConeGeometry(0.07, 0.2, 8), l.coat);
-    ear.position.set(-0.2, 0.25, s * 0.1);
-    ear.rotation.x = s * 0.25;
+  for (const z of [-1, 1]) {
+    // große Kulleraugen mit Glanz und Wimpern
+    head.add(at(blobPart(0.075, 0.9, 1.1, 0.6, '#1e1414', 0.15), 0.07, 0.04, z * 0.2));
+    head.add(at(mesh(sphere(0.026, 8), '#ffffff', { rough: 0.1, shadow: false }), 0.1, 0.08, z * 0.24));
+    const lash = mesh(new RoundedBoxGeometry(0.1, 0.018, 0.02, 2, 0.008), '#1e1414', { shadow: false });
+    lash.position.set(0.06, 0.11, z * 0.205);
+    lash.rotation.z = -0.25;
+    head.add(lash);
+    // Ohren: blattförmig, innen rosa
+    const ear = new THREE.Group();
+    ear.position.set(-0.1, 0.22, z * 0.1);
+    ear.rotation.set(z * 0.3, 0, 0.15);
+    const outer = mesh(new THREE.ConeGeometry(0.075, 0.24, 12), l.coat, { rough: 0.5 });
+    outer.scale.z = 0.55;
+    const inner = mesh(new THREE.ConeGeometry(0.045, 0.17, 10), '#f2b8b0', { shadow: false });
+    inner.scale.z = 0.4;
+    inner.position.set(0.02, -0.01, 0);
+    ear.add(outer, inner);
     head.add(ear);
   }
-  for (let k = 0; k < 6; k++) {
-    const m = mesh(new RoundedBoxGeometry(0.14, 0.2, 0.1, 2, 0.04), l.mane);
-    m.position.set(-0.05 - k * 0.08, 0.15 - k * 0.12 + 0.12, 0);
-    m.rotation.z = -0.6;
-    neck.add(m);
+  // Mähne: Strähnen entlang des Halskamms, fallen auf eine Seite
+  // Mähnenkamm (sichtbarer Wulst) und Strähnen, die zur Seite fallen
+  const crestPts: [number, number, number][] = [];
+  for (let k = 0; k <= 6; k++) {
+    const t = k / 6;
+    crestPts.push([-0.22 + t * 0.52, 0.12 + t * 0.85, 0.02]);
   }
-  head.add(at(mesh(new RoundedBoxGeometry(0.16, 0.14, 0.14, 2, 0.05), l.mane), -0.12, 0.24, 0)); // Schopf
+  neck.add(strand(crestPts, 0.08, l.mane));
+  for (let k = 0; k < 11; k++) {
+    const t = k / 10;
+    const bx = -0.22 + t * 0.52;
+    const by = 0.12 + t * 0.85;
+    const len = 0.4 - t * 0.14;
+    neck.add(strand([[bx, by, 0.04], [bx - 0.06, by - len * 0.3, 0.2], [bx - 0.04, by - len, 0.28]], 0.07, k % 2 ? l.mane : new THREE.Color(l.mane).lerp(new THREE.Color('#ffffff'), 0.18).getStyle()));
+  }
+  // Schopf über der Stirn
+  head.add(strand([[-0.08, 0.2, 0], [0.04, 0.2, 0.02], [0.12, 0.12, 0.03]], 0.045, l.mane));
+  head.add(strand([[-0.08, 0.2, 0.03], [0.02, 0.18, -0.05], [0.1, 0.1, -0.07]], 0.04, l.mane));
   if (l.bow) {
-    for (const s of [-1, 1]) head.add(at(mesh(sphere(0.08, 10), l.bow, { rough: 0.4 }), -0.22, 0.32, s * 0.09));
-    head.add(at(mesh(sphere(0.045, 8), '#ffffff'), -0.22, 0.32, 0));
+    const bow = new THREE.Group();
+    bow.position.set(-0.1, 0.3, 0);
+    for (const z of [-1, 1]) {
+      const loop = blobPart(0.07, 1, 0.7, 1.4, l.bow, 0.35);
+      loop.position.z = z * 0.08;
+      loop.rotation.x = z * 0.5;
+      bow.add(loop);
+    }
+    bow.add(at(mesh(sphere(0.04, 10), '#ffd0e4', { rough: 0.3 }), 0, 0, 0));
+    head.add(bow);
   }
   neck.add(head);
   g.add(neck);
+  // Schweif: üppige Strähnen, schwingt
   const tail = new THREE.Group();
-  tail.position.set(-0.85, 1.2, 0);
-  const tailM = mesh(new THREE.CapsuleGeometry(0.1, 0.55, 4, 10), l.mane);
-  tailM.position.set(-0.1, -0.3, 0);
-  tailM.rotation.z = -0.35;
-  tail.add(tailM);
+  tail.position.set(-0.98, 1.3, 0);
+  for (let k = 0; k < 7; k++) {
+    const z = (k - 3) * 0.025;
+    tail.add(strand([[0, 0, z], [-0.14, -0.1, z * 1.5], [-0.2, -0.45, z * 2], [-0.16 + (k % 3) * 0.03, -0.85 - (k % 2) * 0.08, z * 2.5]], 0.06, k % 2 ? l.mane : new THREE.Color(l.mane).lerp(new THREE.Color('#ffffff'), 0.15).getStyle()));
+  }
   g.add(tail);
   if (l.blanket) {
-    const bk = mesh(new THREE.CylinderGeometry(0.47, 0.47, 0.55, 18, 1, true, -Math.PI * 0.5, Math.PI), l.blanket, { rough: 0.9 });
+    const bk = mesh(new THREE.CylinderGeometry(0.49, 0.49, 0.62, 24, 1, true, -Math.PI * 0.5, Math.PI), l.blanket, { rough: 0.9 });
     bk.rotation.x = Math.PI / 2;
     bk.rotation.z = Math.PI / 2;
-    (bk.material as THREE.MeshStandardMaterial).side = THREE.DoubleSide;
-    g.add(at(bk, 0.05, 1.08, 0));
+    bk.scale.set(1, 1, 0.98);
+    (bk.material as THREE.Material).side = THREE.DoubleSide;
+    g.add(at(bk, 0.02, 1.08, 0));
+    const trim = mesh(new THREE.TorusGeometry(0.49, 0.025, 6, 24, Math.PI), '#f6dc8a');
+    trim.rotation.y = Math.PI / 2;
+    g.add(at(trim, 0.33, 1.08, 0), at(trim.clone(), -0.29, 1.08, 0));
   }
+  // Beine mit Gelenken (Ober- und Unterschenkel), Fesselgelenk, Huf
   const legs: THREE.Group[] = [];
-  for (const [lx, lz] of [[0.45, 0.2], [0.45, -0.2], [-0.45, 0.2], [-0.45, -0.2]] as const) {
+  const knees: THREE.Group[] = [];
+  for (const [lx, lz, hind] of [[0.52, 0.18, false], [0.52, -0.18, false], [-0.6, 0.18, true], [-0.6, -0.18, true]] as const) {
     const leg = new THREE.Group();
-    leg.position.set(lx, 0.85, lz);
-    leg.add(at(mesh(new THREE.CapsuleGeometry(0.1, 0.45, 4, 10), l.coat, { rough: 0.6 }), 0, -0.35, 0));
-    if (l.socks) leg.add(at(mesh(new THREE.CylinderGeometry(0.11, 0.12, 0.2, 10), l.socks), 0, -0.62, 0));
-    leg.add(at(mesh(new THREE.CylinderGeometry(0.11, 0.12, 0.1, 10), '#3a2a24'), 0, -0.78, 0));
+    leg.position.set(lx, 1.0, lz);
+    if (hind) leg.add(at(blobPart(0.17, 1, 1.5, 0.75, l.coat), -0.02, -0.12, 0)); // Oberschenkel
+    const upper = mesh(new THREE.CylinderGeometry(hind ? 0.14 : 0.13, 0.09, 0.42, 14), l.coat, { rough: 0.45 });
+    upper.position.y = -0.24;
+    leg.add(upper);
+    const knee = new THREE.Group();
+    knee.position.y = -0.45;
+    knee.add(at(mesh(sphere(0.092, 12), l.coat, { rough: 0.45 }), 0, 0, 0));
+    const lower = mesh(new THREE.CylinderGeometry(0.075, 0.068, 0.38, 12), l.socks ? '#fff8ec' : l.coat, { rough: 0.45 });
+    lower.position.y = -0.2;
+    knee.add(lower);
+    if (l.socks) knee.add(at(mesh(new THREE.CylinderGeometry(0.09, 0.077, 0.1, 12), l.coat, { rough: 0.45 }), 0, -0.02, 0));
+    knee.add(at(mesh(sphere(0.082, 12), l.socks ? '#fff8ec' : l.coat, { rough: 0.45 }), 0, -0.4, 0)); // Fessel
+    knee.add(at(mesh(new THREE.CylinderGeometry(0.088, 0.108, 0.12, 14), '#3a2c26', { rough: 0.35 }), 0.01, -0.5, 0)); // Huf
+    leg.add(knee);
     g.add(leg);
     legs.push(leg);
+    knees.push(knee);
   }
-  g.scale.setScalar(1.05);
-  return { g, neck, head, tail, legs };
+  return { g, neck, head, tail, legs, knees };
 }
 
 // ---------- Herzchen ----------
@@ -668,9 +779,16 @@ function frame() {
     m.g.position.set(h.x, groundY(h.x, h.z), h.z);
     m.g.rotation.y = h.dir;
     const sw = Math.sin(h.walk);
-    m.legs.forEach((l, i) => (l.rotation.z = (i === 0 || i === 3 ? sw : -sw) * 0.45));
+    m.legs.forEach((l, i) => {
+      const ph = i === 0 || i === 3 ? sw : -sw;
+      l.rotation.z = ph * 0.42;
+      // Knie knickt ein, wenn das Bein nach hinten schwingt (vorne nach vorn, hinten nach hinten)
+      m.knees[i].rotation.z = h.walk ? Math.max(0, -ph) * (i < 2 ? -0.75 : 0.6) : 0;
+    });
+    // Kopf nickt beim Gehen, Ohren zucken ab und zu
+    m.head.rotation.z = -0.15 + (h.walk ? Math.sin(h.walk * 2) * 0.05 : 0);
     // Kopf: grasen, beim Streicheln nicken
-    const graze = h !== riding && h.walk === 0 && h.pet <= 0 && Math.sin(t * 0.4 + h.x) > 0.2;
+    const graze = h !== riding && h.walk === 0 && h.pet <= 0 && Math.sin(t * 0.4 + h.x) > 0.6;
     const nod = h.pet > 0 ? Math.sin(t * 9) * 0.12 : 0;
     m.neck.rotation.z += ((graze ? -0.9 : 0.05 + nod) - m.neck.rotation.z) * Math.min(1, dt * 4);
     m.tail.rotation.x = Math.sin(t * 2.2 + h.z) * 0.35;
