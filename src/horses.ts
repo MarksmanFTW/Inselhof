@@ -65,6 +65,15 @@ export const BREEDS: Breed[] = [
 /** im Stall aufnehmbar (nicht die seltenen) */
 export const STABLE_BREEDS = BREEDS.filter((b) => !b.rare);
 export const RARE_BREEDS = BREEDS.filter((b) => b.rare);
+/** Schmuck fürs Pferd – wird mit Vertrauen freigeschaltet (love = ab so viel) */
+export const ACCESSORIES = [
+  { id: 'bow-pink', name: 'Rosa Schleife', love: 1, col: '#f06aa8', col2: '#ffb0d4' },
+  { id: 'bow-blue', name: 'Blaue Schleife', love: 3, col: '#3a7ad8', col2: '#9ac4f4' },
+  { id: 'flowers', name: 'Blumenkranz', love: 5, col: '#ffffff', col2: '#ffd23f' },
+  { id: 'blanket-red', name: 'Rote Decke', love: 7, col: '#c83a3a', col2: '#f2d27a' },
+  { id: 'blanket-lila', name: 'Lila Decke', love: 9, col: '#8a4ac8', col2: '#f4eefa' },
+] as const;
+export const accById = (id: string) => ACCESSORIES.find((a) => a.id === id);
 export const breedById = (id: string) => BREEDS.find((b) => b.id === id);
 
 export const STABLE_COST = 15;
@@ -111,6 +120,8 @@ export interface Horse {
   bred?: number;
   /** Fohlen: geboren um … */
   foal?: number;
+  /** Schmuck (Schleife, Blumenkranz, Decke) */
+  acc?: string;
 }
 export type Care = 'fed' | 'treat' | 'brushed';
 
@@ -131,6 +142,7 @@ export function cleanHorses(list: unknown, stables: number): Horse[] {
       stable: Math.floor(h.stable),
       t: typeof h.t === 'number' ? h.t : 0,
       love: Math.max(0, Math.min(MAX_LOVE, Math.floor(h.love ?? 0))),
+      ...(accById(h.acc ?? '') ? { acc: h.acc } : {}),
       ...Object.fromEntries((['fed', 'treat', 'brushed', 'bred', 'foal'] as const).filter((k) => typeof h[k] === 'number').map((k) => [k, h[k]])),
     });
   }

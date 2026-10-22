@@ -3,7 +3,7 @@
  * Rucksack, gebaute Häuser. Reine Logik ohne Zeichnen – lässt sich testen.
  */
 import { Ground, H, W, type Decor, type Island } from './island';
-import { FOAL_HAY, FOAL_PAUSE_DAYS, GATE, MAX_LOVE, PADDOCK_COST, PADDOCK_FOOT, PADDOCK_REACH, STABLE_COST, STABLE_SPACE, breedById, cleanHorses, cleanName, isFoal, islandDay, type Care, type Horse, type Paddock, type Stable } from './horses';
+import { accById, FOAL_HAY, FOAL_PAUSE_DAYS, GATE, MAX_LOVE, PADDOCK_COST, PADDOCK_FOOT, PADDOCK_REACH, STABLE_COST, STABLE_SPACE, breedById, cleanHorses, cleanName, isFoal, islandDay, type Care, type Horse, type Paddock, type Stable } from './horses';
 import { ALBUM_REWARDS, DECO_FOOT, albumCount, cleanAlbum, decoById, type Album, type Deco } from './shop';
 import { cleanProgress, levelOf, newProgress, perks, type Progress } from './progress';
 import type { Clock } from './time';
@@ -425,6 +425,20 @@ export class World {
       }
     }
     return best;
+  }
+
+  /** Schmuck anlegen ('' = ohne); nur was das Vertrauen schon freigeschaltet hat */
+  dress(horse: number, acc: string) {
+    const h = this.horses[horse];
+    if (!h) return 'Dieses Pferd gibt es nicht';
+    if (acc) {
+      const a = accById(acc);
+      if (!a) return 'Gibt es nicht';
+      if (h.love < a.love) return `${a.name} gibt es ab ${Math.ceil(a.love / 2)} Herzen`;
+      h.acc = acc;
+    } else delete h.acc;
+    this.version++;
+    return null;
   }
 
   /** Was heute bei diesem Pferd schon erledigt ist */

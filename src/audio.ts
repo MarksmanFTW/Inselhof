@@ -5,6 +5,8 @@
  */
 
 type Sfx =
+  | 'nicker'
+  | 'whistle'
   | 'coin'
   | 'mow'
   | 'brush'
@@ -196,6 +198,15 @@ export function sfx(name: Sfx) {
     case 'step':
       stepAlt = !stepAlt;
       noise(0.04, { freq: stepAlt ? 700 : 550, vol: 0.06 });
+      break;
+    case 'nicker':
+      // leises, zufriedenes Schnauben
+      for (let i = 0; i < 6; i++) tone(180 + (i % 2) * 40, 0.06, { type: 'triangle', vol: 0.09, at: t + i * 0.05 });
+      noise(0.35, { freq: 700, vol: 0.12, at: t + 0.05, attack: 0.05 });
+      break;
+    case 'whistle':
+      tone(1400, 0.18, { to: 2100, type: 'sine', vol: 0.12 });
+      tone(2100, 0.25, { to: 1500, type: 'sine', vol: 0.11, at: t + 0.22 });
       break;
     case 'coin':
       tone(1319, 0.08, { type: 'square', vol: 0.08 });

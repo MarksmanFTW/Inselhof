@@ -3,7 +3,7 @@
  * Pferdestall. Gemalt aus Farbflächen mit dunklem Rand wie der Rest der Insel.
  */
 import { Grid, type Prop } from './props';
-import type { Breed } from './horses';
+import { accById, type Breed } from './horses';
 
 export const HW = 34;
 export const HH = 30;
@@ -58,7 +58,7 @@ function leg(g: Grid, b: Breed, x: number, top: number, h: number, w: number, dx
 }
 
 /** Seitenansicht nach rechts. frame 0..3 laufen, 4 grasen */
-function side(b: Breed, frame: number): HTMLCanvasElement {
+function side(b: Breed, frame: number, acc = ''): HTMLCanvasElement {
   const d = dims(b);
   const g = new Grid(HW, HH);
   const bx0 = HOX - Math.floor(d.L / 2);
@@ -86,6 +86,8 @@ function side(b: Breed, frame: number): HTMLCanvasElement {
       g.set(bx0 + x, top + y + bob, coatAt(b, bx0 + x, y, x / (d.L - 1), y / (d.BH - 1)));
     }
   if (b.pattern === 'dun') for (let x = 1; x < d.L - 1; x++) g.set(bx0 + x, top + bob, b.mark!);
+  const A = accById(acc);
+  if (A && acc.startsWith('blanket')) blanket(g, bx0 + 3, bx1 - 3, top + bob, Math.min(4, d.BH - 2), A.col, A.col2);
   // Hals & Kopf
   if (frame === 4) {
     // grasen: Hals nach vorn unten, Maul im Gras
@@ -103,6 +105,7 @@ function side(b: Breed, frame: number): HTMLCanvasElement {
     g.set(hx - 1, hy - 1, b.coat); // Ohr
     g.set(hx + 1, hy + 1, '#1a1210'); // Auge
     if (longMane) for (let k = 0; k < 3; k++) g.set(bx1 - 1 + k, top + 1, b.mane);
+    headAcc(g, acc, hx, hy - 1, d.HEADH);
   } else {
     const nx = bx1 - 3;
     for (let j = 1; j <= d.NECK; j++) {
@@ -132,6 +135,7 @@ function side(b: Breed, frame: number): HTMLCanvasElement {
       g.set(hx + 4, hy - 3, '#f4c430');
       g.set(hx + 5, hy - 4, '#ffe680');
     }
+    headAcc(g, acc, hx - 1, hy - 1, d.HEADW - 1);
   }
   // nahe Beine
   leg(g, b, bx0 + 1, bot + bob, d.LEG - bob, d.LW, sw, frame === 1 ? 1 : 0, false);
@@ -140,7 +144,7 @@ function side(b: Breed, frame: number): HTMLCanvasElement {
 }
 
 /** von vorn (runter) oder hinten (hoch) */
-function frontBack(b: Breed, frame: number, back: boolean): HTMLCanvasElement {
+function frontBack(b: Breed, frame: number, back: boolean, acc = ''): HTMLCanvasElement {
   const d = dims(b);
   const g = new Grid(HW, HH);
   const w = d.CW;
@@ -160,12 +164,15 @@ function frontBack(b: Breed, frame: number, back: boolean): HTMLCanvasElement {
       if (y === 0 && (x === 0 || x === w - 1)) continue;
       g.set(x0 + x, top + y + bob, coatAt(b, x0 + x, y, x / (w - 1), y / (d.BH - 1)));
     }
+  const A = accById(acc);
+  if (A && acc.startsWith('blanket')) blanket(g, x0 + 1, x0 + w - 2, top + bob, 3, A.col, A.col2);
   if (back) {
     // Hals und Ohren hinter dem Rumpf, Schweif in der Mitte
     const nx = HOX - 2;
     for (let y = 1; y <= d.NECK + 1; y++) for (let k = 0; k < 4; k++) g.set(nx + k, top - y + bob, k === 1 || k === 2 ? b.mane : b.coat);
     g.set(nx, top - d.NECK - 2 + bob, b.coat);
     g.set(nx + 3, top - d.NECK - 2 + bob, b.coat);
+    headAcc(g, acc, nx, top - d.NECK - 2 + bob, 4);
     if (b.pattern === 'dun') for (let y = 0; y < d.BH - 2; y++) g.set(HOX, top + y + bob, b.mark!);
     const ts = frame === 1 ? -1 : frame === 3 ? 1 : 0;
     for (let y = 1; y < d.BH + 3; y++) {
@@ -193,6 +200,7 @@ function frontBack(b: Breed, frame: number, back: boolean): HTMLCanvasElement {
     g.set(hx + 1, hy + hh - 2, '#5a3a32');
     g.set(hx + hw - 2, hy + hh - 2, '#5a3a32');
     if (b.horn) for (let k = 1; k <= 3; k++) g.set(hx + Math.floor(hw / 2), hy - k, k % 2 ? '#f4c430' : '#ffe680');
+    headAcc(g, acc, hx, hy - 1, hw);
   }
   return g.render();
 }
@@ -208,17 +216,52 @@ function flip(img: HTMLCanvasElement) {
   return m;
 }
 
+/** Satteldecke: farbige Fläche über dem Rücken mit hellem Saum */
+function blanket(g: Grid, x0: number, x1: number, y: number, h: number, col: string, trim: string) {
+  for (let yy = 0; yy < h; yy++) for (let x = x0; x <= x1; x++) g.set(x, y + yy, yy === h - 1 || x === x0 || x === x1 ? trim : col);
+}
+/** Schleife oder Blumenkranz am Kopf: (x, y) = links über dem Kopf, w = Kopfbreite */
+function headAcc(g: Grid, acc: string, x: number, y: number, w: number) {
+  const A = accById(acc);
+  if (!A || acc.startsWith('blanket')) return;
+  if (acc === 'flowers') {
+    // Kranz: Blüten in zwei Reihen mit grünen Blättchen
+    const cols = ['#ffffff', '#ffd23f', '#f06aa8', '#9ac4f4'];
+    const n = Math.max(4, w + 1);
+    for (let k = 0; k < n; k++) {
+      g.set(x - 1 + k, y, k % 2 ? '#5fae63' : cols[(k / 2) % cols.length]);
+      if (k % 2 === 1) g.set(x - 1 + k, y - 1, cols[(k + 1) % cols.length]);
+    }
+    return;
+  }
+  // Schleife: zwei Schlaufen und ein Knoten
+  const c = x + Math.floor(w / 2);
+  for (const [dx, dy, col] of [
+    [-2, -1, A.col],
+    [-1, -1, A.col2],
+    [1, -1, A.col2],
+    [2, -1, A.col],
+    [-1, 0, A.col],
+    [0, 0, A.col2],
+    [1, 0, A.col],
+    [-1, 1, A.col],
+    [1, 1, A.col],
+  ] as const)
+    g.set(c + dx, y + dy, col);
+}
+
 /** [Richtung wie Dir][Bild 0..3 laufen, 4 grasen] */
 export type HorseSheet = HTMLCanvasElement[][];
 const sheets = new Map<string, HorseSheet>();
-export function horseSheet(b: Breed): HorseSheet {
-  let s = sheets.get(b.id);
+export function horseSheet(b: Breed, acc = ''): HorseSheet {
+  const key = `${b.id}|${acc}`;
+  let s = sheets.get(key);
   if (!s) {
-    const right = [0, 1, 2, 3, 4].map((f) => side(b, f));
-    const down = [0, 1, 2, 3].map((f) => frontBack(b, f, false));
-    const up = [0, 1, 2, 3].map((f) => frontBack(b, f, true));
+    const right = [0, 1, 2, 3, 4].map((f) => side(b, f, acc));
+    const down = [0, 1, 2, 3].map((f) => frontBack(b, f, false, acc));
+    const up = [0, 1, 2, 3].map((f) => frontBack(b, f, true, acc));
     s = [[...down, down[0]], [...up, up[0]], right, right.map(flip)];
-    sheets.set(b.id, s);
+    sheets.set(key, s);
   }
   return s;
 }

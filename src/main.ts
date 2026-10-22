@@ -2,6 +2,7 @@ import '@fontsource/pixelify-sans/latin-500.css';
 import '@fontsource/pixelify-sans/latin-700.css';
 import './style.css';
 import { CH, CW, Dir, FOOT_X, FOOT_Y, PANTS, makeCharacter, type CharSheet, type Look } from './character';
+import { ACCESSORIES } from './horses';
 import { ALBUM_REWARDS, ALBUM_TOTAL, DECO, SEED_PACK, SELL, SELL_NAMES, albumCount, boatOut, decoById, horseOffers, merchantHere, type SellItem } from './shop';
 import { boat, bookIcon, coinIcon, decoArt } from './decoart';
 import { BREEDS, RARE_BREEDS, islandDay, STABLE_BREEDS, FOAL_GROW_MS, GATE, MAX_LOVE, PADDOCK_COST, PADDOCK_FOOT, STABLE_COST, STABLE_SPACE, TRUST, breedById, foalBreed, horsePose, isFoal, pasture, type HorsePose, type Paddock } from './horses';
@@ -92,6 +93,16 @@ let inside = -1;
 let outsidePos = { x: 0, y: 0 };
 /** reite gerade Pferd Nummer … (-1 = zu Fuß) */
 let riding = -1;
+/** Lieblingspferd gerufen: folgt der Figur eine Weile */
+let called: { i: number; x: number; y: number; dir: number; moving: boolean; until: number } | null = null;
+const CALL_MS = 60_000;
+/** gerade gestreichelt */
+let petting: { i: number; until: number } | null = null;
+/** Herzchen über Pferden */
+const heartFx: { x: number; y: number; life: number; dx: number }[] = [];
+const loveHearts = (x: number, y: number, n: number) => {
+  for (let k = 0; k < n; k++) heartFx.push({ x: x + (Math.random() - 0.5) * 10, y: y - Math.random() * 4, life: 1.2 + k * 0.18, dx: (Math.random() - 0.5) * 6 });
+};
 /** abgestiegen: Pferd läuft von hier gemütlich zurück zur Weide */
 const released = new Map<number, { x: number; y: number; at: number }>();
 const pastureFree = pasture(island, (x, y) => world.blocked(x, y, 6, 2));
@@ -103,7 +114,10 @@ function horseAt(i: number, now = Date.now()): HorsePose | null {
   if (!h || !st || i === riding || (mate && (mate.in ?? -1) === -1 && mate.rh === i)) return null;
   let slot = 0;
   for (let k = 0; k < i; k++) if (world.horses[k].stable === h.stable) slot++;
+  // gerufen: läuft dir hinterher; gestreichelt: schaut dich an
+  if (called?.i === i) return { x: called.x, y: called.y, dir: called.dir, moving: called.moving, graze: false };
   const p = horsePose(h, slot, st, now, pastureFree, !!tod?.night, world.paddockOf(h.stable));
+  if (petting?.i === i && now < petting.until) return { ...p, dir: dirTo(player.x - p.x, 0), moving: false, graze: false };
   const rel = released.get(i);
   if (!rel) return p;
   const k = (now - rel.at) / 4000;
@@ -144,10 +158,10 @@ const lookOf = (id: string, foal = false) => {
 };
 /** Pferd fürs Fenster und den Knopf: Seitenansicht */
 const horseIcons = new Map<string, string>();
-function horseIcon(id: string, foal = false) {
-  const k = id + (foal ? '~f' : '');
+function horseIcon(id: string, foal = false, acc = '') {
+  const k = `${id}${foal ? '~f' : ''}|${acc}`;
   let u = horseIcons.get(k);
-  if (!u) horseIcons.set(k, (u = toUrl(horseSheet(lookOf(id, foal))[2][0])));
+  if (!u) horseIcons.set(k, (u = toUrl(horseSheet(lookOf(id, foal), acc)[2][0])));
   return u;
 }
 const hearts: [string, string] = [toUrl(heartIcon(true)), toUrl(heartIcon(false))];
@@ -889,6 +903,7 @@ function startPlay() {
           .filter(([, n]) => n > 0)
           .map(([id, n]) => ({ id, name: decoById(id)?.name ?? id, img: decoIcon(id), n })),
       album: openAlbum,
+      call: callFav,
       confirm: confirmBuild,
       cancel: () => {
         placing = false;
@@ -1432,6 +1447,7 @@ function frame(now: number) {
   }
   if (inside < 0) clampCam();
   netTick(now);
+  if (mode === 'play') horseLife(dt, now);
   if (mate) {
     const k = 1 - Math.exp(-dt * 12);
     mate.x += (mate.tx - mate.x) * k;
@@ -1491,7 +1507,7 @@ function frame(now: number) {
   for (const h of world.stables) items.push({ y: h.y, draw: () => ctx.drawImage(stableImg.img, h.x - stableImg.ox, h.y - stableImg.oy) });
   world.horses.forEach((h, i) => {
     const p = horseAt(i, nowMs);
-    if (p) items.push({ y: p.y, draw: () => drawHorse(h.breed, p.x, p.y, p.dir, p.moving ? Math.floor(t * 7 + i) % 4 : p.graze ? 4 : 0, isFoal(h, nowMs)) });
+    if (p) items.push({ y: p.y, draw: () => drawHorse(h.breed, p.x, p.y, p.dir, p.moving ? Math.floor(t * 7 + i) % 4 : p.graze ? 4 : 0, isFoal(h, nowMs), h.acc) });
   });
   for (const pd of world.paddocks) pushFence(items, pd, 1);
   for (const d of world.decos) {
@@ -1529,7 +1545,7 @@ function frame(now: number) {
   if (showPlayer) items.push({ y: player.y, draw: drawPlayer });
   const m = mate;
   if (showPlayer && m && (m.in ?? -1) === -1)
-    items.push({ y: m.y, draw: () => (m.rh !== undefined && world.horses[m.rh] ? drawRider(m.sheet, m.x, m.y, m.d, m.f, world.horses[m.rh].breed, m.pants) : drawChar(m.sheet, m.x, m.y, m.d, m.f, m.s, m.tl)) });
+    items.push({ y: m.y, draw: () => (m.rh !== undefined && world.horses[m.rh] ? drawRider(m.sheet, m.x, m.y, m.d, m.f, world.horses[m.rh].breed, m.pants, world.horses[m.rh].acc) : drawChar(m.sheet, m.x, m.y, m.d, m.f, m.s, m.tl)) });
   if (showPlayer && placing) items.push({ y: ghost.y, draw: drawGhost });
   items.sort((a, b) => a.y - b.y);
   for (const it of items) it.draw();
@@ -1575,6 +1591,20 @@ function frame(now: number) {
     ctx.drawImage(gullImg[Math.floor(t * 4 + gl.ph) % 2], x, y);
   }
 
+  // Herzchen (Streicheln, Begrüßung)
+  for (let k = heartFx.length - 1; k >= 0; k--) {
+    const hf = heartFx[k];
+    hf.life -= dt;
+    if (hf.life <= 0) {
+      heartFx.splice(k, 1);
+      continue;
+    }
+    if (hf.life > 1.2) continue; // wartet noch
+    const up = (1.2 - hf.life) * 16;
+    ctx.globalAlpha = Math.min(1, hf.life * 1.6);
+    ctx.drawImage(heartImg, Math.round(hf.x + hf.dx * (1.2 - hf.life) - 4), Math.round(hf.y - up - 8), 7, 6);
+    ctx.globalAlpha = 1;
+  }
   drawWeather(t, dt, ox, oy);
   }
 
@@ -1591,6 +1621,39 @@ function frame(now: number) {
     ctx.fillRect(sx - w / 2, sy - 15 * dpr, w, 20 * dpr);
     ctx.fillStyle = '#fff';
     ctx.fillText(mate.name, sx, sy);
+  }
+  // Pferdenamen in der Nähe, nachts „z z z“
+  if (mode === 'play' && inside < 0 && world.horses.length) {
+    const dpr = cw / innerWidth;
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.textAlign = 'center';
+    const nowMs = Date.now();
+    world.horses.forEach((h, i) => {
+      const p = horseAt(i, nowMs);
+      if (!p) return;
+      const near = Math.hypot(p.x - player.x, p.y - player.y) < 34;
+      const sx = ox + p.x * zoom;
+      if (near) {
+        const sy = oy + (p.y - (isFoal(h, nowMs) ? 18 : 30)) * zoom;
+        const label = (save.slots.find((x) => x.id === save.active)?.fav === i ? '♥ ' : '') + h.name;
+        ctx.font = `700 ${Math.round(12 * dpr)}px 'Pixelify Sans', sans-serif`;
+        const w = ctx.measureText(label).width + 10 * dpr;
+        ctx.fillStyle = 'rgba(120,40,80,0.6)';
+        ctx.fillRect(sx - w / 2, sy - 12 * dpr, w, 16 * dpr);
+        ctx.fillStyle = '#fff';
+        ctx.fillText(label, sx, sy);
+      }
+      if (tod?.night && !p.moving) {
+        ctx.font = `700 ${Math.round(11 * dpr)}px 'Pixelify Sans', sans-serif`;
+        ctx.fillStyle = 'rgba(230,240,255,0.85)';
+        for (let k = 0; k < 3; k++) {
+          const ph = ((t * 0.5 + k / 3 + i * 0.37) % 1);
+          ctx.globalAlpha = Math.sin(ph * Math.PI);
+          ctx.fillText('z', sx + (8 + ph * 8) * zoom * 0.5, oy + (p.y - 24 - ph * 10) * zoom);
+        }
+        ctx.globalAlpha = 1;
+      }
+    });
   }
   // „+4 Holz“ (Bildschirm-Pixel, damit die Schrift scharf bleibt)
   if (floats.length) {
@@ -1703,7 +1766,7 @@ function drawChar(sh: CharSheet, x: number, y: number, dir: Dir, f: number, k: n
 }
 
 /** Pferd mit Schatten */
-function drawHorse(breed: string, x: number, y: number, dir: number, frame: number, foal = false) {
+function drawHorse(breed: string, x: number, y: number, dir: number, frame: number, foal = false, acc = '') {
   if (!breedById(breed)) return;
   const b = lookOf(breed, foal);
   const px = Math.round(x);
@@ -1712,10 +1775,10 @@ function drawHorse(breed: string, x: number, y: number, dir: number, frame: numb
   ctx.fillStyle = 'rgba(8,40,10,0.4)';
   ctx.fillRect(px - w / 2, py - 1, w, 2);
   ctx.fillRect(px - w / 2 + 1, py + 1, w - 2, 1);
-  ctx.drawImage(horseSheet(b)[dir][frame], px - HOX, py - HOY, HW, HH);
+  ctx.drawImage(horseSheet(b, acc)[dir][frame], px - HOX, py - HOY, HW, HH);
 }
 /** Reiter im Sattel: oberer Teil der Figur, Bein seitlich am Pferd */
-function drawRider(sh: CharSheet, x: number, y: number, dir: Dir, f: number, breed: string, pants: string) {
+function drawRider(sh: CharSheet, x: number, y: number, dir: Dir, f: number, breed: string, pants: string, acc = '') {
   const b = breedById(breed);
   if (!b) return drawChar(sh, x, y, dir, f, 0, '');
   const px = Math.round(x);
@@ -1727,10 +1790,10 @@ function drawRider(sh: CharSheet, x: number, y: number, dir: Dir, f: number, bre
   const rider = () => ctx.drawImage(sh[dir][0], 0, 0, CW, 17, sx - FOOT_X, sy - 16, CW, 17);
   if (dir === Dir.Down) {
     rider();
-    drawHorse(breed, x, y, dir, f);
+    drawHorse(breed, x, y, dir, f, false, acc);
     return;
   }
-  drawHorse(breed, x, y, dir, f);
+  drawHorse(breed, x, y, dir, f, false, acc);
   rider();
   if (dir === Dir.Right || dir === Dir.Left) {
     ctx.fillStyle = '#1a1210';
@@ -1745,7 +1808,7 @@ function drawRider(sh: CharSheet, x: number, y: number, dir: Dir, f: number, bre
 function drawPlayer() {
   if (riding >= 0 && world.horses[riding]) {
     const b = world.horses[riding].breed;
-    return drawRider(sheet, player.x, player.y, player.dir, player.moving ? Math.floor(player.anim) : 0, b, PANTS[save.look.pants] ?? PANTS[0]);
+    return drawRider(sheet, player.x, player.y, player.dir, player.moving ? Math.floor(player.anim) : 0, b, PANTS[save.look.pants] ?? PANTS[0], world.horses[riding].acc);
   }
   const st = myState();
   drawChar(sheet, player.x, player.y, player.dir, st.f, swing > 0 ? 1 - swing / SWING : 0, swing > 0 ? swingTool : '');
@@ -1864,9 +1927,66 @@ function mount(i: number) {
   if (!p) return;
   riding = i;
   released.delete(i);
+  if (called?.i === i) called = null;
   if (player.free(p.x, p.y)) Object.assign(player, { x: p.x, y: p.y });
   sfx('neigh');
   hud?.toast(`Du reitest ${world.horses[i].name} – Knopf rechts zum Absteigen`);
+}
+const heartImg = heartIcon(true);
+const favIndex = () => mySlot().fav;
+/** Lieblingspferd rufen: trabt herbei und folgt eine Minute lang */
+function callFav() {
+  const i = favIndex();
+  if (i === undefined || !world.horses[i] || riding >= 0) return;
+  const p = horseAt(i);
+  if (!p && called?.i !== i) return hud?.toast('Dein Liebling ist gerade unterwegs');
+  sfx('whistle');
+  const from = called?.i === i ? called : p!;
+  called = { i, x: from.x, y: from.y, dir: from.dir, moving: true, until: Date.now() + CALL_MS };
+  released.delete(i);
+  setTimeout(() => sfx('neigh'), 500);
+}
+let greetT = 0;
+/** Pferde-Leben: Gerufenes folgt, vertraute Pferde grüßen mit Herzchen, Rufen-Knopf */
+function horseLife(dt: number, now: number) {
+  void now;
+  const ms = Date.now();
+  if (called) {
+    const h = world.horses[called.i];
+    if (!h || ms > called.until || inside >= 0) {
+      if (h) released.set(called.i, { x: called.x, y: called.y, at: ms });
+      called = null;
+    } else {
+      // neben die Figur, nicht drauf
+      const tx = player.x + (called.x < player.x ? -13 : 13);
+      const ty = player.y + 2;
+      const dx = tx - called.x;
+      const dy = ty - called.y;
+      const d = Math.hypot(dx, dy);
+      called.moving = d > 3;
+      if (called.moving) {
+        const v = Math.min(d, (d > 40 ? 70 : 40) * dt);
+        const nx = called.x + (dx / d) * v;
+        const ny = called.y + (dy / d) * v;
+        called.x = nx;
+        called.y = ny;
+        called.dir = dirTo(dx, dy * 0.8);
+      } else called.dir = dirTo(player.x - called.x, 0);
+    }
+  }
+  // Begrüßung: vertraute Pferde in der Nähe schicken ab und zu ein Herzchen
+  greetT -= dt;
+  if (greetT <= 0) {
+    greetT = 0.7;
+    world.horses.forEach((h, i) => {
+      if (h.love < 4) return;
+      const p = horseAt(i, ms);
+      if (p && Math.hypot(p.x - player.x, p.y - player.y) < 24 && Math.random() < 0.12) loveHearts(p.x, p.y - 16, 1);
+    });
+  }
+  const fi = favIndex();
+  const fh = fi !== undefined ? world.horses[fi] : undefined;
+  hud?.setCall(fh && riding < 0 && inside < 0 && !isFoal(fh, ms) ? horseIcon(fh.breed, false, fh.acc) : fh && riding < 0 && inside < 0 ? horseIcon(fh.breed, true, fh.acc) : null);
 }
 function dismount() {
   if (riding < 0) return;
@@ -1946,6 +2066,9 @@ function roomAction(kind: Intent, slot: number) {
         brushed: world.doneToday(slot, 'brushed', now),
         showFoal: !foal && h.love >= MAX_LOVE,
         foalBlock: world.foalBlock(slot, now, farm.hay),
+        acc: h.acc ?? '',
+        accs: ACCESSORIES.map((x) => ({ id: x.id, name: x.name, hearts: Math.ceil(x.love / 2), open: h.love >= x.love, img: horseIcon(b.id, foal, x.id) })),
+        fav: favIndex() === slot,
       },
       { turnips: farm.turnips, hay: farm.hay },
       hearts,
@@ -1954,6 +2077,26 @@ function roomAction(kind: Intent, slot: number) {
         treat: () => care({ kind: 'feed', horse: slot, item: 'turnip' }),
         brush: () => care({ kind: 'brush', horse: slot }),
         ride: () => mount(slot),
+        pet: () => {
+          const p = horseAt(slot);
+          if (!p) return;
+          petting = { i: slot, until: Date.now() + 1800 };
+          loveHearts(p.x, p.y - 14, 5);
+          sfx('nicker');
+        },
+        fav: () => {
+          const sl = mySlot();
+          sl.fav = sl.fav === slot ? undefined : slot;
+          writeSave(save);
+          hud?.toast(sl.fav === slot ? `${h.name} ist dein Liebling – mit „Rufen“ kommt es zu dir` : `${h.name} ist nicht mehr Liebling`);
+        },
+        dress: (id) => {
+          const err = doAction({ kind: 'dress', horse: slot, item: id });
+          if (err) return hud?.toast(err);
+          const p = horseAt(slot);
+          if (p) loveHearts(p.x, p.y - 14, 3);
+          sfx('nicker');
+        },
         foal: () =>
           hud?.askName('Ein Fohlen!', horseIcon(b.id, true), `${h.name} bekommt ein ${b.name}-Fohlen. Wie soll es heißen?`, b.names[Math.floor(Math.random() * b.names.length)], 'Willkommen!', (name) =>
             care({ kind: 'foal', horse: slot, name }),

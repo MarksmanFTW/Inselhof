@@ -178,4 +178,17 @@ describe('Pferde & Stall', () => {
     expect(f.mown(...tile!, 0)).toBeNull();
     expect(w.prog.stats.mowed).toBe(1);
   });
+
+  it('Schmuck: freigeschaltet durch Vertrauen, bleibt gespeichert', () => {
+    const { w, f } = setup();
+    f.turnips = 5;
+    applyOp(w, f, { a: { kind: 'adopt', house: 0, item: 'haflinger', name: 'A' }, x: 0, y: 0, t: 1 });
+    expect(applyOp(w, f, { a: { kind: 'dress', horse: 0, item: 'bow-pink' }, x: 0, y: 0, t: 2 }).err).toMatch(/Herzen/);
+    w.horses[0].love = 5;
+    expect(applyOp(w, f, { a: { kind: 'dress', horse: 0, item: 'flowers' }, x: 0, y: 0, t: 2 }).err).toBeNull();
+    expect(applyOp(w, f, { a: { kind: 'dress', horse: 0, item: 'blanket-red' }, x: 0, y: 0, t: 2 }).err).toMatch(/4 Herzen/);
+    expect(new World(isl, JSON.parse(JSON.stringify(w.toSave()))).horses[0].acc).toBe('flowers');
+    applyOp(w, f, { a: { kind: 'dress', horse: 0, item: '' }, x: 0, y: 0, t: 3 });
+    expect(w.horses[0].acc).toBeUndefined();
+  });
 });

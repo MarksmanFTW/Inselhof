@@ -1416,3 +1416,54 @@ img.c,
 .slot-card.koop.on {
   border-color: var(--ink);
 }
+/* ---------- Pferde-Liebe ---------- */
+.pet-row {
+  margin-bottom: 8px;
+}
+.pbtn.pink {
+  background: #f08ac0;
+  box-shadow: inset 0 -5px 0 #c8508e;
+  color: #fff;
+}
+.pbtn.fav-on {
+  background: #ffe08a;
+}
+.acc-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+  margin-bottom: 10px;
+}
+.acc {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 5px 3px;
+  background: #fff6dc;
+  border: 3px solid #c4a46a;
+  font: inherit;
+  color: var(--ink);
+  cursor: pointer;
+}
+.acc.on {
+  border-color: #c8508e;
+  background: #ffe4f2;
+}
+.acc img {
+  height: 30px;
+  image-rendering: pixelated;
+}
+.acc b {
+  font-size: 12px;
+}
+.acc small {
+  font-size: 11px;
+  color: #a08a6a;
+}
+.acc.locked {
+  opacity: 0.55;
+}
+.acc.locked img {
+  filter: grayscale(1);
+}

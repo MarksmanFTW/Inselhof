@@ -36,7 +36,7 @@ export interface PlayerState {
 }
 /** Aktion des Gasts, der Gastgeber führt sie aus */
 export interface Action {
-  kind: 'axe' | 'hoe' | 'seeds' | 'water' | 'refill' | 'harvest' | 'build' | 'sleep' | 'eat' | 'cook' | 'furnish' | 'adopt' | 'feed' | 'brush' | 'foal' | 'mow' | 'rake' | 'sell' | 'buy';
+  kind: 'axe' | 'hoe' | 'seeds' | 'water' | 'refill' | 'harvest' | 'build' | 'sleep' | 'eat' | 'cook' | 'furnish' | 'adopt' | 'feed' | 'brush' | 'foal' | 'mow' | 'rake' | 'sell' | 'buy' | 'dress';
   c?: number;
   r?: number;
   tree?: number;

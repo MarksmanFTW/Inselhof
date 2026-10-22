@@ -25,6 +25,8 @@ export interface Slot {
   pending?: Op[];
   /** über einen Insel-Link dazugekommen: erst den Stand aus der Cloud holen, nie leer hochladen */
   pull?: boolean;
+  /** Lieblingspferd (nur auf diesem Handy) */
+  fav?: number;
 }
 
 export interface Save {

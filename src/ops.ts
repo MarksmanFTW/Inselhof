@@ -190,6 +190,8 @@ function run(world: World, farm: Farm, op: Op): OpResult {
       farm.version++;
       return true;
     });
+  } else if (a.kind === 'dress') {
+    err = world.dress(a.horse ?? -1, a.item ?? '');
   } else if (a.kind === 'foal') {
     err = world.foal(a.horse ?? -1, a.name ?? '', t, farm.hay, () => {
       farm.hay -= FOAL_HAY;

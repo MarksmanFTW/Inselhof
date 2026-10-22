@@ -357,6 +357,8 @@ export interface HudActions {
   /** gekaufte Deko zum Aufstellen */
   decoList: () => { id: string; name: string; img: string; n: number }[];
   album: () => void;
+  /** Lieblingspferd rufen */
+  call: () => void;
   /** Rübe essen (roh) oder Ofenrübe */
   eat: (cooked: boolean) => void;
   confirm: () => void;
@@ -429,6 +431,10 @@ export interface HorseCard {
   foalBlock: string | null;
   /** Fohlen-Knopf überhaupt zeigen (volles Vertrauen) */
   showFoal: boolean;
+  /** Schmuck: was gerade dran ist und was es gibt */
+  acc: string;
+  accs: { id: string; name: string; hearts: number; open: boolean; img: string }[];
+  fav: boolean;
 }
 
 export interface Hud {
@@ -449,7 +455,9 @@ export interface Hud {
   /** Pferdestall: Rassen zum Aufnehmen, eigene Pferde */
   openStable(o: { breeds: BreedCard[]; turnips: number; level: number; mine: string[]; space: number }, pick: (id: string, name: string) => void): void;
   /** eigenes Pferd: füttern oder reiten */
-  openHorse(h: HorseCard, have: { turnips: number; hay: number }, hearts: [string, string], on: { feed: () => void; treat: () => void; brush: () => void; ride: () => void; foal: () => void }): void;
+  openHorse(h: HorseCard, have: { turnips: number; hay: number }, hearts: [string, string], on: { feed: () => void; treat: () => void; brush: () => void; ride: () => void; foal: () => void; pet: () => void; fav: () => void; dress: (id: string) => void }): void;
+  /** „Rufen“-Knopf fürs Lieblingspferd */
+  setCall(icon: string | null): void;
   /** Namen eingeben (Fohlen) */
   askName(title: string, img: string, text: string, name: string, ok: string, done: (name: string) => void): void;
   /** Bildschirm wird schwarz, done läuft in der Mitte */
@@ -498,6 +506,7 @@ export function showHud(on: HudActions, icons: HudIcons, costs: { house: number;
       <div class="act-row">
         <button class="pbtn album" data-act="album" aria-label="Sammelalbum"><img src="${icons.book}" alt="" /><span>Album</span></button>
         <button class="pbtn build" data-act="build" aria-label="Bauen"><img src="${icons.house}" alt="" /><span>Bauen</span></button>
+        <button class="pbtn call" data-act="call" aria-label="Lieblingspferd rufen" hidden><img src="" alt="" /><span>Rufen</span></button>
       </div>
       <button class="pbtn green use off" data-act="use" aria-label="Benutzen"><img src="${icons.axe}" alt="" /></button>
     </div>
@@ -542,6 +551,7 @@ export function showHud(on: HudActions, icons: HudIcons, costs: { house: number;
   });
   $('[data-act=build]').addEventListener('click', () => hud.openBuild(wood));
   $('[data-act=album]').addEventListener('click', on.album);
+  $('[data-act=call]').addEventListener('click', on.call);
   $('[data-act=cancel]').addEventListener('click', on.cancel);
   $('[data-act=confirm]').addEventListener('click', on.confirm);
   const bump = (el: HTMLElement, v: string) => {
@@ -731,12 +741,26 @@ export function showHud(on: HudActions, icons: HudIcons, costs: { house: number;
           <p class="have"><b>${esc(h.breed)}</b> – ${esc(h.text)}</p>
           <div class="hearts">${Array.from({ length: n }, (_, i) => `<img src="${hearts[i < filled ? 0 : 1]}" alt="" />`).join('')}</div>
           <p class="mine">${tip}</p>
+          <div class="two pet-row">
+            ${btn('pet', 'Streicheln', false, ' pink')}
+            ${btn('fav', h.fav ? 'Liebling!' : 'Als Liebling', false, h.fav ? ' fav-on' : '')}
+          </div>
           <div class="care">
             ${btn('feed', h.fed ? 'Satt' : `<img src="${icons.hay}" alt="" />Heu · ${have.hay}`, h.fed || have.hay <= 0)}
             ${btn('treat', h.treat ? 'Lecker!' : `<img src="${icons.turnip}" alt="" />Leckerli`, h.treat || have.turnips <= 0)}
             ${btn('brush', h.brushed ? 'Glänzt' : 'Bürsten', h.brushed)}
           </div>
           <p class="mine small">Füttern, Leckerli und Bürsten geht je einmal am Tag.</p>
+          <h3 class="sub">Schmuck</h3>
+          <div class="acc-grid">
+            <button class="acc${h.acc ? '' : ' on'}" data-acc=""><b>ohne</b></button>
+            ${h.accs
+              .map(
+                (a) =>
+                  `<button class="acc${h.acc === a.id ? ' on' : ''}${a.open ? '' : ' locked'}" data-acc="${a.id}"${a.open ? '' : ' disabled'}><img src="${a.img}" alt="" /><b>${esc(a.name)}</b>${a.open ? '' : `<small>ab ${a.hearts} Herzen</small>`}</button>`,
+              )
+              .join('')}
+          </div>
           ${h.foal ? '' : `<div class="${h.showFoal ? 'two' : ''}">${h.showFoal ? btn('foal', h.foalBlock ? 'Fohlen?' : 'Fohlen · 5 Heu', !!h.foalBlock) : ''}${btn('ride', 'Reiten', !h.canRide, ' green')}</div>`}
           ${h.showFoal && h.foalBlock ? `<p class="mine small">${esc(h.foalBlock)}</p>` : ''}
           <button class="pbtn small ghost" data-m="close">Zurück</button>
@@ -745,10 +769,15 @@ export function showHud(on: HudActions, icons: HudIcons, costs: { house: number;
       modal.addEventListener('click', (e) => {
         const t = e.target as HTMLElement;
         if (e.target === modal || t.closest('[data-m=close]')) return modal.remove();
+        const ac = t.closest<HTMLButtonElement>('[data-acc]');
+        if (ac && !ac.disabled) {
+          modal.remove();
+          return act.dress(ac.dataset.acc!);
+        }
         const m = t.closest<HTMLButtonElement>('[data-m]');
         if (!m || m.disabled) return;
         modal.remove();
-        const k = m.dataset.m as 'feed' | 'treat' | 'brush' | 'ride' | 'foal';
+        const k = m.dataset.m as 'feed' | 'treat' | 'brush' | 'ride' | 'foal' | 'pet' | 'fav';
         act[k]();
       });
     },
@@ -847,6 +876,12 @@ export function showHud(on: HudActions, icons: HudIcons, costs: { house: number;
           on.place(m.dataset.m);
         }
       });
+    },
+    setCall(icon) {
+      const b = $<HTMLButtonElement>('[data-act=call]');
+      b.hidden = !icon;
+      const img = b.querySelector('img')!;
+      if (icon && img.getAttribute('src') !== icon) img.src = icon;
     },
     setCoins(n) {
       bump($('.n-coins'), String(n));
