@@ -126,6 +126,12 @@ function side(b: Breed, frame: number): HTMLCanvasElement {
     g.set(hx - 1, hy + 1, b.mane);
     g.set(hx + 2, hy + 1, '#1a1210'); // Auge
     g.set(hx + d.HEADW - 1, hy + d.HEADH - 2, '#5a3a32'); // Nüster
+    if (b.horn) {
+      g.set(hx + 3, hy - 1, '#f4c430');
+      g.set(hx + 4, hy - 2, '#ffe680');
+      g.set(hx + 4, hy - 3, '#f4c430');
+      g.set(hx + 5, hy - 4, '#ffe680');
+    }
   }
   // nahe Beine
   leg(g, b, bx0 + 1, bot + bob, d.LEG - bob, d.LW, sw, frame === 1 ? 1 : 0, false);
@@ -186,6 +192,7 @@ function frontBack(b: Breed, frame: number, back: boolean): HTMLCanvasElement {
     g.set(hx + hw - 1, hy + 2, '#1a1210');
     g.set(hx + 1, hy + hh - 2, '#5a3a32');
     g.set(hx + hw - 2, hy + hh - 2, '#5a3a32');
+    if (b.horn) for (let k = 1; k <= 3; k++) g.set(hx + Math.floor(hw / 2), hy - k, k % 2 ? '#f4c430' : '#ffe680');
   }
   return g.render();
 }

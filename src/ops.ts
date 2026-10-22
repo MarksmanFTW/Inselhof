@@ -6,6 +6,8 @@
 import { Farm } from './farm';
 import { SLOT_COUNT, furnitureById } from './furniture';
 import { FOAL_HAY } from './horses';
+import { SEED_PACK, SELL, decoById, horseOffers, merchantHere, type SellItem } from './shop';
+import { islandDay } from './horses';
 import { gain, type Gain, type Stat } from './progress';
 import { napOffset, newClock, sleepOffset, sleepyHour, timeOf } from './time';
 import { TILE } from './island';
@@ -32,6 +34,9 @@ export interface OpResult {
   built?: boolean;
   /** eingesammeltes Heu */
   hay?: number;
+  /** Händler: Münzen bekommen; Album-Belohnungen */
+  coins?: number;
+  album?: { at: number; coins: number }[];
   /** geschlafen: ganze Nacht oder Nickerchen */
   slept?: 'night' | 'nap';
   done: boolean;
@@ -64,6 +69,8 @@ export function applyOp(world: World, farm: Farm, op: Op): OpResult {
     const stat = op.a.kind === 'build' && op.a.what && op.a.what !== 'house' ? undefined : STAT[op.a.kind];
     if (res.done && stat) merge(gain(world.prog, stat, 1, give));
   }
+  const album = world.claimAlbum();
+  if (album.length) res.album = album;
   if (res.gain && (res.gain.quests.length || res.gain.levels.length)) {
     world.version++;
     farm.version++;
@@ -109,6 +116,44 @@ function run(world: World, farm: Farm, op: Op): OpResult {
     // Samen-Zufall aus der Zeit → beim Abgleich auf jedem Gerät gleich
     const res = farm.harvest(c, r, () => ((t * 9301 + 49297) % 233280) / 233280);
     return { err: null, done: !!res, harvest: res ?? undefined };
+  } else if (a.kind === 'sell' || a.kind === 'buy') {
+    if (!merchantHere(world.clock, t)) return { err: 'Das Händler-Boot ist gerade nicht da', done: false };
+    if (a.kind === 'sell') {
+      const item = a.item as SellItem;
+      const n = Math.max(1, Math.floor(a.n ?? 1));
+      const price = SELL[item];
+      if (!price) return { err: 'Das kauft der Händler nicht', done: false };
+      const have = item === 'wood' ? world.wood : item === 'turnip' ? farm.turnips : item === 'meal' ? farm.meals : farm.hay;
+      if (have < n) return { err: 'So viel hast du nicht', done: false };
+      if (item === 'wood') world.wood -= n;
+      else if (item === 'turnip') farm.turnips -= n;
+      else if (item === 'meal') farm.meals -= n;
+      else farm.hay -= n;
+      world.coins += price * n;
+      world.version++;
+      farm.version++;
+      return { err: null, done: true, coins: price * n };
+    }
+    const item = a.item ?? '';
+    if (item === 'seeds') {
+      if (world.coins < SEED_PACK.price) err = 'Zu wenig Münzen';
+      else {
+        world.coins -= SEED_PACK.price;
+        farm.seeds += SEED_PACK.n;
+        world.version++;
+        farm.version++;
+      }
+    } else if (item.startsWith('deco:')) err = world.buyDeco(item.slice(5));
+    else if (item.startsWith('horse:')) {
+      const breed = item.slice(6);
+      if (!horseOffers(islandDay(world.clock, t), world.album.horses.length).includes(breed)) err = 'Dieses Pferd hat das Boot heute nicht dabei';
+      else err = world.buyHorse(breed, a.name ?? '', t);
+    } else err = 'Gibt es nicht';
+  } else if (a.kind === 'build' && a.what === 'deco') {
+    if (!decoById(a.item ?? '')) err = 'Gibt es nicht';
+    else if (farmUnder(farm, a.x ?? 0, a.y ?? 0, 'deco')) err = 'Hier ist ein Feld im Weg';
+    else err = world.placeDeco(a.x ?? 0, a.y ?? 0, a.item!, actor);
+    if (!err) return { err: null, done: true, built: true };
   } else if (a.kind === 'build') {
     const x = a.x ?? 0;
     const y = a.y ?? 0;

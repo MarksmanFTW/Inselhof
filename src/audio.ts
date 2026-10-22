@@ -5,6 +5,7 @@
  */
 
 type Sfx =
+  | 'coin'
   | 'mow'
   | 'brush'
   | 'neigh'
@@ -195,6 +196,10 @@ export function sfx(name: Sfx) {
     case 'step':
       stepAlt = !stepAlt;
       noise(0.04, { freq: stepAlt ? 700 : 550, vol: 0.06 });
+      break;
+    case 'coin':
+      tone(1319, 0.08, { type: 'square', vol: 0.08 });
+      tone(1976, 0.22, { type: 'square', vol: 0.07, at: t + 0.07 });
       break;
     case 'mow':
       // Sense: Schwung durchs Gras

@@ -4,6 +4,7 @@
  */
 import { Ground, H, W, type Decor, type Island } from './island';
 import { FOAL_HAY, FOAL_PAUSE_DAYS, GATE, MAX_LOVE, PADDOCK_COST, PADDOCK_FOOT, PADDOCK_REACH, STABLE_COST, STABLE_SPACE, breedById, cleanHorses, cleanName, isFoal, islandDay, type Care, type Horse, type Paddock, type Stable } from './horses';
+import { ALBUM_REWARDS, DECO_FOOT, albumCount, cleanAlbum, decoById, type Album, type Deco } from './shop';
 import { cleanProgress, levelOf, newProgress, perks, type Progress } from './progress';
 import type { Clock } from './time';
 
@@ -33,7 +34,7 @@ export interface Fire {
   x: number;
   y: number;
 }
-export type BuildKind = 'house' | 'fire' | 'stable' | 'paddock';
+export type BuildKind = 'house' | 'fire' | 'stable' | 'paddock' | 'deco';
 /** Grundfläche des Lagerfeuers */
 export const FIRE_FOOT = { left: -6, right: 6, top: -4, bottom: 1 };
 /** Grundfläche des Pferdestalls */
@@ -43,6 +44,7 @@ export const BUILDS: Record<BuildKind, { cost: number; foot: typeof HOUSE_FOOT }
   fire: { cost: FIRE_COST, foot: FIRE_FOOT },
   stable: { cost: STABLE_COST, foot: STABLE_FOOT },
   paddock: { cost: PADDOCK_COST, foot: PADDOCK_FOOT },
+  deco: { cost: 0, foot: DECO_FOOT },
 };
 
 export interface WorldSave {
@@ -58,6 +60,13 @@ export interface WorldSave {
   stables?: Stable[];
   horses?: Horse[];
   paddocks?: Paddock[];
+  coins?: number;
+  decos?: Deco[];
+  /** gekaufte, noch nicht aufgestellte Deko */
+  decoInv?: Record<string, number>;
+  album?: Album;
+  /** so viele Album-Belohnungen sind abgeholt */
+  albumClaimed?: number;
 }
 
 export type TreeStage = 'tree' | 'stump' | 'sapling';
@@ -81,6 +90,11 @@ export class World {
   stables: Stable[] = [];
   horses: Horse[] = [];
   paddocks: Paddock[] = [];
+  coins = 0;
+  decos: Deco[] = [];
+  decoInv: Record<string, number> = {};
+  album: Album = { horses: [], deco: [] };
+  albumClaimed = 0;
   clock: Clock | null = null;
   prog: Progress = newProgress();
   /** Treffer am aktuellen Baum (nicht gespeichert) */
@@ -104,6 +118,13 @@ export class World {
       this.stables = (save.stables ?? []).filter((h) => typeof h?.x === 'number' && typeof h?.y === 'number');
       this.horses = cleanHorses(save.horses, this.stables.length);
       this.paddocks = (save.paddocks ?? []).filter((h) => typeof h?.x === 'number' && typeof h?.y === 'number');
+      this.coins = Math.max(0, Math.floor(save.coins ?? 0));
+      this.decos = (save.decos ?? []).filter((h) => typeof h?.x === 'number' && typeof h?.y === 'number' && !!decoById(h.id));
+      for (const [k, v] of Object.entries(save.decoInv ?? {})) if (decoById(k) && typeof v === 'number' && v > 0) this.decoInv[k] = Math.floor(v);
+      this.album = cleanAlbum(save.album);
+      this.albumClaimed = Math.max(0, Math.floor(save.albumClaimed ?? 0));
+      // ältere Spielstände: eigene Pferde stehen schon im Album
+      for (const h of this.horses) if (!this.album.horses.includes(h.breed)) this.album.horses.push(h.breed);
       const c = save.clock;
       this.clock = c && typeof c.offset === 'number' && typeof c.day0 === 'number' ? { offset: c.offset, day0: c.day0 } : null;
     }
@@ -121,6 +142,11 @@ export class World {
     this.stables = w.stables;
     this.horses = w.horses;
     this.paddocks = w.paddocks;
+    this.coins = w.coins;
+    this.decos = w.decos;
+    this.decoInv = w.decoInv;
+    this.album = w.album;
+    this.albumClaimed = w.albumClaimed;
     this.version++;
   }
 
@@ -132,6 +158,9 @@ export class World {
       fires: this.fires.map((f) => ({ ...f })),
       ...(this.stables.length ? { stables: this.stables.map((f) => ({ ...f })), horses: this.horses.map((h) => ({ ...h })) } : {}),
       ...(this.paddocks.length ? { paddocks: this.paddocks.map((f) => ({ ...f })) } : {}),
+      ...(this.coins || this.decos.length || albumCount(this.album) || Object.keys(this.decoInv).length
+        ? { coins: this.coins, decos: this.decos.map((d) => ({ ...d })), decoInv: { ...this.decoInv }, album: { horses: [...this.album.horses], deco: [...this.album.deco] }, albumClaimed: this.albumClaimed }
+        : {}),
       ...(this.clock ? { clock: { ...this.clock } } : {}),
       prog: { xp: this.prog.xp, stats: { ...this.prog.stats }, quests: this.prog.quests },
     };
@@ -184,6 +213,7 @@ export class World {
       [this.houses, HOUSE_FOOT],
       [this.fires, FIRE_FOOT],
       [this.stables, STABLE_FOOT],
+      [this.decos, DECO_FOOT],
     ] as const)
       for (const h of list) if (x + fw > h.x + f.left && x - fw < h.x + f.right && y + fh > h.y + f.top && y - fh < h.y + f.bottom) return true;
     for (const p of this.paddocks) if (this.onFence(p, x, y, fw, fh)) return true;
@@ -277,6 +307,7 @@ export class World {
       [this.fires, FIRE_FOOT],
       [this.stables, STABLE_FOOT],
       [this.paddocks, PADDOCK_FOOT],
+      [this.decos, DECO_FOOT],
     ] as const)
       for (const h of list)
         if (x + f.right + 4 > h.x + g.left && x + f.left - 4 < h.x + g.right && y + f.bottom + 4 > h.y + g.top - 6 && y + f.top - 8 < h.y + g.bottom) return false;
@@ -314,13 +345,70 @@ export class World {
   adopt(stable: number, breed: string, name: string, t: number, pay: (cost: number) => boolean) {
     const b = breedById(breed);
     if (!this.stables[stable]) return 'Diesen Stall gibt es nicht';
-    if (!b) return 'Unbekannte Rasse';
+    if (!b || b.rare) return 'Unbekannte Rasse';
     if (this.level < b.level) return `${b.name} gibt es ab Insel-Stufe ${b.level}`;
     if (this.horsesIn(stable) >= STABLE_SPACE) return 'Der Stall ist voll – bau noch einen';
     if (!pay(b.cost)) return 'Zu wenig Rüben';
     this.horses.push({ breed: b.id, name: cleanName(name) || b.names[0], stable, t, love: 0 });
+    this.albumAdd('horses', b.id);
     this.version++;
     return null;
+  }
+
+  /** Stall mit freiem Platz (für Pferde vom Händler) */
+  freeStable() {
+    return this.stables.findIndex((_, i) => this.horsesIn(i) < STABLE_SPACE);
+  }
+
+  /** seltenes Pferd vom Händler (Münzen werden hier abgezogen) */
+  buyHorse(breed: string, name: string, t: number) {
+    const b = breedById(breed);
+    if (!b?.rare) return 'Unbekannte Rasse';
+    const st = this.freeStable();
+    if (st < 0) return this.stables.length ? 'Alle Ställe sind voll' : 'Bau zuerst einen Pferdestall';
+    if (this.coins < b.rare) return 'Zu wenig Münzen';
+    this.coins -= b.rare;
+    this.horses.push({ breed: b.id, name: cleanName(name) || b.names[0], stable: st, t, love: 0 });
+    this.albumAdd('horses', b.id);
+    this.version++;
+    return null;
+  }
+
+  buyDeco(id: string) {
+    const d = decoById(id);
+    if (!d) return 'Gibt es nicht';
+    if (this.coins < d.price) return 'Zu wenig Münzen';
+    this.coins -= d.price;
+    this.decoInv[id] = (this.decoInv[id] ?? 0) + 1;
+    this.albumAdd('deco', id);
+    this.version++;
+    return null;
+  }
+
+  /** gekaufte Deko aufstellen */
+  placeDeco(x: number, y: number, id: string, player?: { x: number; y: number }) {
+    if (!(this.decoInv[id] > 0)) return 'Diese Deko hast du nicht';
+    if (!this.canPlace(x, y, player, 'deco')) return 'Hier ist kein Platz';
+    if (--this.decoInv[id] <= 0) delete this.decoInv[id];
+    this.decos.push({ x: Math.round(x), y: Math.round(y), id });
+    this.version++;
+    return null;
+  }
+
+  albumAdd(kind: keyof Album, id: string) {
+    if (!this.album[kind].includes(id)) this.album[kind].push(id);
+  }
+
+  /** neu erreichte Album-Belohnungen auszahlen */
+  claimAlbum() {
+    const got: { at: number; coins: number }[] = [];
+    while (this.albumClaimed < ALBUM_REWARDS.length && albumCount(this.album) >= ALBUM_REWARDS[this.albumClaimed].at) {
+      const r = ALBUM_REWARDS[this.albumClaimed++];
+      this.coins += r.coins;
+      got.push(r);
+    }
+    if (got.length) this.version++;
+    return got;
   }
 
   /** Koppel des Stalls (die nächste in Reichweite) */

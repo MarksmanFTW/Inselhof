@@ -328,7 +328,10 @@ export interface HudActions {
   act: (down: boolean) => void;
   tool: (t: ToolId) => void;
   /** Bau-Fenster: Haus oder Lagerfeuer wählen → platzieren */
-  place: (what: 'house' | 'fire' | 'stable' | 'paddock') => void;
+  place: (what: 'house' | 'fire' | 'stable' | 'paddock' | 'deco', item?: string) => void;
+  /** gekaufte Deko zum Aufstellen */
+  decoList: () => { id: string; name: string; img: string; n: number }[];
+  album: () => void;
   /** Rübe essen (roh) oder Ofenrübe */
   eat: (cooked: boolean) => void;
   confirm: () => void;
@@ -351,6 +354,25 @@ export interface HudIcons {
   scythe: string;
   hay: string;
   paddock: string;
+  coin: string;
+  book: string;
+}
+
+export interface TradeData {
+  coins: number;
+  have: Record<'turnip' | 'meal' | 'wood' | 'hay', number>;
+  sell: { id: 'turnip' | 'meal' | 'wood' | 'hay'; name: string; price: number; img: string }[];
+  seeds: { n: number; price: number; img: string };
+  deco: { id: string; name: string; price: number; img: string; owned: boolean }[];
+  horses: { id: string; name: string; text: string; price: number; img: string }[];
+  /** Grund, warum kein Pferd geht (kein Stall/voll) */
+  horseBlock: string | null;
+}
+export interface AlbumData {
+  sections: { title: string; items: { name: string; img: string; has: boolean; rare?: boolean }[] }[];
+  count: number;
+  total: number;
+  rewards: { at: number; coins: number; got: boolean }[];
 }
 
 /** Eintrag im Stall: Rasse zum Aufnehmen */
@@ -415,6 +437,11 @@ export interface Hud {
   /** Koop-Anzeige unter dem Menü-Knopf */
   setCoop(text: string | null): void;
   openBuild(wood: number): void;
+  /** Münzen-Anzeige */
+  setCoins(n: number): void;
+  /** Händler-Boot; update() zeichnet neu, solange offen */
+  openTrade(d: TradeData, act: { sell: (id: string, n: number) => void; buy: (id: string) => void }, onClose: () => void): { update(d: TradeData): void };
+  openAlbum(d: AlbumData): void;
   toast(text: string): void;
 }
 
@@ -426,7 +453,7 @@ export function showHud(on: HudActions, icons: HudIcons, costs: { house: number;
     `<button class="slot" data-tool="${t}" aria-label="${TOOL_NAMES[t]}"><img src="${icon}" alt="" /><small></small></button>`;
   ui.innerHTML = `
     <button class="pbtn icon" data-act="menu" aria-label="Menü"><i></i><i></i><i></i></button>
-    <div class="panel lvl"><b>Stufe 1</b><div class="xpbar"><i></i></div><div class="enbar" title="Energie"><i></i></div><small class="clock"></small></div>
+    <div class="panel lvl"><b>Stufe 1</b><div class="xpbar"><i></i></div><div class="enbar" title="Energie"><i></i></div><small class="clock"></small><small class="coins"><img src="${icons.coin}" alt="" /><b class="n-coins">0</b></small></div>
     <div class="inv">
       <div class="panel wood"><img src="${icons.log}" alt="" /><b class="n-wood">0</b></div>
       <button class="panel wood eat" data-eat="raw" aria-label="Rübe essen"><img class="turnip" src="${icons.turnip}" alt="" /><b class="n-turnip">0</b></button>
@@ -438,6 +465,7 @@ export function showHud(on: HudActions, icons: HudIcons, costs: { house: number;
       ${slot('axe', icons.axe)}${slot('hoe', icons.hoe)}${slot('seeds', icons.seeds)}${slot('water', icons.bucket)}${slot('scythe', icons.scythe)}
     </div>
     <div class="actions">
+      <button class="pbtn album" data-act="album" aria-label="Sammelalbum"><img src="${icons.book}" alt="" /></button>
       <button class="pbtn build" data-act="build" aria-label="Bauen"><img src="${icons.house}" alt="" /><span>Bauen</span></button>
       <button class="pbtn green use off" data-act="use" aria-label="Benutzen"><img src="${icons.axe}" alt="" /></button>
     </div>
@@ -465,6 +493,7 @@ export function showHud(on: HudActions, icons: HudIcons, costs: { house: number;
   });
   let wood = 0;
   $('[data-act=build]').addEventListener('click', () => hud.openBuild(wood));
+  $('[data-act=album]').addEventListener('click', on.album);
   $('[data-act=cancel]').addEventListener('click', on.cancel);
   $('[data-act=confirm]').addEventListener('click', on.confirm);
   const bump = (el: HTMLElement, v: string) => {
@@ -526,6 +555,7 @@ export function showHud(on: HudActions, icons: HudIcons, costs: { house: number;
     setInside(onI) {
       $('.hotbar').hidden = onI;
       $('[data-act=build]').hidden = onI;
+      $('[data-act=album]').hidden = onI;
     },
     openChest(items) {
       const modal = document.createElement('div');
@@ -711,6 +741,7 @@ export function showHud(on: HudActions, icons: HudIcons, costs: { house: number;
       $<HTMLButtonElement>('[data-act=confirm]').disabled = !valid;
     },
     openBuild(wood) {
+      const decos = on.decoList();
       const card = (what: 'house' | 'fire' | 'stable' | 'paddock', img: string, title: string, text: string) => {
         const cost = costs[what];
         const enough = wood >= cost;
@@ -730,16 +761,121 @@ export function showHud(on: HudActions, icons: HudIcons, costs: { house: number;
           ${card('fire', icons.fire, 'Lagerfeuer', 'Brät Rüben zu Ofenrüben – macht richtig satt.')}
           ${card('stable', icons.stable, 'Pferdestall', 'Platz für 4 Pferde – such dir deine Lieblingsrassen aus.')}
           ${card('paddock', icons.paddock, 'Koppel', 'Eingezäunte Weide beim Stall – dort grasen deine Pferde.')}
+          <h3 class="sub">Deko aufstellen</h3>
+          ${
+            decos.length
+              ? `<div class="furn-grid">${decos.map((d) => `<button class="furn" data-deco="${d.id}"><img src="${d.img}" alt="" /><b>${esc(d.name)}</b><small>${d.n}×</small></button>`).join('')}</div>`
+              : '<p class="have">Deko kaufst du beim Händler-Boot am Steg.</p>'
+          }
           <button class="pbtn small ghost" data-m="close">Zurück</button>
         </div>`;
       ui.appendChild(modal);
       modal.addEventListener('click', (e) => {
         const m = (e.target as HTMLElement).closest<HTMLButtonElement>('[data-m]');
         if (e.target === modal || m?.dataset.m === 'close') modal.remove();
+        const dk = (e.target as HTMLElement).closest<HTMLElement>('[data-deco]');
+        if (dk) {
+          modal.remove();
+          on.place('deco', dk.dataset.deco);
+          return;
+        }
         if (m && !m.disabled && (m.dataset.m === 'house' || m.dataset.m === 'fire' || m.dataset.m === 'stable' || m.dataset.m === 'paddock')) {
           modal.remove();
           on.place(m.dataset.m);
         }
+      });
+    },
+    setCoins(n) {
+      bump($('.n-coins'), String(n));
+    },
+    openTrade(d0, act, onClose) {
+      const modal = document.createElement('div');
+      modal.className = 'modal';
+      let tab: 'sell' | 'buy' = 'sell';
+      let d = d0;
+      const coin = `<img class="c" src="${icons.coin}" alt="" />`;
+      const render = () => {
+        const sell = d.sell
+          .map(
+            (it) => `<div class="trade-row"><img src="${it.img}" alt="" /><span><b>${esc(it.name)}</b><small>${d.have[it.id]} da · ${it.price}${coin} pro Stück</small></span>
+              <button class="pbtn small" data-sell="${it.id}" data-n="1"${d.have[it.id] < 1 ? ' disabled' : ''}>1</button>
+              <button class="pbtn small green" data-sell="${it.id}" data-n="${d.have[it.id]}"${d.have[it.id] < 1 ? ' disabled' : ''}>Alle</button></div>`,
+          )
+          .join('');
+        const buyBtn = (id: string, price: number, extra = false) =>
+          `<button class="pbtn small green" data-buy="${id}"${d.coins < price || extra ? ' disabled' : ''}>${price}${coin}</button>`;
+        const buy = `
+          <div class="trade-row"><img src="${d.seeds.img}" alt="" /><span><b>${d.seeds.n} Samen</b><small>Rüben-Samen im Päckchen</small></span>${buyBtn('seeds', d.seeds.price)}</div>
+          <h3 class="sub">Seltene Pferde – heute an Bord</h3>
+          ${d.horses
+            .map(
+              (h) => `<div class="trade-row horse"><img src="${h.img}" alt="" /><span><b>${esc(h.name)}</b><small>${esc(h.text)}</small></span>${buyBtn(`horse:${h.id}`, h.price, !!d.horseBlock)}</div>`,
+            )
+            .join('')}
+          ${d.horseBlock ? `<p class="mine small">${esc(d.horseBlock)}</p>` : ''}
+          <h3 class="sub">Deko</h3>
+          ${d.deco
+            .map((x) => `<div class="trade-row"><img src="${x.img}" alt="" /><span><b>${esc(x.name)}</b><small>${x.owned ? 'schon im Album' : 'neu fürs Album!'}</small></span>${buyBtn(`deco:${x.id}`, x.price)}</div>`)
+            .join('')}`;
+        modal.innerHTML = `<div class="panel build-panel stable-panel trade">
+            <h2>Händler-Boot</h2>
+            <p class="have">Kapitänin Frieda: „Ahoi! Was darf's sein?“</p>
+            <p class="purse">${coin}<b>${d.coins}</b> Münzen</p>
+            <div class="tabs"><button class="pbtn small${tab === 'sell' ? ' green' : ''}" data-tab="sell">Verkaufen</button><button class="pbtn small${tab === 'buy' ? ' green' : ''}" data-tab="buy">Kaufen</button></div>
+            <div class="trade-list">${tab === 'sell' ? sell : buy}</div>
+            <button class="pbtn small ghost" data-m="close">Tschüss!</button>
+          </div>`;
+      };
+      render();
+      ui.appendChild(modal);
+      const close = () => {
+        modal.remove();
+        onClose();
+      };
+      modal.addEventListener('click', (e) => {
+        const t = e.target as HTMLElement;
+        if (e.target === modal || t.closest('[data-m=close]')) return close();
+        const tb = t.closest<HTMLElement>('[data-tab]');
+        if (tb) {
+          tab = tb.dataset.tab as 'sell' | 'buy';
+          return render();
+        }
+        const sb = t.closest<HTMLButtonElement>('[data-sell]');
+        if (sb && !sb.disabled) return act.sell(sb.dataset.sell!, Number(sb.dataset.n));
+        const bb = t.closest<HTMLButtonElement>('[data-buy]');
+        if (bb && !bb.disabled) act.buy(bb.dataset.buy!);
+      });
+      return {
+        update(nd) {
+          d = nd;
+          const sc = modal.querySelector('.trade-list')?.scrollTop ?? 0;
+          render();
+          const l = modal.querySelector('.trade-list');
+          if (l) l.scrollTop = sc;
+        },
+      };
+    },
+    openAlbum(d) {
+      const modal = document.createElement('div');
+      modal.className = 'modal';
+      modal.innerHTML = `<div class="panel build-panel stable-panel album-panel">
+          <h2>Sammelalbum</h2>
+          <p class="have"><b>${d.count}</b> von ${d.total} gesammelt</p>
+          <div class="xpbar album-bar"><i style="width:${Math.round((d.count / d.total) * 100)}%"></i></div>
+          <div class="rewards">${d.rewards.map((r) => `<span class="${r.got ? 'got' : ''}">${r.at}: ${r.coins}<img src="${icons.coin}" alt="" /></span>`).join('')}</div>
+          ${d.sections
+            .map(
+              (s) => `<h3 class="sub">${esc(s.title)} · ${s.items.filter((i) => i.has).length}/${s.items.length}</h3>
+            <div class="furn-grid album-grid">${s.items
+              .map((i) => `<div class="furn${i.has ? '' : ' missing'}${i.rare ? ' rare' : ''}"><img src="${i.img}" alt="" /><b>${i.has ? esc(i.name) : '???'}</b></div>`)
+              .join('')}</div>`,
+            )
+            .join('')}
+          <button class="pbtn small ghost" data-m="close">Zurück</button>
+        </div>`;
+      ui.appendChild(modal);
+      modal.addEventListener('click', (e) => {
+        if (e.target === modal || (e.target as HTMLElement).closest('[data-m=close]')) modal.remove();
       });
     },
     toast(text) {

@@ -35,7 +35,7 @@ export interface PlayerState {
 }
 /** Aktion des Gasts, der Gastgeber führt sie aus */
 export interface Action {
-  kind: 'axe' | 'hoe' | 'seeds' | 'water' | 'refill' | 'harvest' | 'build' | 'sleep' | 'eat' | 'cook' | 'furnish' | 'adopt' | 'feed' | 'brush' | 'foal' | 'mow' | 'rake';
+  kind: 'axe' | 'hoe' | 'seeds' | 'water' | 'refill' | 'harvest' | 'build' | 'sleep' | 'eat' | 'cook' | 'furnish' | 'adopt' | 'feed' | 'brush' | 'foal' | 'mow' | 'rake' | 'sell' | 'buy';
   c?: number;
   r?: number;
   tree?: number;
@@ -44,7 +44,7 @@ export interface Action {
   /** Abgleich: Baum ist umgefallen (unabhängig von einzelnen Schlägen) */
   fell?: boolean;
   /** Bauen: Haus oder Lagerfeuer */
-  what?: 'house' | 'fire' | 'stable' | 'paddock';
+  what?: 'house' | 'fire' | 'stable' | 'paddock' | 'deco';
   /** Essen: Ofenrübe statt roher Rübe */
   cooked?: boolean;
   /** Möbel: Haus, Platz, Möbelstück */
@@ -54,10 +54,12 @@ export interface Action {
   /** Pferd: Stall (house), Rasse (item), Name; Füttern: Nummer des Pferds */
   name?: string;
   horse?: number;
+  /** Händler: Stückzahl */
+  n?: number;
 }
 /** Effekte (Splitter, „+4 Holz“) für den anderen Bildschirm */
 export interface Fx {
-  k: 'chop' | 'fell' | 'till' | 'seed' | 'water' | 'refill' | 'harvest' | 'build' | 'can' | 'quest' | 'level' | 'sleep' | 'cook' | 'furnish' | 'horse' | 'feed' | 'brush' | 'foal' | 'mow' | 'rake';
+  k: 'chop' | 'fell' | 'till' | 'seed' | 'water' | 'refill' | 'harvest' | 'build' | 'can' | 'quest' | 'level' | 'sleep' | 'cook' | 'furnish' | 'horse' | 'feed' | 'brush' | 'foal' | 'mow' | 'rake' | 'trade';
   /** neue Stufe */
   n?: number;
   x: number;

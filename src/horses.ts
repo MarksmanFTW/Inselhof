@@ -33,6 +33,10 @@ export interface Breed {
   /** Tempo beim Reiten (× Laufen) */
   speed: number;
   names: string[];
+  /** seltene Rasse: nur beim Händler, Preis in Münzen */
+  rare?: number;
+  /** Einhorn */
+  horn?: boolean;
 }
 
 export const BREEDS: Breed[] = [
@@ -52,7 +56,15 @@ export const BREEDS: Breed[] = [
   { id: 'hannoveraner', name: 'Hannoveraner', text: 'Großes Warmblut, brauner Turnierstar mit Blesse.', coat: '#8c4a26', shade: '#663418', mane: '#1e1612', legs: '#1e1612', pattern: 'blaze', mark: '#f6f0e6', size: 1, cost: 8, level: 5, speed: 2.2, names: ['Champion', 'Donnerhall', 'Bella', 'Ronja'] },
   { id: 'vollblut', name: 'Englisches Vollblut', text: 'Das schnellste Pferd der Insel – ein Rennpferd!', coat: '#7a3a1a', shade: '#58260e', mane: '#4a1e0c', legs: '#f2ece2', pattern: 'blaze', mark: '#f6f0e6', size: 1, cost: 8, level: 5, speed: 2.5, names: ['Blitz', 'Comet', 'Rocket', 'Flash'] },
   { id: 'clydesdale', name: 'Clydesdale', text: 'Riesiges Kaltblut aus Schottland mit weißem Behang.', coat: '#6c3a22', shade: '#4c2614', mane: '#2a1810', legs: '#f2ece2', pattern: 'blaze', mark: '#f6f0e6', feather: true, size: 2, cost: 9, level: 5, speed: 1.8, names: ['Hamish', 'Big Ben', 'Duncan', 'Moira'] },
+  // ---- seltene Rassen: nur beim Händler-Boot ----
+  { id: 'akhal', name: 'Akhal-Tekkiner', text: 'Goldglänzendes Wüstenpferd – eines der seltensten der Welt.', coat: '#dcb45c', shade: '#b08a3a', mane: '#c4964a', legs: '#a07a34', pattern: 'none', size: 1, cost: 0, level: 1, speed: 2.35, names: ['Goldstaub', 'Sahara', 'Topas', 'Aurora'], rare: 80 },
+  { id: 'knabstrupper', name: 'Knabstrupper', text: 'Dänisches Tigerpferd mit Tupfen am ganzen Körper.', coat: '#f2eee6', shade: '#c8c2b8', mane: '#3a2a22', legs: '#3a2a22', pattern: 'spots', mark: '#3a2a22', size: 1, cost: 0, level: 1, speed: 2.1, names: ['Tiger', 'Konfetti', 'Pixel', 'Sprenkel'], rare: 70 },
+  { id: 'falabella', name: 'Falabella', text: 'Das kleinste Pferd der Welt – kaum größer als ein Hund!', coat: '#8a5a3a', shade: '#6a3e24', mane: '#f2ece2', pattern: 'pinto', mark: '#f6f0e6', size: 3, cost: 0, level: 1, speed: 1.5, names: ['Mini', 'Knopf', 'Zwerg', 'Bonbon'], rare: 60 },
+  { id: 'einhorn', name: 'Einhorn', text: 'Ein echtes Einhorn! Kommt nur zu Sammlern mit vielen Rassen.', coat: '#fafaff', shade: '#d4d0ee', mane: '#f08ac8', legs: '#fafaff', pattern: 'none', size: 1, cost: 0, level: 1, speed: 2.7, names: ['Glitzer', 'Regenbogen', 'Sternchen', 'Luna'], rare: 200, horn: true },
 ];
+/** im Stall aufnehmbar (nicht die seltenen) */
+export const STABLE_BREEDS = BREEDS.filter((b) => !b.rare);
+export const RARE_BREEDS = BREEDS.filter((b) => b.rare);
 export const breedById = (id: string) => BREEDS.find((b) => b.id === id);
 
 export const STABLE_COST = 15;

@@ -2,7 +2,9 @@ import '@fontsource/pixelify-sans/latin-500.css';
 import '@fontsource/pixelify-sans/latin-700.css';
 import './style.css';
 import { CH, CW, Dir, FOOT_X, FOOT_Y, PANTS, makeCharacter, type CharSheet, type Look } from './character';
-import { BREEDS, FOAL_GROW_MS, GATE, MAX_LOVE, PADDOCK_COST, PADDOCK_FOOT, STABLE_COST, STABLE_SPACE, TRUST, breedById, foalBreed, horsePose, isFoal, pasture, type HorsePose, type Paddock } from './horses';
+import { ALBUM_REWARDS, ALBUM_TOTAL, DECO, SEED_PACK, SELL, SELL_NAMES, albumCount, boatOut, decoById, horseOffers, merchantHere, type SellItem } from './shop';
+import { boat, bookIcon, coinIcon, decoArt } from './decoart';
+import { BREEDS, RARE_BREEDS, islandDay, STABLE_BREEDS, FOAL_GROW_MS, GATE, MAX_LOVE, PADDOCK_COST, PADDOCK_FOOT, STABLE_COST, STABLE_SPACE, TRUST, breedById, foalBreed, horsePose, isFoal, pasture, type HorsePose, type Paddock } from './horses';
 import { FENCE, HH, HOX, HOY, HW, hayIcon, hayTile, heartIcon, horseSheet, paddockIcon, saddle, scythe, stable as stableArt } from './horseart';
 import { Ground, H, TILE, W, generate, rng } from './island';
 import { Shore, paintDock, paintLand, paintShadows, waveTile } from './paint';
@@ -19,7 +21,7 @@ import { campfire, mealIcon, axe, bucket, cropStage, hoe, house, logIcon, saplin
 import { activeSlot, addSlot, loadSave, removeSlot, writeSave, type Save, type Slot } from './save';
 import { butterfly, gull, makeSprites } from './sprites';
 import { Room, cleanCode, type Action, type Fx, type Msg, type PlayerState } from './net/room';
-import { showCoop, showCustomize, showHud, showMenu, showSlots, showWait, type Hud, type ToolId } from './ui';
+import { showCoop, showCustomize, showHud, showMenu, showSlots, showWait, type Hud, type ToolId, type TradeData } from './ui';
 import { BUILDS, FIRE_COST, HOUSE_COST, HOUSE_FOOT, STABLE_FOOT, World, type BuildKind } from './world';
 
 const screen = document.querySelector<HTMLCanvasElement>('#screen')!;
@@ -131,6 +133,8 @@ const soilWet = soilTile(true);
 const crops = [0, 1, 2, 3].map(cropStage);
 const fireImgs = [0, 1, 2].map(campfire);
 const stableImg = stableArt();
+const boatImg = boat();
+const decoImgs = new Map(DECO.map((d) => [d.id as string, decoArt(d.id)]));
 const scytheImg = scythe();
 const hayTiles = { fresh: hayTile('fresh'), dry: hayTile('dry'), stubble: hayTile('stubble') };
 /** Rasse fürs Bild: Fohlen haben eigene kleine Bilder */
@@ -163,7 +167,10 @@ const icons = {
   scythe: toUrl(scytheImg),
   hay: toUrl(hayIcon()),
   paddock: toUrl(paddockIcon()),
+  coin: toUrl(coinIcon()),
+  book: toUrl(bookIcon()),
 };
+const decoIcon = (id: string) => toUrl(decoImgs.get(id)!.img);
 
 /** Boden + Schatten neu malen, wenn Bäume fallen oder Häuser dazukommen */
 let landVersion = -1;
@@ -243,6 +250,7 @@ const FX_SOUND: Partial<Record<Fx['k'], Parameters<typeof sfx>[0]>> = {
   foal: 'neigh',
   mow: 'mow',
   rake: 'harvest',
+  trade: 'coin',
 };
 function playFx(fx: Fx) {
   const snd = FX_SOUND[fx.k];
@@ -294,7 +302,7 @@ function perform(a: Action, actor: { x: number; y: number }): string | null {
     else if (a.kind === 'harvest' && res.harvest) {
       emit({ k: 'harvest', x: cx, y: cy, text: `+1 Rübe  +${res.harvest.seeds} Samen` });
       if (res.harvest.gotCan) emit({ k: 'can', x: actor.x, y: actor.y - 18, text: 'Eisen-Gießkanne!' });
-    } else if (a.kind === 'build') emit({ k: 'build', x: a.x ?? 0, y: a.y ?? 0, text: a.what === 'fire' ? 'Lagerfeuer!' : a.what === 'stable' ? 'Pferdestall!' : 'Haus gebaut!' });
+    } else if (a.kind === 'build') emit({ k: 'build', x: a.x ?? 0, y: a.y ?? 0, text: a.what === 'fire' ? 'Lagerfeuer!' : a.what === 'stable' ? 'Pferdestall!' : a.what === 'paddock' ? 'Koppel!' : a.what === 'deco' ? `${decoById(a.item ?? '')?.name ?? 'Deko'} steht!` : 'Haus gebaut!' });
     else if (a.kind === 'adopt') {
       const st = world.stables[a.house ?? -1];
       const h = world.horses[world.horses.length - 1];
@@ -308,6 +316,14 @@ function perform(a: Action, actor: { x: number; y: number }): string | null {
       if (h) emit({ k: 'foal', x: p.x, y: p.y - 20, text: `${h.name} ist geboren!` });
     } else if (a.kind === 'mow') emit({ k: 'mow', x: cx, y: cy });
     else if (a.kind === 'rake') emit({ k: 'rake', x: cx, y: cy, text: `+${res.hay ?? 0} Heu` });
+    else if (a.kind === 'sell') emit({ k: 'trade', x: actor.x, y: actor.y - 18, text: `+${res.coins ?? 0} Münzen` });
+    else if (a.kind === 'buy') {
+      const it = a.item ?? '';
+      const h = world.horses[world.horses.length - 1];
+      const text = it.startsWith('horse:') && h ? `${h.name} zieht in den Stall!` : it === 'seeds' ? `+${SEED_PACK.n} Samen` : `${decoById(it.slice(5))?.name ?? 'Deko'} gekauft – im Bau-Menü aufstellen`;
+      emit({ k: 'trade', x: actor.x, y: actor.y - 18, text });
+      if (it.startsWith('horse:')) emit({ k: 'horse', x: actor.x, y: actor.y - 10 });
+    }
     else if (a.kind === 'cook') emit({ k: 'cook', x: actor.x, y: actor.y - 6, text: '+1 Ofenrübe' });
   }
   // Aufgaben & Stufen
@@ -316,6 +332,7 @@ function perform(a: Action, actor: { x: number; y: number }): string | null {
     emit({ k: 'quest', x: actor.x, y: actor.y, text: `Aufgabe geschafft: ${q.text}! ${reward}` });
   }
   for (const n of res.gain?.levels ?? []) emit({ k: 'level', x: actor.x, y: actor.y, n });
+  for (const al of res.album ?? []) emit({ k: 'quest', x: actor.x, y: actor.y, text: `Sammelalbum: ${al.at} Einträge! +${al.coins} Münzen` });
   // gemeinsame Insel: Aktion für den Abgleich merken (beim Fällen nur das Umfallen)
   if (cloudOn() && (a.kind === 'axe' ? res.felled : res.done)) {
     const sl = mySlot();
@@ -353,13 +370,72 @@ function facingWater() {
   }
   return false;
 }
-type Intent = ToolId | 'harvest' | 'refill' | 'cook' | 'rake' | 'enter' | 'exit' | 'sleep' | 'chest' | 'furnish' | 'stable' | 'horse' | 'dismount' | null;
+type Intent = ToolId | 'harvest' | 'refill' | 'cook' | 'rake' | 'trade' | 'enter' | 'exit' | 'sleep' | 'chest' | 'furnish' | 'stable' | 'horse' | 'dismount' | null;
 /** Was würde der Aktions-Knopf jetzt tun? */
 /** Haustür vor der Figur? (Index des Hauses) */
 function doorAhead() {
   if (player.dir !== Dir.Up) return -1;
   return world.houses.findIndex((h) => Math.abs(player.x - h.x) < 6 && player.y > h.y && player.y < h.y + 10);
 }
+// ---------- Händler-Boot ----------
+/** Liegeplatz rechts am Ende des Stegs */
+const BOAT = { x: island.dock.x + island.dock.w + 15, y: island.dock.y + island.dock.h - 2 };
+function boatNear() {
+  return merchantHere(world.clock, Date.now()) && Math.abs(player.x - (island.dock.x + island.dock.w - 6)) < 12 && player.y > BOAT.y - 26 && player.y < BOAT.y + 4;
+}
+let tradeUI: { update(d: TradeData): void } | null = null;
+function tradeData(): TradeData {
+  const now = Date.now();
+  const offers = horseOffers(islandDay(world.clock, now), world.album.horses.length);
+  return {
+    coins: world.coins,
+    have: { turnip: farm.turnips, meal: farm.meals, wood: world.wood, hay: farm.hay },
+    sell: (Object.keys(SELL) as SellItem[]).map((id) => ({ id, name: SELL_NAMES[id], price: SELL[id], img: id === 'wood' ? icons.log : id === 'meal' ? icons.meal : id === 'hay' ? icons.hay : icons.turnip })),
+    seeds: { n: SEED_PACK.n, price: SEED_PACK.price, img: icons.seeds },
+    deco: DECO.map((d) => ({ id: d.id, name: d.name, price: d.price, img: decoIcon(d.id), owned: world.album.deco.includes(d.id) })),
+    horses: offers.map((id) => {
+      const b = breedById(id)!;
+      return { id, name: b.name, text: b.text, price: b.rare ?? 0, img: horseIcon(id) };
+    }),
+    horseBlock: !world.stables.length ? 'Für Pferde brauchst du zuerst einen Pferdestall.' : world.freeStable() < 0 ? 'Alle Ställe sind voll – bau noch einen.' : null,
+  };
+}
+function openTrade() {
+  sfx('coin');
+  const act = (a: Action) => {
+    const err = doAction(a);
+    if (err) hud?.toast(err);
+    // als Gast kommt der neue Stand gleich vom Gastgeber
+    if (role === 'guest') setTimeout(() => tradeUI?.update(tradeData()), 500);
+  };
+  tradeUI =
+    hud?.openTrade(
+      tradeData(),
+      {
+        sell: (id, n) => act({ kind: 'sell', item: id, n }),
+        buy: (id) => {
+          if (!id.startsWith('horse:')) return act({ kind: 'buy', item: id });
+          const b = breedById(id.slice(6))!;
+          hud?.askName(b.name, horseIcon(b.id), b.text, b.names[Math.floor(Math.random() * b.names.length)], `Kaufen · ${b.rare} Münzen`, (name) => act({ kind: 'buy', item: id, name }));
+        },
+      },
+      () => (tradeUI = null),
+    ) ?? null;
+}
+function openAlbum() {
+  const pic = (id: string) => horseIcon(id);
+  hud?.openAlbum({
+    sections: [
+      { title: 'Pferderassen', items: STABLE_BREEDS.map((b) => ({ name: b.name, img: pic(b.id), has: world.album.horses.includes(b.id) })) },
+      { title: 'Seltene Pferde', items: RARE_BREEDS.map((b) => ({ name: b.name, img: pic(b.id), has: world.album.horses.includes(b.id), rare: true })) },
+      { title: 'Deko', items: DECO.map((d) => ({ name: d.name, img: decoIcon(d.id), has: world.album.deco.includes(d.id) })) },
+    ],
+    count: albumCount(world.album),
+    total: ALBUM_TOTAL,
+    rewards: ALBUM_REWARDS.map((r, i) => ({ ...r, got: i < world.albumClaimed })),
+  });
+}
+
 /** Stalltür vor der Figur? */
 function stableDoorAhead() {
   if (player.dir !== Dir.Up) return -1;
@@ -389,6 +465,7 @@ function intent(): { kind: Intent; tree: number; tile: [number, number] } {
   }
   if (riding >= 0) return { kind: 'dismount', tree: riding, tile };
   if (doorAhead() >= 0) return { kind: 'enter', tree: doorAhead(), tile };
+  if (boatNear()) return { kind: 'trade', tree: -1, tile };
   const sd = stableDoorAhead();
   if (sd >= 0) return { kind: 'stable', tree: sd, tile };
   const hn = horseNear();
@@ -468,6 +545,8 @@ function syncHud() {
   hud.setInv(world.wood, farm.turnips, farm.meals);
   hud.setEnergy(energy());
   hud.setSlots(farm.seeds, farm.water, farm.capacity, farm.hasCan, farm.hay);
+  hud.setCoins(world.coins);
+  tradeUI?.update(tradeData());
   const q = questAt(world.prog.quests);
   const have = Math.min(q.goal, world.prog.stats[q.stat] ?? 0);
   const reward = [q.seeds ? `${q.seeds} Samen` : '', q.wood ? `${q.wood} Holz` : '', `${q.xp} EP`].filter(Boolean).join(', ');
@@ -480,6 +559,8 @@ function syncHud() {
 // ---------- Haus platzieren ----------
 let placing = false;
 let placeKind: BuildKind = 'house';
+/** welche Deko gerade aufgestellt wird */
+let placeDeco = '';
 let ghost = { x: 0, y: 0, ok: false };
 function ghostSpot() {
   const px = Math.round(player.x / 2) * 2;
@@ -491,7 +572,7 @@ function ghostSpot() {
     if (player.dir === Dir.Right) return { x: px + 42, y: py + 20 };
     return { x: px - 42, y: py + 20 };
   }
-  const k = placeKind === 'fire' ? 0.5 : placeKind === 'stable' ? 1.3 : 1;
+  const k = placeKind === 'fire' || placeKind === 'deco' ? 0.5 : placeKind === 'stable' ? 1.3 : 1;
   if (player.dir === Dir.Down) return { x: px, y: py + Math.round(22 * k) };
   if (player.dir === Dir.Up) return { x: px, y: py - Math.round(6 * k) - (k < 1 ? 4 : 0) };
   if (player.dir === Dir.Right) return { x: px + Math.round(28 * k), y: py + 6 };
@@ -770,12 +851,18 @@ function startPlay() {
         tool = t;
         hud?.setTool(t);
       },
-      place: (what) => {
+      place: (what, item) => {
         placing = true;
         placeKind = what;
+        placeDeco = item ?? '';
         hud?.setPlacing(true);
       },
       eat,
+      decoList: () =>
+        Object.entries(world.decoInv)
+          .filter(([, n]) => n > 0)
+          .map(([id, n]) => ({ id, name: decoById(id)?.name ?? id, img: decoIcon(id), n })),
+      album: openAlbum,
       confirm: confirmBuild,
       cancel: () => {
         placing = false;
@@ -801,10 +888,10 @@ function confirmBuild() {
   if (farmUnder(ghost.x, ghost.y)) return hud?.toast('Hier ist ein Feld im Weg');
   if (!ghost.ok) return hud?.toast('Hier ist kein Platz');
   if (world.wood < BUILDS[placeKind].cost) return hud?.toast('Zu wenig Holz');
-  if (!spend('build')) return;
+  if (placeKind !== 'deco' && !spend('build')) return;
   placing = false;
   hud?.setPlacing(false);
-  const err = doAction({ kind: 'build', x: ghost.x, y: ghost.y, what: placeKind });
+  const err = doAction({ kind: 'build', x: ghost.x, y: ghost.y, what: placeKind, ...(placeKind === 'deco' ? { item: placeDeco } : {}) });
   if (err) hud?.toast(err);
 }
 
@@ -1181,7 +1268,7 @@ function frame(now: number) {
     // Werkzeug benutzen
     if (!placing) {
       const it = intent();
-      hud?.setAction(!!it.kind, it.kind === 'stable' ? icons.stable : it.kind === 'horse' || it.kind === 'dismount' ? horseIcon(world.horses[it.tree]?.breed ?? '', !!world.horses[it.tree] && isFoal(world.horses[it.tree], Date.now())) : it.kind && ROOM_ACTS.has(it.kind) ? icons.house : it.kind === 'cook' ? icons.meal : it.kind === 'harvest' ? icons.turnip : it.kind === 'rake' ? icons.hay : it.kind === 'refill' ? (farm.hasCan ? icons.can : icons.bucket) : icons[tool === 'water' ? (farm.hasCan ? 'can' : 'bucket') : tool]);
+      hud?.setAction(!!it.kind, it.kind === 'trade' ? icons.coin : it.kind === 'stable' ? icons.stable : it.kind === 'horse' || it.kind === 'dismount' ? horseIcon(world.horses[it.tree]?.breed ?? '', !!world.horses[it.tree] && isFoal(world.horses[it.tree], Date.now())) : it.kind && ROOM_ACTS.has(it.kind) ? icons.house : it.kind === 'cook' ? icons.meal : it.kind === 'harvest' ? icons.turnip : it.kind === 'rake' ? icons.hay : it.kind === 'refill' ? (farm.hasCan ? icons.can : icons.bucket) : icons[tool === 'water' ? (farm.hasCan ? 'can' : 'bucket') : tool]);
       if (actHeld && swing <= 0 && it.kind && ROOM_ACTS.has(it.kind)) {
         actHeld = false;
         roomAction(it.kind, it.tree);
@@ -1293,6 +1380,16 @@ function frame(now: number) {
     if (p) items.push({ y: p.y, draw: () => drawHorse(h.breed, p.x, p.y, p.dir, p.moving ? Math.floor(t * 7 + i) % 4 : p.graze ? 4 : 0, isFoal(h, nowMs)) });
   });
   for (const pd of world.paddocks) pushFence(items, pd, 1);
+  for (const d of world.decos) {
+    const im = decoImgs.get(d.id);
+    if (im) items.push({ y: d.y, draw: () => ctx.drawImage(im.img, d.x - im.ox, d.y - im.oy) });
+  }
+  const out = boatOut(world.clock, nowMs);
+  if (out !== null) {
+    const bx = Math.round(BOAT.x + out * 140);
+    const by = BOAT.y + Math.round(Math.sin(t * 1.8) * 0.8);
+    items.push({ y: BOAT.y, draw: () => ctx.drawImage(boatImg.img, bx - boatImg.ox, by - boatImg.oy) });
+  }
   for (const f of world.fires) {
     const im = fireImgs[Math.floor(t * 8 + f.x) % 3];
     items.push({ y: f.y, draw: () => ctx.drawImage(im.img, f.x - im.ox, f.y - im.oy) });
@@ -1597,6 +1694,7 @@ function drawWeather(t: number, dt: number, ox: number, oy: number) {
     if (T.dark > 0.05) {
       for (const h of world.houses) for (const [wx, wy] of WINDOWS) light(h.x + wx, h.y + wy + 6, 20, 0.8);
       for (const f of world.fires) light(f.x, f.y - 5, 46 + Math.sin(t * 9 + f.x) * 2.5, 1);
+      for (const d of world.decos) if (d.id === 'lantern') light(d.x, d.y - 18, 34, 0.9);
       if (mode === 'play') {
         light(player.x, player.y - 8, 30, 0.75);
         if (mate) light(mate.x, mate.y - 8, 30, 0.75);
@@ -1646,7 +1744,7 @@ function drawWeather(t: number, dt: number, ox: number, oy: number) {
 }
 
 // ---------- Im Haus ----------
-const ROOM_ACTS = new Set<Intent>(['enter', 'exit', 'sleep', 'chest', 'furnish', 'stable', 'horse', 'dismount']);
+const ROOM_ACTS = new Set<Intent>(['enter', 'exit', 'sleep', 'chest', 'furnish', 'stable', 'horse', 'dismount', 'trade']);
 function mount(i: number) {
   const p = horseAt(i);
   if (!p) return;
@@ -1697,9 +1795,10 @@ function leaveHouse() {
 }
 function roomAction(kind: Intent, slot: number) {
   if (kind === 'dismount') return dismount();
+  if (kind === 'trade') return openTrade();
   if (kind === 'stable') {
     const mine = world.horses.filter((h) => h.stable === slot).map((h) => h.name);
-    const breeds = BREEDS.map((b) => ({ id: b.id, name: b.name, text: b.text, cost: b.cost, level: b.level, img: horseIcon(b.id), names: b.names }));
+    const breeds = STABLE_BREEDS.map((b) => ({ id: b.id, name: b.name, text: b.text, cost: b.cost, level: b.level, img: horseIcon(b.id), names: b.names }));
     sfx('door');
     return hud?.openStable({ breeds, turnips: farm.turnips, level: world.level, mine, space: STABLE_SPACE }, (id, name) => {
       const err = doAction({ kind: 'adopt', house: slot, item: id, name });
@@ -1875,7 +1974,7 @@ function drawGhost() {
     for (const p of parts) p.draw();
     return;
   }
-  const im = placeKind === 'fire' ? fireImgs[0] : placeKind === 'stable' ? stableImg : houseImg;
+  const im = placeKind === 'fire' ? fireImgs[0] : placeKind === 'stable' ? stableImg : placeKind === 'deco' ? decoImgs.get(placeDeco)! : houseImg;
   ctx.globalAlpha = 0.7;
   ctx.drawImage(im.img, x - im.ox, y - im.oy);
   ctx.globalAlpha = 1;
