@@ -166,14 +166,15 @@ export function showSlots(
       <div class="slots">
         ${list
           .map(
-            (sl) => `<div class="slot-card${sl.id === save.active ? ' on' : ''}" data-id="${sl.id}">
+            (sl) => `<div class="slot-card${sl.id === save.active ? ' on' : ''}${sl.shared ? ' koop' : ''}" data-id="${sl.id}">
               <div class="slot-head">
                 <input class="slot-title" maxlength="20" value="${esc(sl.title)}" aria-label="Name der Insel" />
+                ${sl.shared ? '<span class="badge koop-badge">Koop</span>' : ''}
                 ${sl.id === save.active ? '<span class="badge">aktiv</span>' : ''}
               </div>
-              ${sl.shared ? `<p class="shared">Gemeinsam mit ${esc(sl.shared.with)}</p>` : ''}
-              <p class="stats">${slotStats(sl)}</p>
-              <p class="date">zuletzt gespielt: ${when(sl.updatedAt)}</p>
+              ${sl.shared ? `<p class="shared">Gemeinsame Insel mit ${esc(sl.shared.with)}</p>` : ''}
+              <p class="stats">${sl.pull ? 'wird beim ersten Spielen aus der Cloud geladen' : slotStats(sl)}</p>
+              <p class="date">zuletzt gespielt: ${sl.updatedAt ? when(sl.updatedAt) : 'noch nie'}</p>
               <div class="slot-btns">
                 <button class="pbtn small green" data-s="play"${locked ? ' disabled' : ''}>Spielen</button>
                 <button class="pbtn small ghost" data-s="del"${locked && sl.id === save.active ? ' disabled' : ''}>Löschen</button>

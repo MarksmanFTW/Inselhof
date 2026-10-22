@@ -1406,3 +1406,13 @@ img.c,
 .island-tip b {
   color: var(--ink);
 }
+.badge.koop-badge {
+  background: #2e5f98;
+}
+.slot-card.koop {
+  background: #eef4ff;
+  border-color: #6a94c8;
+}
+.slot-card.koop.on {
+  border-color: var(--ink);
+}
