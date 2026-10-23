@@ -7,14 +7,12 @@ import { generate } from '../src/island';
 import { applyOp, link } from '../src/ops';
 import { xpFor } from '../src/progress';
 import { World } from '../src/world';
-import { ALL_TOOLS } from '../src/craft';
 
 const isl = generate();
 function setup() {
   const w = new World(isl);
   const f = new Farm(isl);
   link(w, f);
-  w.tools = new Set(ALL_TOOLS);
   let spot: [number, number] | null = null;
   for (let y = 120; y < 230 && !spot; y += 4) for (let x = 90; x < 250 && !spot; x += 4) if (w.canPlace(x, y, undefined, 'stable')) spot = [x, y];
   expect(spot).not.toBeNull();

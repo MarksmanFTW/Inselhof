@@ -6,7 +6,7 @@ import { Ground, H, W, type Decor, type Island } from './island';
 import { accById, FOAL_HAY, FOAL_PAUSE_DAYS, GATE, MAX_LOVE, PADDOCK_COST, PADDOCK_FOOT, PADDOCK_REACH, STABLE_COST, STABLE_SPACE, breedById, cleanHorses, cleanName, isFoal, islandDay, type Care, type Horse, type Paddock, type Stable } from './horses';
 import { ALBUM_REWARDS, DECO_FOOT, albumCount, cleanAlbum, decoById, type Album, type Deco } from './shop';
 import { cleanProgress, levelOf, newProgress, perks, type Progress } from './progress';
-import { ALL_TOOLS, PICK_REGROW_MS, isTool, recipeOf, type ToolKind } from './craft';
+import { PICK_REGROW_MS, type ToolKind } from './craft';
 import type { PickKind } from './island';
 import type { Clock } from './time';
 
@@ -69,7 +69,7 @@ export interface WorldSave {
   album?: Album;
   /** so viele Album-Belohnungen sind abgeholt */
   albumClaimed?: number;
-  /** Bastel-Vorrat und gebastelte Werkzeuge (fehlt = Spielstand von vor dem Tutorial: alle Werkzeuge) */
+  /** nur noch zum Umziehen: so lag der Rucksack kurz in der Insel (jetzt im Spielstand jedes Spielers) */
   sticks?: number;
   stones?: number;
   tools?: ToolKind[];
@@ -105,9 +105,6 @@ export class World {
   albumClaimed = 0;
   clock: Clock | null = null;
   prog: Progress = newProgress();
-  sticks = 0;
-  stones = 0;
-  tools = new Set<ToolKind>();
   picked = new Map<number, number>();
   /** Treffer am aktuellen Baum (nicht gespeichert) */
   private hits = new Map<number, number>();
@@ -127,12 +124,9 @@ export class World {
       this.houses = (save.houses ?? []).filter((h) => typeof h?.x === 'number' && typeof h?.y === 'number');
       this.fires = (save.fires ?? []).filter((h) => typeof h?.x === 'number' && typeof h?.y === 'number');
       this.stables = (save.stables ?? []).filter((h) => typeof h?.x === 'number' && typeof h?.y === 'number');
-      // Spielstand von vor dem Tutorial: hatte alle Werkzeuge, Aufgaben umrechnen
-      const legacy = typeof save.wood === 'number' && !Array.isArray(save.tools);
-      this.tools = new Set(legacy ? ALL_TOOLS : (save.tools ?? []).filter(isTool));
+      // Spielstand von vor dem Tutorial (ursprüngliche Aufgabenliste): umrechnen
+      const legacy = typeof save.wood === 'number' && save.prog?.v === undefined;
       this.prog = cleanProgress(save.prog, legacy ? { fires: this.fires.length, stables: this.stables.length } : undefined);
-      this.sticks = Math.max(0, Math.floor(save.sticks ?? 0));
-      this.stones = Math.max(0, Math.floor(save.stones ?? 0));
       for (const [k, v] of Object.entries(save.picked ?? {})) {
         const i = Number(k);
         if (isl.pickups[i] && typeof v === 'number') this.picked.set(i, v);
@@ -168,9 +162,6 @@ export class World {
     this.decoInv = w.decoInv;
     this.album = w.album;
     this.albumClaimed = w.albumClaimed;
-    this.sticks = w.sticks;
-    this.stones = w.stones;
-    this.tools = w.tools;
     this.picked = w.picked;
     this.version++;
   }
@@ -188,9 +179,6 @@ export class World {
         : {}),
       ...(this.clock ? { clock: { ...this.clock } } : {}),
       prog: { xp: this.prog.xp, stats: { ...this.prog.stats }, quests: this.prog.quests, v: this.prog.v },
-      sticks: this.sticks,
-      stones: this.stones,
-      tools: ALL_TOOLS.filter((t) => this.tools.has(t)),
       ...(this.picked.size ? { picked: Object.fromEntries(this.picked) } : {}),
     };
   }
@@ -267,29 +255,12 @@ export class World {
     return !!p && !this.picked.has(i) && !this.builtAt(p.x, p.y, 2, 2);
   }
 
-  /** Stock oder Stein aufheben */
+  /** Stock oder Stein aufheben (er kommt in den Rucksack dessen, der ihn aufhebt) */
   pick(i: number, now = Date.now()): PickKind | null {
     if (!this.pickable(i)) return null;
-    const p = this.isl.pickups[i];
     this.picked.set(i, now);
-    if (p.kind === 'stick') this.sticks++;
-    else this.stones++;
     this.version++;
-    return p.kind;
-  }
-
-  /** Werkzeug basteln (Fehlertext oder null) */
-  craft(id: string) {
-    const r = recipeOf(id);
-    if (!r) return 'Gibt es nicht';
-    if (this.tools.has(r.id)) return `${r.name} hast du schon`;
-    if (this.sticks < r.sticks || this.stones < r.stones || this.wood < r.wood) return 'Dafür fehlt dir noch etwas';
-    this.sticks -= r.sticks;
-    this.stones -= r.stones;
-    this.wood -= r.wood;
-    this.tools.add(r.id);
-    this.version++;
-    return null;
+    return this.isl.pickups[i].kind;
   }
 
   /** Koppel-Zaun: nur die Ränder sperren, innen ist Wiese, unten ein Tor */

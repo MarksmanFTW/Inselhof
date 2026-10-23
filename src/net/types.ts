@@ -14,7 +14,7 @@ export interface IslandState {
 
 /** eine Spiel-Aktion */
 export interface Action {
-  kind: 'axe' | 'hoe' | 'seeds' | 'water' | 'refill' | 'harvest' | 'build' | 'sleep' | 'eat' | 'cook' | 'furnish' | 'adopt' | 'feed' | 'brush' | 'foal' | 'mow' | 'rake' | 'sell' | 'buy' | 'dress' | 'pick' | 'craft';
+  kind: 'axe' | 'hoe' | 'seeds' | 'water' | 'refill' | 'harvest' | 'build' | 'sleep' | 'eat' | 'cook' | 'furnish' | 'adopt' | 'feed' | 'brush' | 'foal' | 'mow' | 'rake' | 'sell' | 'buy' | 'dress' | 'pick' | 'craft' | 'tut';
   c?: number;
   r?: number;
   /** Baum (Axt) bzw. Stock/Stein (pick): Nummer */

@@ -13,7 +13,7 @@ import { napOffset, newClock, sleepOffset, sleepyHour, timeOf } from './time';
 import { TILE } from './island';
 import type { Action } from './net/types';
 import { BUILDS, type BuildKind, type World } from './world';
-import { TOOL_NAME, type ToolKind } from './craft';
+import { TUT_SEEDS, recipeOf, type ToolKind } from './craft';
 import type { PickKind } from './island';
 
 /**
@@ -57,8 +57,7 @@ export function link(world: World, farm: Farm) {
 const STAT: Partial<Record<Action['kind'], Stat>> = { hoe: 'tilled', seeds: 'planted', water: 'watered', harvest: 'harvested', adopt: 'adopted', foal: 'adopted', mow: 'mowed', feed: 'cared', brush: 'cared', cook: 'cooked' };
 /** Bauen: was zählt wofür (Deko und Koppel zählen nicht) */
 const BUILT: Partial<Record<BuildKind, Stat>> = { house: 'built', fire: 'fire', stable: 'stable' };
-/** welches Werkzeug eine Aktion braucht */
-const NEEDS: Partial<Record<Action['kind'], ToolKind>> = { axe: 'axe', hoe: 'hoe', water: 'water', refill: 'water', mow: 'scythe' };
+
 
 /** Aktion ausführen und Fortschritt verbuchen */
 export function applyOp(world: World, farm: Farm, op: Op): OpResult {
@@ -118,15 +117,25 @@ function run(world: World, farm: Farm, op: Op): OpResult {
   const c = a.c ?? 0;
   const r = a.r ?? 0;
   let err: string | null = null;
-  const need = NEEDS[a.kind];
-  if (need && !world.tools.has(need)) return { err: `Dafür brauchst du erst ${need === 'water' ? 'einen' : 'eine'} ${TOOL_NAME[need]} – tipp auf „Basteln“`, done: false };
+  // Werkzeuge, Stöcke und Steine trägt jeder Spieler selbst (Rucksack im Spielstand);
+  // auf der Insel landet nur, was alle betrifft: der Stock ist weg, das Holz ist verbraucht
   if (a.kind === 'pick') {
     const got = world.pick(a.tree ?? -1, t);
     return { err: got ? null : 'Schon aufgehoben', done: !!got, picked: got ?? undefined };
   }
   if (a.kind === 'craft') {
-    err = world.craft(a.item ?? '');
-    return { err, done: !err, crafted: err ? undefined : (a.item as ToolKind) };
+    const r = recipeOf(a.item ?? '');
+    if (!r) return { err: 'Gibt es nicht', done: false };
+    if (world.wood < r.wood) return { err: 'Zu wenig Holz', done: false };
+    world.wood -= r.wood;
+    world.version++;
+    return { err: null, done: true, crafted: r.id };
+  }
+  if (a.kind === 'tut') {
+    // Tutorial geschafft: Rübensamen für die Insel
+    farm.seeds += TUT_SEEDS;
+    farm.version++;
+    return { err: null, done: true };
   }
   if (a.kind === 'axe') {
     if (!world.isl.decor[a.tree ?? -1]) return { err: null, done: false };

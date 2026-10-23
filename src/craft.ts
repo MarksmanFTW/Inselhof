@@ -30,3 +30,77 @@ export const TOOL_NAME: Record<ToolKind, string> = { axe: 'Axt', hoe: 'Hacke', w
 
 /** aufgesammelte Stöcke/Steine liegen nach so langer Zeit wieder da (ms) */
 export const PICK_REGROW_MS = 150_000;
+
+// ---------- Rucksack: gehört dem Spieler (jeder macht sein eigenes Tutorial) ----------
+
+/** Stöcke, Steine und gebastelte Werkzeuge eines Spielers auf einer Insel */
+export interface Bag {
+  sticks: number;
+  stones: number;
+  tools: ToolKind[];
+  /** insgesamt aufgehoben (fürs Tutorial) */
+  got: { sticks: number; stones: number };
+  /** so viele Tutorial-Schritte sind geschafft (3 = fertig) */
+  tut: number;
+  /** Belohnung fürs Tutorial abgeholt */
+  paid?: boolean;
+}
+export const newBag = (): Bag => ({ sticks: 0, stones: 0, tools: [], got: { sticks: 0, stones: 0 }, tut: 0 });
+/** Spieler, die schon vor dem Tutorial gespielt haben: alles da, Tutorial erledigt */
+export const fullBag = (): Bag => ({ ...newBag(), tools: [...ALL_TOOLS], tut: TUTORIAL.length, paid: true });
+
+const num = (v: unknown) => (typeof v === 'number' && v >= 0 ? Math.floor(v) : 0);
+export function cleanBag(raw: Partial<Bag> | undefined): Bag {
+  const b = newBag();
+  if (!raw || typeof raw !== 'object') return b;
+  b.sticks = num(raw.sticks);
+  b.stones = num(raw.stones);
+  b.tools = ALL_TOOLS.filter((t) => Array.isArray(raw.tools) && raw.tools.includes(t));
+  b.got = { sticks: num(raw.got?.sticks), stones: num(raw.got?.stones) };
+  b.tut = Math.min(TUTORIAL.length, num(raw.tut));
+  if (raw.paid) b.paid = true;
+  return b;
+}
+
+/** Tutorial: drei Schritte, danach 3 Rübensamen für die Insel */
+export const TUTORIAL: { text: string; hint: string; goal: number; have: (b: Bag) => number }[] = [
+  { text: 'Sammle 4 Stöcke', hint: 'Stöcke liegen auf der Wiese, oft unter Bäumen. Geh hin und tipp auf den grünen Knopf.', goal: 4, have: (b) => b.got.sticks },
+  { text: 'Sammle 3 Steine am Strand', hint: 'Graue Steine liegen unten im Sand am Strand.', goal: 3, have: (b) => b.got.stones },
+  { text: 'Bastle eine Axt und eine Hacke', hint: 'Tipp auf „Basteln“. Axt: 2 Stöcke + 2 Steine. Hacke: 2 Stöcke + 1 Stein.', goal: 2, have: (b) => (b.tools.includes('axe') ? 1 : 0) + (b.tools.includes('hoe') ? 1 : 0) },
+];
+export const TUT_SEEDS = 3;
+
+/** Stock/Stein in den Rucksack */
+export function bagPick(b: Bag, kind: 'stick' | 'stone') {
+  if (kind === 'stick') {
+    b.sticks++;
+    b.got.sticks++;
+  } else {
+    b.stones++;
+    b.got.stones++;
+  }
+}
+/** Kann der Spieler das basteln? (Holz kommt aus dem Insel-Vorrat) */
+export function craftBlock(b: Bag, id: string, wood: number): string | null {
+  const r = recipeOf(id);
+  if (!r) return 'Gibt es nicht';
+  if (b.tools.includes(r.id)) return `${r.name} hast du schon`;
+  if (b.sticks < r.sticks || b.stones < r.stones || wood < r.wood) return 'Dafür fehlt dir noch etwas';
+  return null;
+}
+/** Gebastelt: Stöcke/Steine abziehen, Werkzeug dazu (das Holz zieht die Insel-Aktion ab) */
+export function bagCraft(b: Bag, id: ToolKind) {
+  const r = recipeOf(id)!;
+  b.sticks -= r.sticks;
+  b.stones -= r.stones;
+  if (!b.tools.includes(id)) b.tools.push(id);
+}
+/**
+ * Neu geschaffte Tutorial-Schritte (in Reihenfolge) zählen; liefert die Nummern
+ * der gerade fertig gewordenen Schritte. Bei 3 gibt es die Belohnung.
+ */
+export function tutAdvance(b: Bag): number[] {
+  const done: number[] = [];
+  while (b.tut < TUTORIAL.length && TUTORIAL[b.tut].have(b) >= TUTORIAL[b.tut].goal) done.push(b.tut++);
+  return done;
+}

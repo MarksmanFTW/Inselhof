@@ -6,7 +6,7 @@ import { generate } from '../src/island';
 import type { IslandState } from '../src/net/types';
 import { applyOp, link, type Op } from '../src/ops';
 import { World } from '../src/world';
-import { ALL_TOOLS } from '../src/craft';
+import { bagCraft, bagPick, fullBag, newBag, tutAdvance } from '../src/craft';
 
 /** Server im Speicher – macht dasselbe wie island.php (do=sync) */
 function fakeServer(compactAt = 150) {
@@ -65,16 +65,16 @@ function client(pid: string, owner = false, fresh = false) {
   const world = new World(isl);
   const farm = new Farm(isl);
   link(world, farm);
-  // Tutorial schon geschafft
-  if (!fresh) {
-    world.tools = new Set(ALL_TOOLS);
-    farm.seeds = 6;
-  }
+  // eigener Rucksack (Tutorial schon geschafft, außer fresh)
+  const bag = fresh ? newBag() : fullBag();
+  if (!fresh) farm.seeds = 6;
   let sh: Shared = { base: null, rev: 0, pending: [] };
   let compact = false;
   let others: Other[] = [];
   const act = (op: Op) => {
     const res = applyOp(world, farm, op);
+    if (res.picked) bagPick(bag, res.picked);
+    if (res.crafted) bagCraft(bag, res.crafted);
     if (op.a.kind === 'axe') {
       if (res.felled) sh.pending.push({ ...op, a: { ...op.a, fell: true }, id: opId(pid) });
     } else if (res.done) sh.pending.push({ ...op, id: opId(pid) });
@@ -94,7 +94,7 @@ function client(pid: string, owner = false, fresh = false) {
     }
     return true;
   };
-  return { world, farm, act, sync, get sh() { return sh; }, get others() { return others; } };
+  return { world, farm, bag, act, sync, get sh() { return sh; }, get others() { return others; } };
 }
 
 const chop = (tree: number, t: number): Op[] => Array.from({ length: 5 }, (_, k) => ({ a: { kind: 'axe', tree }, x: 0, y: 0, t: t + k }));
@@ -242,34 +242,45 @@ describe('Gemeinsame Insel: Protokoll auf dem Server', () => {
     expect(a.others).toHaveLength(0);
   });
 
-  it('Tutorial zu zweit: beide sammeln, der Vorrat und die Werkzeuge gehören der Insel', async () => {
+  it('Tutorial zu zweit: jeder sammelt und bastelt für sich, die Insel bekommt die Samen', async () => {
     const srv = fakeServer();
     const a = client('pa', true, true);
     const b = client('pb', false, true);
     await a.sync(srv.api);
     await b.sync(srv.api);
     const of = (kind: string) => isl.pickups.map((p, i) => [p.kind, i] as const).filter(([k]) => k === kind).map(([, i]) => i);
-    const [s0, s1, s2, s3] = of('stick');
-    const [t0, t1, t2] = of('stone');
-    a.act({ a: { kind: 'pick', tree: s0 }, x: 0, y: 0, t: 1000 });
-    a.act({ a: { kind: 'pick', tree: s1 }, x: 0, y: 0, t: 1001 });
-    b.act({ a: { kind: 'pick', tree: s1 }, x: 0, y: 0, t: 1002 }); // gleichzeitig denselben Stock
-    b.act({ a: { kind: 'pick', tree: s2 }, x: 0, y: 0, t: 1003 });
-    b.act({ a: { kind: 'pick', tree: s3 }, x: 0, y: 0, t: 1004 });
-    for (const i of [t0, t1, t2]) b.act({ a: { kind: 'pick', tree: i }, x: 0, y: 0, t: 1010 });
+    const sticks = of('stick');
+    const stones = of('stone');
+    // Marcel sammelt 4 Stöcke, 3 Steine; die Freundin andere
+    sticks.slice(0, 4).forEach((i, k) => a.act({ a: { kind: 'pick', tree: i }, x: 0, y: 0, t: 1000 + k }));
+    stones.slice(0, 3).forEach((i, k) => a.act({ a: { kind: 'pick', tree: i }, x: 0, y: 0, t: 1010 + k }));
+    sticks.slice(4, 8).forEach((i, k) => b.act({ a: { kind: 'pick', tree: i }, x: 0, y: 0, t: 1020 + k }));
+    expect([a.bag.sticks, a.bag.stones, b.bag.sticks, b.bag.stones]).toEqual([4, 3, 4, 0]);
     await a.sync(srv.api);
     await b.sync(srv.api);
     await a.sync(srv.api);
-    for (const c of [a, b]) expect([c.world.sticks, c.world.stones, c.world.prog.quests]).toEqual([4, 3, 2]);
+    // aufgehoben ist aufgehoben – für beide
+    for (const i of [...sticks.slice(0, 8), ...stones.slice(0, 3)]) for (const c of [a, b]) expect(c.world.pickable(i)).toBe(false);
+    // Marcel bastelt: nur er hat jetzt Axt und Hacke
     a.act({ a: { kind: 'craft', item: 'axe' }, x: 0, y: 0, t: 2000 });
-    b.act({ a: { kind: 'craft', item: 'hoe' }, x: 0, y: 0, t: 2001 });
+    a.act({ a: { kind: 'craft', item: 'hoe' }, x: 0, y: 0, t: 2001 });
+    expect(tutAdvance(a.bag)).toEqual([0, 1, 2]);
+    a.act({ a: { kind: 'tut' }, x: 0, y: 0, t: 2002 });
+    expect(tutAdvance(b.bag)).toEqual([0]); // sie ist bei den Steinen
     await a.sync(srv.api);
     await b.sync(srv.api);
+    expect(a.bag.tools.sort()).toEqual(['axe', 'hoe']);
+    expect(b.bag.tools).toEqual([]);
+    for (const c of [a, b]) expect(c.farm.seeds).toBe(3);
+    // die Freundin macht ihr Tutorial fertig → noch einmal 3 Samen für die Insel
+    stones.slice(3, 6).forEach((i, k) => b.act({ a: { kind: 'pick', tree: i }, x: 0, y: 0, t: 3000 + k }));
+    b.act({ a: { kind: 'craft', item: 'axe' }, x: 0, y: 0, t: 3010 });
+    b.act({ a: { kind: 'craft', item: 'hoe' }, x: 0, y: 0, t: 3011 });
+    expect(tutAdvance(b.bag)).toEqual([1, 2]);
+    b.act({ a: { kind: 'tut' }, x: 0, y: 0, t: 3012 });
+    await b.sync(srv.api);
     await a.sync(srv.api);
-    for (const c of [a, b]) {
-      expect([...c.world.tools].sort()).toEqual(['axe', 'hoe']);
-      expect(c.farm.seeds).toBe(3);
-    }
+    for (const c of [a, b]) expect(c.farm.seeds).toBe(6);
     sameIsland(a, b);
   });
 

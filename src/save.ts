@@ -9,6 +9,7 @@ import type { FarmSave } from './farm';
 import type { IslandState } from './net/types';
 import type { Op } from './ops';
 import type { WorldSave } from './world';
+import { cleanBag, fullBag, newBag, TUTORIAL, type Bag } from './craft';
 
 export interface Slot {
   id: string;
@@ -33,6 +34,8 @@ export interface Slot {
   energy?: number;
   /** Begrüßung (Tutorial) schon gesehen */
   intro?: boolean;
+  /** eigener Rucksack auf dieser Insel: Stöcke, Steine, Werkzeuge, Tutorial */
+  bag?: Bag;
 }
 
 export interface Save {
@@ -50,7 +53,7 @@ export const MAX_SLOTS = 5;
 const newId = () => `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
 
 export function makeSlot(title: string, now = Date.now()): Slot {
-  return { id: newId(), title, createdAt: now, updatedAt: now };
+  return { id: newId(), title, createdAt: now, updatedAt: now, bag: newBag() };
 }
 
 /** neue Insel mit freiem Namen („Insel 2“, …) */
@@ -96,7 +99,7 @@ export function loadSave(): Save {
       } else if (raw.world || raw.farm || raw.pos) {
         // alter Spielstand (vor den Inseln) wird zu „Meine Insel“
         const slot = makeSlot('Meine Insel');
-        Object.assign(slot, { pos: raw.pos, world: raw.world, farm: raw.farm });
+        Object.assign(slot, { pos: raw.pos, world: raw.world, farm: raw.farm, bag: undefined });
         out.slots = [slot];
         out.active = slot.id;
       }
@@ -105,11 +108,31 @@ export function loadSave(): Save {
       const act = out.slots.find((x) => x.id === out.active) ?? out.slots[0];
       if (typeof old === 'number' && act && act.energy === undefined) act.energy = old;
     }
+    // jeder Spielstand bekommt seinen Rucksack (ältere Stände: umziehen)
+    for (const sl of out.slots) sl.bag = bagOf(sl);
   } catch {
     /* kaputt oder gesperrt → neu */
   }
   activeSlot(out);
   return out;
+}
+
+/**
+ * Rucksack eines Spielstands. Ältere Stände: wer vor dem Tutorial schon gespielt hat,
+ * hat alle Werkzeuge; kurz lag der Rucksack in der Insel selbst (world.tools) → hierher.
+ */
+export function bagOf(sl: Partial<Slot>): Bag {
+  if (sl.bag) return cleanBag(sl.bag);
+  const w = sl.world;
+  if (!w || typeof w.wood !== 'number') return newBag();
+  if (!Array.isArray(w.tools)) return w.prog?.v === undefined ? fullBag() : newBag();
+  const b = cleanBag({ sticks: w.sticks, stones: w.stones, tools: w.tools });
+  const st = w.prog?.stats as Record<string, number> | undefined;
+  b.got = { sticks: st?.sticks ?? b.sticks, stones: st?.stones ?? b.stones };
+  b.tut = Math.min(TUTORIAL.length, w.prog?.quests ?? 0);
+  // in v2 gab es die Samen mit dem dritten Schritt
+  if (b.tut >= TUTORIAL.length) b.paid = true;
+  return b;
 }
 
 export function writeSave(s: Save) {

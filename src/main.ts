@@ -15,8 +15,8 @@ import { Player } from './player';
 import { absorb, httpApi, newPid, opId, request, type Other, type PendingOp, type Presence, type Shared } from './cloud';
 import { CAN_GOAL, Farm, RIPE, key as plotKey } from './farm';
 import { applyOp, farmUnder as farmUnderOf, link, tileFree as tileFreeOf, type Op } from './ops';
-import { PERKS, TUTORIAL, levelProgress, questAt } from './progress';
-import { RECIPES, TOOL_NAME, recipeOf, type ToolKind } from './craft';
+import { PERKS, levelProgress, questAt } from './progress';
+import { RECIPES, TOOL_NAME, TUTORIAL, TUT_SEEDS, bagCraft, bagPick, craftBlock, newBag, recipeOf, tutAdvance, type ToolKind } from './craft';
 import { newClock, rainSince, timeOf, type TimeOfDay } from './time';
 import { MAX_SLOTS, activeSlot, addSlot, loadSave, removeSlot, writeSave, type Save, type Slot } from './save';
 import type { Action, Fx } from './net/types';
@@ -36,6 +36,9 @@ const island = generate();
 let save: Save = loadSave();
 /** aktuelle eigene Insel (Spielstand) */
 const mySlot = () => activeSlot(save);
+/** eigener Rucksack auf dieser Insel (Stöcke, Steine, Werkzeuge, Tutorial) */
+const bag = () => (mySlot().bag ??= newBag());
+const hasTool = (t: string) => t === 'seeds' || bag().tools.includes(t as ToolKind);
 const world = new World(island, mySlot().world);
 const farm = new Farm(island, mySlot().farm);
 link(world, farm);
@@ -179,6 +182,9 @@ function emit(fx: Fx) {
 function perform(a: Action, actor: { x: number; y: number }): string | null {
   const op: Op = { a, x: Math.round(actor.x), y: Math.round(actor.y), t: Date.now() };
   const res = applyOp(world, farm, op);
+  // was man aufhebt oder bastelt, landet im eigenen Rucksack
+  if (a.kind === 'pick' && res.picked) bagPick(bag(), res.picked);
+  if (a.kind === 'craft' && res.crafted) bagCraft(bag(), res.crafted);
   const c = a.c ?? 0;
   const r = a.r ?? 0;
   const cx = c * TILE + 4;
@@ -229,20 +235,6 @@ function perform(a: Action, actor: { x: number; y: number }): string | null {
     emit({ k: 'quest', x: actor.x, y: actor.y, text: `Aufgabe geschafft: ${q.text}! ${reward}` });
   }
   for (const n of res.gain?.levels ?? []) emit({ k: 'level', x: actor.x, y: actor.y, n });
-  if (res.gain?.quests.some((q) => q === questAt(TUTORIAL - 1)))
-    hud?.intro(
-      {
-        title: 'Super gemacht!',
-        text: 'Du hast dir dein erstes Werkzeug gebastelt. Als Belohnung bekommst du 3 Rübensamen.',
-        steps: [
-          { img: icons.axe, text: 'Mit der Axt fällst du Bäume – das gibt Holz zum Bauen.' },
-          { img: icons.hoe, text: 'Mit der Hacke legst du Felder an.' },
-          { img: icons.seeds, text: 'Dann säst du deine Rüben. Oben steht immer deine nächste Aufgabe.' },
-        ],
-        ok: 'Weiter',
-      },
-      () => sfx('click'),
-    );
   for (const al of res.album ?? []) emit({ k: 'quest', x: actor.x, y: actor.y, text: `Sammelalbum: ${al.at} Einträge! +${al.coins} Münzen` });
   // gemeinsame Insel: Aktion fürs Protokoll merken (beim Fällen nur das Umfallen) und bald schicken
   if (cloudOn() && (a.kind === 'axe' ? res.felled : res.done)) {
@@ -252,7 +244,35 @@ function perform(a: Action, actor: { x: number; y: number }): string | null {
   }
   syncHud();
   persist();
+  if (res.picked || res.crafted) tutorialStep();
   return res.err;
+}
+/** eigenes Tutorial weiterzählen; am Ende 3 Rübensamen für die Insel */
+function tutorialStep() {
+  const b = bag();
+  const steps = tutAdvance(b);
+  if (steps.length) writeSave(save);
+  for (const n of steps) {
+    sfx('quest');
+    if (n < TUTORIAL.length - 1) hud?.toast(`Geschafft: ${TUTORIAL[n].text}! Weiter: ${TUTORIAL[n + 1].text}`);
+  }
+  if (b.tut < TUTORIAL.length || b.paid) return syncHud();
+  b.paid = true;
+  doAction({ kind: 'tut' });
+  floats.push({ x: player.x, y: player.y, h: 2.6, text: `+${TUT_SEEDS} Rübensamen`, life: 2.2 });
+  hud?.intro(
+    {
+      title: 'Super gemacht!',
+      text: `Du hast dir dein erstes Werkzeug gebastelt. Als Belohnung bekommst du ${TUT_SEEDS} Rübensamen.`,
+      steps: [
+        { img: icons.axe, text: 'Mit der Axt fällst du Bäume – das gibt Holz zum Bauen.' },
+        { img: icons.hoe, text: 'Mit der Hacke legst du Felder an.' },
+        { img: icons.seeds, text: 'Dann säst du deine Rüben. Oben steht immer die nächste Aufgabe der Insel.' },
+      ],
+      ok: 'Weiter',
+    },
+    () => sfx('click'),
+  );
 }
 /** eigene Aktion gleich ausführen (bei gemeinsamen Inseln kommt sie ins Protokoll) */
 function doAction(a: Action) {
@@ -397,7 +417,7 @@ function intent(): { kind: Intent; tree: number; tile: [number, number] } {
   // Stock oder Stein vor den Füßen: aufheben
   const pk = pickNear();
   if (pk >= 0) return { kind: 'pick', tree: pk, tile };
-  if (tool !== 'seeds' && !world.tools.has(tool)) return { kind: null, tree: -1, tile };
+  if (!hasTool(tool)) return { kind: null, tree: -1, tile };
   if (tool === 'axe') {
     const tr = world.target(player.x, player.y);
     return { kind: tr >= 0 ? 'axe' : null, tree: tr, tile };
@@ -473,13 +493,15 @@ function useTool() {
 let craftUI: { update(d: CraftData): void } | null = null;
 function craftData(): CraftData {
   return {
-    have: { sticks: world.sticks, stones: world.stones, wood: world.wood },
-    recipes: RECIPES.map((r) => ({ ...r, img: icons[r.id === 'water' ? 'bucket' : r.id], owned: world.tools.has(r.id) })),
+    have: { sticks: bag().sticks, stones: bag().stones, wood: world.wood },
+    recipes: RECIPES.map((r) => ({ ...r, img: icons[r.id === 'water' ? 'bucket' : r.id], owned: hasTool(r.id) })),
   };
 }
 function openCraft() {
   sfx('click');
   craftUI = hud?.openCraft(craftData(), (id) => {
+    const block = craftBlock(bag(), id, world.wood);
+    if (block) return hud?.toast(block);
     const err = doAction({ kind: 'craft', item: id });
     if (err) return hud?.toast(err);
     // gleich in die Hand nehmen
@@ -487,15 +509,15 @@ function openCraft() {
     hud?.setTool(tool);
   }) ?? null;
 }
-/** „Basteln“ hüpft, wenn die Aufgabe ein Werkzeug will und man es bauen kann */
+/** „Basteln“ hüpft, wenn das Tutorial oder die Aufgabe ein Werkzeug will und man es bauen kann */
 function tutorialNudge() {
   const stat = questAt(world.prog.quests).stat;
-  const can = RECIPES.some((r) => !world.tools.has(r.id) && world.sticks >= r.sticks && world.stones >= r.stones && world.wood >= r.wood);
-  hud?.nudge(can && (stat === 'crafted' || stat === 'bucket' || stat === 'scythe') ? 'craft' : null);
+  const can = RECIPES.some((r) => !craftBlock(bag(), r.id, world.wood));
+  hud?.nudge(can && (bag().tut === 2 || (bag().tut >= TUTORIAL.length && (stat === 'bucket' || stat === 'scythe'))) ? 'craft' : null);
 }
 /** Tutorial: Pfeil über dem nächsten Stock bzw. Stein, den man noch braucht */
 function guideTarget(): { x: number; y: number } | null {
-  const q = world.prog.quests;
+  const q = bag().tut;
   if (q >= 2) return null;
   const want = q === 0 ? 'stick' : 'stone';
   let best: { x: number; y: number } | null = null;
@@ -518,15 +540,21 @@ function syncHud() {
   hud.setSlots(farm.seeds, farm.water, farm.capacity, farm.hasCan, farm.hay);
   hud.setCoins(world.coins);
   tradeUI?.update(tradeData());
-  hud.setOwned([...world.tools]);
+  hud.setOwned(bag().tools);
   craftUI?.update(craftData());
   tutorialNudge();
-  const q = questAt(world.prog.quests);
-  const have = Math.min(q.goal, world.prog.stats[q.stat] ?? 0);
-  const reward = [q.seeds ? `${q.seeds} Samen` : '', q.wood ? `${q.wood} Holz` : '', q.coins ? `${q.coins} Münzen` : '', `${q.xp} EP`].filter(Boolean).join(', ');
-  const can = farm.hasCan || !world.tools.has('water') ? '' : `\nErnte ${CAN_GOAL} Rüben → Eisen-Gießkanne (${farm.harvested}/${CAN_GOAL})`;
-  const tut = world.prog.quests < TUTORIAL ? ` · Schritt ${world.prog.quests + 1}/${TUTORIAL}` : '';
-  hud.setGoal(`Aufgabe: ${q.text} (${have}/${q.goal})${q.hint ? `\n${q.hint}` : ''}\nBelohnung: ${reward}${tut}${can}`);
+  const b = bag();
+  if (b.tut < TUTORIAL.length) {
+    // eigenes Tutorial zuerst
+    const T = TUTORIAL[b.tut];
+    hud.setGoal(`Aufgabe: ${T.text} (${Math.min(T.goal, T.have(b))}/${T.goal})\n${T.hint}\nSchritt ${b.tut + 1}/${TUTORIAL.length} · am Ende: ${TUT_SEEDS} Rübensamen`);
+  } else {
+    const q = questAt(world.prog.quests);
+    const have = Math.min(q.goal, world.prog.stats[q.stat] ?? 0);
+    const reward = [q.seeds ? `${q.seeds} Samen` : '', q.wood ? `${q.wood} Holz` : '', q.coins ? `${q.coins} Münzen` : '', `${q.xp} EP`].filter(Boolean).join(', ');
+    const can = farm.hasCan || !hasTool('water') ? '' : `\nErnte ${CAN_GOAL} Rüben → Eisen-Gießkanne (${farm.harvested}/${CAN_GOAL})`;
+    hud.setGoal(`Aufgabe: ${q.text} (${have}/${q.goal})${q.hint ? `\n${q.hint}` : ''}\nBelohnung: ${reward}${can}`);
+  }
   hud.setLevel(world.level, levelProgress(world.prog.xp));
   if (tod) hud.setClock(`Tag ${tod.day} · ${tod.label}${tod.rain ? ' · Regen' : ''}`);
 }
@@ -886,21 +914,21 @@ function startPlay() {
         actHeld = down;
         if (down && !intent().kind)
           hud?.toast(
-            world.prog.quests < 2
-              ? world.prog.quests === 0
+            bag().tut < 2
+              ? bag().tut === 0
                 ? 'Geh zu einem Stock – der gelbe Pfeil zeigt dir einen'
                 : 'Geh zu einem Stein am Strand – der gelbe Pfeil zeigt dir einen'
-              : tool !== 'seeds' && !world.tools.has(tool)
-                ? `${TOOL_NAME[tool]} hast du noch nicht – tipp auf „Basteln“`
+              : !hasTool(tool)
+                ? `${TOOL_NAME[tool as ToolKind]} hast du noch nicht – tipp auf „Basteln“`
                 : tool === 'water' && farm.water <= 0
                   ? 'Leer – am Wasser auffüllen'
                   : toolHint[tool],
           );
       },
       tool: (t) => {
-        if (t !== 'seeds' && !world.tools.has(t)) {
+        if (!hasTool(t)) {
           sfx('nope');
-          return hud?.toast(`${TOOL_NAME[t]} hast du noch nicht – tipp auf „Basteln“`);
+          return hud?.toast(`${TOOL_NAME[t as ToolKind]} hast du noch nicht – tipp auf „Basteln“`);
         }
         tool = t;
         hud?.setTool(t);
@@ -929,17 +957,17 @@ function startPlay() {
     { house: HOUSE_COST, fire: FIRE_COST, stable: STABLE_COST, paddock: PADDOCK_COST },
   );
   // neue Insel: noch nichts gebastelt → das erste eigene Werkzeug in die Hand
-  if (tool !== 'seeds' && !world.tools.has(tool)) tool = (['axe', 'hoe', 'water', 'scythe'] as const).find((t) => world.tools.has(t)) ?? tool;
+  if (!hasTool(tool)) tool = (['axe', 'hoe', 'water', 'scythe'] as const).find(hasTool) ?? tool;
   hud.setTool(tool);
   syncHud();
   updateCoopChip();
   void cloudSync();
   const sl = mySlot();
-  if (world.prog.quests === 0 && !world.sticks && !sl.intro) {
+  if (bag().tut === 0 && !bag().got.sticks && !sl.intro) {
     hud.intro(
       {
-        title: 'Willkommen auf deiner Insel!',
-        text: 'Du bist hier ganz ohne Gepäck angekommen. So geht es los:',
+        title: sl.shared ? 'Willkommen auf eurer Insel!' : 'Willkommen auf deiner Insel!',
+        text: sl.shared ? 'Hier bastelt sich jeder sein eigenes Werkzeug. So geht es für dich los:' : 'Du bist hier ganz ohne Gepäck angekommen. So geht es los:',
         steps: [
           { img: icons.stick, text: 'Sammle 4 Stöcke auf der Wiese – der gelbe Pfeil zeigt dir, wo einer liegt.' },
           { img: icons.stone, text: 'Hol dir 3 Steine aus dem Sand am Strand.' },
@@ -1266,7 +1294,7 @@ let linkNote = '';
     let sl = save.slots.find((x) => x.id === id);
     if (!sl && save.slots.length < MAX_SLOTS) {
       const now = Date.now();
-      sl = { id, title: `Insel von ${from}`.slice(0, 20), shared: { with: from }, createdAt: now, updatedAt: 0, rev: 0, pull: true };
+      sl = { id, title: `Insel von ${from}`.slice(0, 20), shared: { with: from }, createdAt: now, updatedAt: 0, rev: 0, pull: true, bag: newBag() };
       save.slots.push(sl);
     }
     if (sl) {
@@ -1438,7 +1466,7 @@ function frame(now: number) {
     boatOut: boatOut(world.clock, nowMs),
     boat: BOAT,
     ghost: play && placing ? { kind: placeKind, deco: placeDeco, x: ghost.x, y: ghost.y, ok: ghost.ok && world.wood >= BUILDS[placeKind].cost } : null,
-    marker: play && !placing && tool !== 'axe' && (tool === 'seeds' || world.tools.has(tool)) && riding < 0 ? frontTile() : null,
+    marker: play && !placing && tool !== 'axe' && hasTool(tool) && riding < 0 ? frontTile() : null,
     guide: play && !placing ? guideTarget() : null,
     inside,
   });
@@ -1776,8 +1804,8 @@ function roomAction(kind: Intent, slot: number) {
   if (kind === 'chest')
     return hud?.openChest([
       ['Holz', world.wood],
-      ['Stöcke', world.sticks],
-      ['Steine', world.stones],
+      ['Stöcke (deine)', bag().sticks],
+      ['Steine (deine)', bag().stones],
       ['Samen', farm.seeds],
       ['Rüben', farm.turnips],
       ['Ofenrüben', farm.meals],
