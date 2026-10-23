@@ -29,6 +29,8 @@ export interface Slot {
   pull?: boolean;
   /** Lieblingspferd (nur auf diesem Handy) */
   fav?: number;
+  /** Energie der Figur auf dieser Insel (0..100, fehlt = ausgeruht) */
+  energy?: number;
 }
 
 export interface Save {
@@ -38,8 +40,6 @@ export interface Save {
   created: boolean;
   slots: Slot[];
   active: string;
-  /** Energie der Figur (0..100) */
-  energy?: number;
 }
 
 const KEY = 'cozyisland.save';
@@ -85,12 +85,12 @@ export function loadSave(): Save {
       const look = { ...DEFAULT_LOOK, ...raw.look };
       // Werte außerhalb der Auswahl (ältere Versionen) zurücksetzen
       for (const p of PARTS) if (!(look[p.key] >= 0 && look[p.key] < p.count)) look[p.key] = DEFAULT_LOOK[p.key];
-      out = { look, name: String(raw.name ?? '').slice(0, 12), created: !!raw.created, slots: [], active: String(raw.active ?? ''), energy: typeof raw.energy === 'number' ? raw.energy : 100 };
+      out = { look, name: String(raw.name ?? '').slice(0, 12), created: !!raw.created, slots: [], active: String(raw.active ?? '') };
       if (Array.isArray(raw.slots)) {
         out.slots = raw.slots
           .filter((x) => x && typeof x.id === 'string')
           .slice(0, 20)
-          .map((x) => ({ ...x, title: String(x.title ?? 'Insel').slice(0, 20), createdAt: Number(x.createdAt) || 0, updatedAt: Number(x.updatedAt) || 0 }));
+          .map((x) => ({ ...x, title: String(x.title ?? 'Insel').slice(0, 20), createdAt: Number(x.createdAt) || 0, updatedAt: Number(x.updatedAt) || 0, energy: typeof x.energy === 'number' ? x.energy : undefined }));
       } else if (raw.world || raw.farm || raw.pos) {
         // alter Spielstand (vor den Inseln) wird zu „Meine Insel“
         const slot = makeSlot('Meine Insel');
@@ -98,6 +98,10 @@ export function loadSave(): Save {
         out.slots = [slot];
         out.active = slot.id;
       }
+      // ältere Versionen: Energie galt für alle Inseln → gehört jetzt zur zuletzt gespielten
+      const old = (raw as { energy?: unknown }).energy;
+      const act = out.slots.find((x) => x.id === out.active) ?? out.slots[0];
+      if (typeof old === 'number' && act && act.energy === undefined) act.energy = old;
     }
   } catch {
     /* kaputt oder gesperrt → neu */

@@ -388,11 +388,13 @@ const REST_STEP = 2;
 let restT = 0;
 let workAt = 0;
 const FOOD = { raw: 12, cooked: 40 };
-const energy = () => save.energy ?? 100;
+/** Energie gehört zur Insel: neue oder gelöschte Insel = wieder ausgeruht */
+const energy = () => mySlot().energy ?? 100;
 function setEnergy(v: number) {
-  save.energy = Math.max(0, Math.min(100, Math.round(v * 10) / 10));
-  hud?.setEnergy(save.energy);
-  player.speedMul = save.energy < 15 ? 0.6 : 1;
+  const e = Math.max(0, Math.min(100, Math.round(v * 10) / 10));
+  mySlot().energy = e;
+  hud?.setEnergy(e);
+  player.speedMul = e < 15 ? 0.6 : 1;
 }
 /** genug Kraft? sonst Hinweis */
 function spend(kind: Action['kind']) {

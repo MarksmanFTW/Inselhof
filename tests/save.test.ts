@@ -34,4 +34,18 @@ describe('Spielstände', () => {
     writeSave(s);
     expect(loadSave().slots).toHaveLength(MAX_SLOTS - 1);
   });
+  it('Energie gehört zur Insel – gelöscht heißt wieder ausgeruht', () => {
+    // ältere Version: Energie für alle Inseln gemeinsam
+    store.set('cozyisland.save', JSON.stringify({ created: true, energy: 3, active: 'b', slots: [{ id: 'a', title: 'A' }, { id: 'b', title: 'B' }] }));
+    const s = loadSave();
+    expect(activeSlot(s).energy).toBe(3);
+    expect(s.slots[0].energy).toBeUndefined();
+    expect('energy' in s).toBe(false);
+    removeSlot(s, 'b');
+    expect(activeSlot(s).energy).toBeUndefined();
+    const fresh = addSlot(s)!;
+    expect(fresh.energy).toBeUndefined();
+    writeSave(s);
+    expect(JSON.stringify(loadSave())).not.toContain('"energy":3');
+  });
 });
