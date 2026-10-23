@@ -381,8 +381,12 @@ const toolHint: Record<ToolId, string> = {
   scythe: 'Stell dich vor ein Stück Wiese zum Mähen',
 };
 // ---------- Energie ----------
-/** Energie kostet jede Arbeit; Essen und Schlafen füllen sie auf */
-const COST: Partial<Record<Action['kind'], number>> = { axe: 2, hoe: 3, seeds: 1, water: 1, build: 5, mow: 2 };
+/** Energie kostet jede Arbeit; Ausruhen, Essen und Schlafen füllen sie auf (Bauen kostet nur Holz) */
+const COST: Partial<Record<Action['kind'], number>> = { axe: 1, hoe: 2, seeds: 1, water: 1, mow: 1 };
+/** so viele Sekunden ausruhen (stehen bleiben) für +1 Energie; beim Laufen langsamer */
+const REST_STEP = 2;
+let restT = 0;
+let workAt = 0;
 const FOOD = { raw: 12, cooked: 40 };
 const energy = () => save.energy ?? 100;
 function setEnergy(v: number) {
@@ -396,9 +400,10 @@ function spend(kind: Action['kind']) {
   if (!c) return true;
   if (energy() < c) {
     actHeld = false;
-    hud?.toast('Du bist erschöpft – iss eine Rübe oder schlaf im Haus');
+    hud?.toast('Du bist erschöpft – kurz stehen bleiben und ausruhen, eine Rübe essen oder im Haus schlafen');
     return false;
   }
+  workAt = performance.now();
   setEnergy(energy() - c);
   return true;
 }
@@ -522,16 +527,25 @@ function setZoom(z: number) {
   if (mode === 'play' && inside < 0) store.set(ZOOM_KEY, view.zoom.toFixed(2));
 }
 function resize() {
-  // Schrift-Ebene scharf, 3D je nach Gerät
-  const dpr = Math.min(2, window.devicePixelRatio || 1);
-  screen.width = Math.round(innerWidth * dpr);
-  screen.height = Math.round(innerHeight * dpr);
-  screen.style.width = `${innerWidth}px`;
-  screen.style.height = `${innerHeight}px`;
+  // 3D je nach Gerät, Schrift-Ebene scharf (beide füllen per CSS den Bildschirm)
   const cap = Math.min(dprCap(), window.devicePixelRatio || 1);
   view.setQuality({ dpr: cap, shadows: gfx === 'low' || (gfx === 'auto' && autoCap <= 1) ? 0 : gfx === 'high' ? 2 : 1 });
+  const dpr = Math.min(2, window.devicePixelRatio || 1);
+  const w = Math.round(view.w * dpr);
+  const h = Math.round(view.h * dpr);
+  if (screen.width !== w || screen.height !== h) {
+    screen.width = w;
+    screen.height = h;
+  }
+  screen.style.height = `${view.h}px`;
 }
 addEventListener('resize', resize);
+// langes Drücken öffnet kein Menü (Bild speichern …), außer in Eingabefeldern
+addEventListener('contextmenu', (e) => {
+  if (!(e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement)) e.preventDefault();
+});
+// fängt auch das Ein-/Ausblenden von Browser-Leisten und Drehen ab
+new ResizeObserver(() => resize()).observe(view.renderer.domElement);
 resize();
 
 // ---------- Steuerung: Daumen-Joystick, Tastatur, zwei Finger = zoomen ----------
@@ -1166,6 +1180,8 @@ function frame(now: number) {
   requestAnimationFrame(frame);
   watchPerf(now - last);
   const dt = Math.min(0.05, (now - last) / 1000);
+  /** echte Zeit (fürs Ausruhen auch auf langsamen Handys) */
+  const realDt = Math.min(0.5, (now - last) / 1000);
   last = now;
   const t = (window as unknown as { __t?: number }).__t ?? now / 1000;
 
@@ -1214,6 +1230,14 @@ function frame(now: number) {
       const before = swing;
       swing -= dt;
       if (before > SWING / 2 && swing <= SWING / 2) useTool();
+    }
+    // ausruhen: wer gerade nicht arbeitet, kommt langsam wieder zu Kräften (im Haus schneller)
+    if (swing <= 0 && now - workAt > 2500 && energy() < 100) {
+      restT += realDt * (player.moving ? 0.35 : 1) * (inside >= 0 ? 2 : 1);
+      if (restT >= REST_STEP) {
+        restT = 0;
+        setEnergy(energy() + 1);
+      }
     }
     if (placing) {
       const g = ghostSpot();
@@ -1291,7 +1315,7 @@ requestAnimationFrame(frame);
 // ---------- Schrift über der 3D-Welt: Namen, „+4 Holz“, Joystick ----------
 const tmpP = { x: 0, y: 0 };
 function pill(text: string, x: number, y: number, size: number, bg: string) {
-  const dpr = screen.width / innerWidth;
+  const dpr = screen.width / view.w;
   ctx.font = `700 ${Math.round(size * dpr * textScale)}px 'Fredoka', sans-serif`;
   ctx.textAlign = 'center';
   const w = ctx.measureText(text).width + 12 * dpr;
@@ -1310,7 +1334,7 @@ const horseTop = (breed: string, foal: boolean) => {
   return foal || b?.size === 3 ? 1.55 : b?.size === 0 ? 2.1 : b?.size === 2 ? 2.75 : 2.45;
 };
 function drawOverlay(t: number, dt: number, nowMs: number) {
-  const dpr = screen.width / innerWidth;
+  const dpr = screen.width / view.w;
   ctx.setTransform(1, 0, 0, 1, 0, 0);
   ctx.clearRect(0, 0, screen.width, screen.height);
   // Namen über den Mitspielern

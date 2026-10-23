@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { CAN_GOAL, CAPACITY, DRY_MS, Farm, GROW_MS, RIPE, START_SEEDS } from '../src/farm';
+import { CAN_GOAL, CAPACITY, DRY_MS, Farm, GROW_MS, RIPE, START_SEEDS, START_TURNIPS } from '../src/farm';
 import { generate } from '../src/island';
 
 describe('Ackerbau', () => {
@@ -26,7 +26,7 @@ describe('Ackerbau', () => {
     }
     // ohne Gießen wächst nichts – ist aber reif
     expect(f.harvest(c, r, () => 0.9)).toEqual({ seeds: 1, gotCan: false });
-    expect(f.turnips).toBe(1);
+    expect(f.turnips).toBe(START_TURNIPS + 1);
     expect(f.plot(c, r)!.crop).toBeUndefined();
   });
 

@@ -10,6 +10,8 @@ export const GROW_MS = 40_000; // gegossen → nächste Stufe
 export const DRY_MS = 90_000; // leeres Feld trocknet wieder
 export const RIPE = 3; // Stufe 3 = erntereif
 export const START_SEEDS = 6;
+/** ein paar Rüben als Proviant für den Anfang */
+export const START_TURNIPS = 3;
 /** Ernten bis zur Eisen-Gießkanne */
 export const CAN_GOAL = 5;
 export const CAPACITY = { bucket: 4, can: 15 } as const;
@@ -64,7 +66,7 @@ export const key = (c: number, r: number) => `${c},${r}`;
 export class Farm {
   plots = new Map<string, Plot>();
   seeds = START_SEEDS;
-  turnips = 0;
+  turnips = START_TURNIPS;
   meals = 0;
   water: number = CAPACITY.bucket;
   hasCan = false;
@@ -84,7 +86,7 @@ export class Farm {
       if (/^\d+,\d+$/.test(k) && p && typeof p.wetAt === 'number')
         this.plots.set(k, { wetAt: p.wetAt, crop: p.crop ? { stage: Math.max(0, Math.min(RIPE, Math.floor(p.crop.stage))) } : undefined, ...(typeof p.dry === 'number' ? { dry: p.dry } : {}) });
     this.seeds = Math.max(0, Math.floor(save.seeds ?? START_SEEDS));
-    this.turnips = Math.max(0, Math.floor(save.turnips ?? 0));
+    this.turnips = Math.max(0, Math.floor(save.turnips ?? START_TURNIPS));
     this.meals = Math.max(0, Math.floor(save.meals ?? 0));
     this.hasCan = !!save.hasCan;
     // Grenze erst nach dem Verbinden mit der Insel-Stufe bekannt → hier großzügig

@@ -108,6 +108,10 @@ export class View {
   readonly renderer: THREE.WebGLRenderer;
   readonly scene = new THREE.Scene();
   readonly camera = new THREE.PerspectiveCamera(42, 1, 0.1, 260);
+  /** Größe der Bildfläche in CSS-Pixeln (gemessen, nicht innerHeight: das ist auf
+   *  manchen Handys kleiner als der Bildschirm → sonst bleibt unten ein Streifen frei) */
+  w = innerWidth;
+  h = innerHeight;
   private hemi = new THREE.HemisphereLight('#fff6e0', '#6aa860', 1.25);
   private sun = new THREE.DirectionalLight('#fff0d0', 2.1);
   private lampLight = new THREE.PointLight('#ffb060', 0, 7, 1.6);
@@ -824,10 +828,24 @@ export class View {
     this.resize();
   }
   resize() {
-    this.renderer.setSize(innerWidth, innerHeight, true);
-    this.camera.aspect = innerWidth / Math.max(1, innerHeight);
+    // die Leinwand füllt per CSS den ganzen Bildschirm; hier nur die Pixel anpassen
+    const el = this.renderer.domElement;
+    el.style.height = '';
+    const r = el.getBoundingClientRect();
+    this.w = Math.max(1, Math.round(r.width || innerWidth));
+    this.h = Math.max(1, Math.round(r.height || innerHeight));
+    // iPhone-Home-Bildschirm: dort sind 100 % manchmal um die Statusleiste zu kurz
+    if ((navigator as { standalone?: boolean }).standalone) {
+      const full = Math.round(matchMedia('(orientation: portrait)').matches ? Math.max(screen.width, screen.height) : Math.min(screen.width, screen.height));
+      if (full > this.h && full - this.h < 120) {
+        this.h = full;
+        el.style.height = `${full}px`;
+      }
+    }
+    this.renderer.setSize(this.w, this.h, false);
+    this.camera.aspect = this.w / this.h;
     this.camera.updateProjectionMatrix();
-    this.interior?.resize(innerWidth, innerHeight);
+    this.interior?.resize(this.w, this.h);
   }
 
   render(fr: Frame) {
@@ -904,7 +922,7 @@ export class View {
     if (fr.inside >= 0) {
       const h = this.world.houses[fr.inside];
       this.interior ??= new Interior();
-      if (!this.insideNow) this.interior.resize(innerWidth, innerHeight);
+      if (!this.insideNow) this.interior.resize(this.w, this.h);
       this.interior.update(h?.furn ?? {}, fr.tod, fr.t);
       if (fr.me) this.interior.follow(fr.me.x * U, !this.insideNow);
     }
@@ -997,8 +1015,8 @@ export class View {
     }
     v.project(cam);
     if (v.z > 1) return null;
-    out.x = (v.x * 0.5 + 0.5) * innerWidth;
-    out.y = (-v.y * 0.5 + 0.5) * innerHeight;
+    out.x = (v.x * 0.5 + 0.5) * this.w;
+    out.y = (-v.y * 0.5 + 0.5) * this.h;
     return out;
   }
 }

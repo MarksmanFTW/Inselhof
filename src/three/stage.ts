@@ -9,6 +9,9 @@ import { CURVE, sphere } from './engine';
 import { makeKid, type Kid } from './kid';
 
 let shared: { r: THREE.WebGLRenderer; scene: THREE.Scene; cam: THREE.PerspectiveCamera } | null = null;
+/** die Figur, die gerade auf der (gemeinsamen) Bühne steht, und wer sie bewegt */
+let onStage: Kid | null = null;
+let running: Stage3D | null = null;
 function world() {
   if (shared) return shared;
   const r = new THREE.WebGLRenderer({ antialias: true, alpha: true });
@@ -67,15 +70,19 @@ export class Stage3D {
     if (k === this.key) return;
     this.key = k;
     const w = world();
-    if (this.kid) {
-      w.scene.remove(this.kid.g);
-      this.kid.dispose();
+    // auch die Figur einer früheren Bühne (Menü → Aussehen) abräumen
+    if (onStage) {
+      w.scene.remove(onStage.g);
+      onStage.dispose();
     }
-    this.kid = makeKid(look);
+    this.kid = onStage = makeKid(look);
+    this.kid.g.rotation.y = this.yaw;
     w.scene.add(this.kid.g);
   }
   start() {
     const w = world();
+    if (running && running !== this) running.stop();
+    running = this;
     const t0 = performance.now();
     let last = t0;
     const tick = (now: number) => {
@@ -83,7 +90,7 @@ export class Stage3D {
       const dt = Math.min(0.05, (now - last) / 1000);
       last = now;
       const t = (now - t0) / 1000;
-      if (!this.kid) return;
+      if (!this.kid || this.kid !== onStage) return;
       let d = YAW[this.dir] - this.yaw;
       d = Math.atan2(Math.sin(d), Math.cos(d));
       this.yaw += d * Math.min(1, dt * 6);
@@ -99,5 +106,6 @@ export class Stage3D {
   }
   stop() {
     cancelAnimationFrame(this.raf);
+    if (running === this) running = null;
   }
 }

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { absorb, opId, request, type CloudApi, type LoggedOp, type Other, type Presence, type Shared, type SyncReq, type SyncRes } from '../src/cloud';
 import { DEFAULT_LOOK } from '../src/character';
-import { Farm, GROW_MS, RIPE } from '../src/farm';
+import { Farm, GROW_MS, RIPE, START_TURNIPS } from '../src/farm';
 import { generate } from '../src/island';
 import type { IslandState } from '../src/net/types';
 import { applyOp, link, type Op } from '../src/ops';
@@ -144,8 +144,8 @@ describe('Gemeinsame Insel: Protokoll auf dem Server', () => {
     await a.sync(srv.api, null, t + 10);
     await b.sync(srv.api, null, t + 10);
     await a.sync(srv.api, null, t + 10);
-    expect(a.farm.turnips).toBe(1);
-    expect(b.farm.turnips).toBe(1);
+    expect(a.farm.turnips).toBe(START_TURNIPS + 1);
+    expect(b.farm.turnips).toBe(START_TURNIPS + 1);
     sameIsland(a, b);
   });
 
