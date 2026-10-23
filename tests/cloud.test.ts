@@ -6,6 +6,7 @@ import { generate } from '../src/island';
 import type { IslandState } from '../src/net/types';
 import { applyOp, link, type Op } from '../src/ops';
 import { World } from '../src/world';
+import { ALL_TOOLS } from '../src/craft';
 
 /** Server im Speicher – macht dasselbe wie island.php (do=sync) */
 function fakeServer(compactAt = 150) {
@@ -60,10 +61,15 @@ const trees = isl.decor.map((d, i) => [d.kind, i] as const).filter(([k]) => k ==
 const me = (x = 100): Presence => ({ n: 'A', l: DEFAULT_LOOK, x, y: 100, d: 0, m: 0, sw: 0, tl: '', rh: -1, in: -1, sp: 1 });
 
 /** ein Spieler mit eigener Insel auf seinem Gerät */
-function client(pid: string, owner = false) {
+function client(pid: string, owner = false, fresh = false) {
   const world = new World(isl);
   const farm = new Farm(isl);
   link(world, farm);
+  // Tutorial schon geschafft
+  if (!fresh) {
+    world.tools = new Set(ALL_TOOLS);
+    farm.seeds = 6;
+  }
   let sh: Shared = { base: null, rev: 0, pending: [] };
   let compact = false;
   let others: Other[] = [];
@@ -236,10 +242,42 @@ describe('Gemeinsame Insel: Protokoll auf dem Server', () => {
     expect(a.others).toHaveLength(0);
   });
 
+  it('Tutorial zu zweit: beide sammeln, der Vorrat und die Werkzeuge gehören der Insel', async () => {
+    const srv = fakeServer();
+    const a = client('pa', true, true);
+    const b = client('pb', false, true);
+    await a.sync(srv.api);
+    await b.sync(srv.api);
+    const of = (kind: string) => isl.pickups.map((p, i) => [p.kind, i] as const).filter(([k]) => k === kind).map(([, i]) => i);
+    const [s0, s1, s2, s3] = of('stick');
+    const [t0, t1, t2] = of('stone');
+    a.act({ a: { kind: 'pick', tree: s0 }, x: 0, y: 0, t: 1000 });
+    a.act({ a: { kind: 'pick', tree: s1 }, x: 0, y: 0, t: 1001 });
+    b.act({ a: { kind: 'pick', tree: s1 }, x: 0, y: 0, t: 1002 }); // gleichzeitig denselben Stock
+    b.act({ a: { kind: 'pick', tree: s2 }, x: 0, y: 0, t: 1003 });
+    b.act({ a: { kind: 'pick', tree: s3 }, x: 0, y: 0, t: 1004 });
+    for (const i of [t0, t1, t2]) b.act({ a: { kind: 'pick', tree: i }, x: 0, y: 0, t: 1010 });
+    await a.sync(srv.api);
+    await b.sync(srv.api);
+    await a.sync(srv.api);
+    for (const c of [a, b]) expect([c.world.sticks, c.world.stones, c.world.prog.quests]).toEqual([4, 3, 2]);
+    a.act({ a: { kind: 'craft', item: 'axe' }, x: 0, y: 0, t: 2000 });
+    b.act({ a: { kind: 'craft', item: 'hoe' }, x: 0, y: 0, t: 2001 });
+    await a.sync(srv.api);
+    await b.sync(srv.api);
+    await a.sync(srv.api);
+    for (const c of [a, b]) {
+      expect([...c.world.tools].sort()).toEqual(['axe', 'hoe']);
+      expect(c.farm.seeds).toBe(3);
+    }
+    sameIsland(a, b);
+  });
+
   it('Regen lässt Felder auf jedem Gerät gleich wachsen, egal wie oft gerechnet wird', () => {
     const f1 = new Farm(isl);
     const f2 = new Farm(isl);
     for (const f of [f1, f2]) {
+      f.seeds = 1;
       f.till(22, 21, true);
       f.plant(22, 21);
     }

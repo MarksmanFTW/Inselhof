@@ -6,6 +6,8 @@ import { Ground, H, W, type Decor, type Island } from './island';
 import { accById, FOAL_HAY, FOAL_PAUSE_DAYS, GATE, MAX_LOVE, PADDOCK_COST, PADDOCK_FOOT, PADDOCK_REACH, STABLE_COST, STABLE_SPACE, breedById, cleanHorses, cleanName, isFoal, islandDay, type Care, type Horse, type Paddock, type Stable } from './horses';
 import { ALBUM_REWARDS, DECO_FOOT, albumCount, cleanAlbum, decoById, type Album, type Deco } from './shop';
 import { cleanProgress, levelOf, newProgress, perks, type Progress } from './progress';
+import { ALL_TOOLS, PICK_REGROW_MS, isTool, recipeOf, type ToolKind } from './craft';
+import type { PickKind } from './island';
 import type { Clock } from './time';
 
 /** Schläge bis zum Fallen und Holz-Ertrag */
@@ -67,6 +69,12 @@ export interface WorldSave {
   album?: Album;
   /** so viele Album-Belohnungen sind abgeholt */
   albumClaimed?: number;
+  /** Bastel-Vorrat und gebastelte Werkzeuge (fehlt = Spielstand von vor dem Tutorial: alle Werkzeuge) */
+  sticks?: number;
+  stones?: number;
+  tools?: ToolKind[];
+  /** Index in island.pickups → Zeitpunkt des Aufhebens */
+  picked?: Record<number, number>;
 }
 
 export type TreeStage = 'tree' | 'stump' | 'sapling';
@@ -97,6 +105,10 @@ export class World {
   albumClaimed = 0;
   clock: Clock | null = null;
   prog: Progress = newProgress();
+  sticks = 0;
+  stones = 0;
+  tools = new Set<ToolKind>();
+  picked = new Map<number, number>();
   /** Treffer am aktuellen Baum (nicht gespeichert) */
   private hits = new Map<number, number>();
   /** wird bei jeder Änderung hochgezählt (Schatten neu malen, speichern) */
@@ -113,9 +125,18 @@ export class World {
         if (CHOP[isl.decor[i]?.kind] && typeof v === 'number') this.felled.set(i, v);
       }
       this.houses = (save.houses ?? []).filter((h) => typeof h?.x === 'number' && typeof h?.y === 'number');
-      this.prog = cleanProgress(save.prog);
       this.fires = (save.fires ?? []).filter((h) => typeof h?.x === 'number' && typeof h?.y === 'number');
       this.stables = (save.stables ?? []).filter((h) => typeof h?.x === 'number' && typeof h?.y === 'number');
+      // Spielstand von vor dem Tutorial: hatte alle Werkzeuge, Aufgaben umrechnen
+      const legacy = typeof save.wood === 'number' && !Array.isArray(save.tools);
+      this.tools = new Set(legacy ? ALL_TOOLS : (save.tools ?? []).filter(isTool));
+      this.prog = cleanProgress(save.prog, legacy ? { fires: this.fires.length, stables: this.stables.length } : undefined);
+      this.sticks = Math.max(0, Math.floor(save.sticks ?? 0));
+      this.stones = Math.max(0, Math.floor(save.stones ?? 0));
+      for (const [k, v] of Object.entries(save.picked ?? {})) {
+        const i = Number(k);
+        if (isl.pickups[i] && typeof v === 'number') this.picked.set(i, v);
+      }
       this.horses = cleanHorses(save.horses, this.stables.length);
       this.paddocks = (save.paddocks ?? []).filter((h) => typeof h?.x === 'number' && typeof h?.y === 'number');
       this.coins = Math.max(0, Math.floor(save.coins ?? 0));
@@ -147,6 +168,10 @@ export class World {
     this.decoInv = w.decoInv;
     this.album = w.album;
     this.albumClaimed = w.albumClaimed;
+    this.sticks = w.sticks;
+    this.stones = w.stones;
+    this.tools = w.tools;
+    this.picked = w.picked;
     this.version++;
   }
 
@@ -162,7 +187,11 @@ export class World {
         ? { coins: this.coins, decos: this.decos.map((d) => ({ ...d })), decoInv: { ...this.decoInv }, album: { horses: [...this.album.horses], deco: [...this.album.deco] }, albumClaimed: this.albumClaimed }
         : {}),
       ...(this.clock ? { clock: { ...this.clock } } : {}),
-      prog: { xp: this.prog.xp, stats: { ...this.prog.stats }, quests: this.prog.quests },
+      prog: { xp: this.prog.xp, stats: { ...this.prog.stats }, quests: this.prog.quests, v: this.prog.v },
+      sticks: this.sticks,
+      stones: this.stones,
+      tools: ALL_TOOLS.filter((t) => this.tools.has(t)),
+      ...(this.picked.size ? { picked: Object.fromEntries(this.picked) } : {}),
     };
   }
 
@@ -181,6 +210,12 @@ export class World {
 
   /** Bäume nachwachsen lassen – aber nicht, wenn jemand genau dort steht */
   grow(now: number, standing?: { x: number; y: number }) {
+    // aufgehobene Stöcke und Steine liegen wieder da
+    for (const [i, t] of this.picked)
+      if (now - t >= PICK_REGROW_MS) {
+        this.picked.delete(i);
+        this.version++;
+      }
     for (const [i, t] of this.felled) {
       if (now - t < REGROW_MS * this.perks.regrowMul) continue;
       const d = this.isl.decor[i];
@@ -209,6 +244,13 @@ export class World {
       }
       if (this.hitsBlock(d, b, x, y, fw, fh)) return true;
     }
+    if (this.builtAt(x, y, fw, fh)) return true;
+    for (const p of this.paddocks) if (this.onFence(p, x, y, fw, fh)) return true;
+    return false;
+  }
+
+  /** Steht hier etwas Gebautes (Haus, Feuer, Stall, Deko)? */
+  builtAt(x: number, y: number, fw: number, fh: number) {
     for (const [list, f] of [
       [this.houses, HOUSE_FOOT],
       [this.fires, FIRE_FOOT],
@@ -216,8 +258,38 @@ export class World {
       [this.decos, DECO_FOOT],
     ] as const)
       for (const h of list) if (x + fw > h.x + f.left && x - fw < h.x + f.right && y + fh > h.y + f.top && y - fh < h.y + f.bottom) return true;
-    for (const p of this.paddocks) if (this.onFence(p, x, y, fw, fh)) return true;
     return false;
+  }
+
+  /** Liegt dieser Stock/Stein gerade da? (nicht aufgehoben, nicht überbaut) */
+  pickable(i: number) {
+    const p = this.isl.pickups[i];
+    return !!p && !this.picked.has(i) && !this.builtAt(p.x, p.y, 2, 2);
+  }
+
+  /** Stock oder Stein aufheben */
+  pick(i: number, now = Date.now()): PickKind | null {
+    if (!this.pickable(i)) return null;
+    const p = this.isl.pickups[i];
+    this.picked.set(i, now);
+    if (p.kind === 'stick') this.sticks++;
+    else this.stones++;
+    this.version++;
+    return p.kind;
+  }
+
+  /** Werkzeug basteln (Fehlertext oder null) */
+  craft(id: string) {
+    const r = recipeOf(id);
+    if (!r) return 'Gibt es nicht';
+    if (this.tools.has(r.id)) return `${r.name} hast du schon`;
+    if (this.sticks < r.sticks || this.stones < r.stones || this.wood < r.wood) return 'Dafür fehlt dir noch etwas';
+    this.sticks -= r.sticks;
+    this.stones -= r.stones;
+    this.wood -= r.wood;
+    this.tools.add(r.id);
+    this.version++;
+    return null;
   }
 
   /** Koppel-Zaun: nur die Ränder sperren, innen ist Wiese, unten ein Tor */

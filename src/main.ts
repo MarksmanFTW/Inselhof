@@ -15,11 +15,12 @@ import { Player } from './player';
 import { absorb, httpApi, newPid, opId, request, type Other, type PendingOp, type Presence, type Shared } from './cloud';
 import { CAN_GOAL, Farm, RIPE, key as plotKey } from './farm';
 import { applyOp, farmUnder as farmUnderOf, link, tileFree as tileFreeOf, type Op } from './ops';
-import { PERKS, levelProgress, questAt } from './progress';
+import { PERKS, TUTORIAL, levelProgress, questAt } from './progress';
+import { RECIPES, TOOL_NAME, recipeOf, type ToolKind } from './craft';
 import { newClock, rainSince, timeOf, type TimeOfDay } from './time';
 import { MAX_SLOTS, activeSlot, addSlot, loadSave, removeSlot, writeSave, type Save, type Slot } from './save';
 import type { Action, Fx } from './net/types';
-import { showCoop, showCustomize, showHud, showMenu, showSettings, showSlots, textScale, type Hud, type ToolId, type TradeData } from './ui';
+import { showCoop, showCustomize, showHud, showMenu, showSettings, showSlots, textScale, type CraftData, type Hud, type ToolId, type TradeData } from './ui';
 import { BUILDS, FIRE_COST, HOUSE_COST, World, type BuildKind } from './world';
 import { View } from './three/view';
 import { horsePhoto } from './three/portrait';
@@ -108,7 +109,7 @@ let tool: ToolId = 'axe';
 /** Schwung (Sekunden, läuft rückwärts); swingTool = was gerade benutzt wird */
 let swing = 0;
 const SWING = 0.34;
-let swingTool: ToolId | 'harvest' | 'refill' | 'cook' | 'rake' = 'axe';
+let swingTool: ToolId | 'harvest' | 'refill' | 'cook' | 'rake' | 'pick' = 'axe';
 let swingTile: [number, number] = [0, 0];
 const shake = new Map<number, number>();
 /** schwebende Texte („+4 Holz“): Welt-Pixel + Höhe (Einheiten) */
@@ -138,9 +139,11 @@ const FX_SOUND: Partial<Record<Fx['k'], Parameters<typeof sfx>[0]>> = {
   mow: 'mow',
   rake: 'harvest',
   trade: 'coin',
+  pick: 'seed',
+  craft: 'build',
 };
 /** wie hoch der Text über dem Boden schwebt (Einheiten) */
-const FX_H: Partial<Record<Fx['k'], number>> = { fell: 3.6, build: 3, horse: 2.8, feed: 2.8, brush: 2.8, foal: 2.6, trade: 2.4, can: 2.6, cook: 2.2 };
+const FX_H: Partial<Record<Fx['k'], number>> = { fell: 3.6, build: 3, horse: 2.8, feed: 2.8, brush: 2.8, foal: 2.6, trade: 2.4, can: 2.6, cook: 2.2, pick: 1.2, craft: 2.6 };
 function playFx(fx: Fx) {
   const snd = FX_SOUND[fx.k];
   if (snd) sfx(snd);
@@ -162,6 +165,8 @@ function playFx(fx: Fx) {
   else if (fx.k === 'brush') burst(fx.x, fx.y, 12, 10, ['#ffffff', '#fff3a0', '#ffd23f'], 14);
   else if (fx.k === 'feed' || fx.k === 'horse' || fx.k === 'foal') burst(fx.x, fx.y, 14, 8, ['#e0485a', '#ff9aa8', '#ffffff'], 16);
   else if (fx.k === 'cook') burst(fx.x, fx.y, 6, 8, ['#ffd23f', '#ff9a2a', '#ffffff'], 18);
+  else if (fx.k === 'pick') burst(fx.x, fx.y, 1, 6, ['#fff3a0', '#ffffff', '#c8925a'], 16);
+  else if (fx.k === 'craft') burst(fx.x, fx.y, 8, 16, ['#ffd23f', '#ffffff', '#a9a6b2', '#c8925a'], 26);
   else if (fx.k === 'quest') hud?.toast(fx.text ?? 'Aufgabe geschafft!');
   else if (fx.k === 'level' && fx.n) hud?.levelUp(fx.n, PERKS.find((p) => p.level === fx.n)?.text);
   if (fx.k === 'quest' || fx.k === 'level') return;
@@ -213,13 +218,31 @@ function perform(a: Action, actor: { x: number; y: number }): string | null {
       if (it.startsWith('horse:')) emit({ k: 'horse', x: actor.x, y: actor.y });
     }
     else if (a.kind === 'cook') emit({ k: 'cook', x: actor.x, y: actor.y, text: '+1 Ofenrübe' });
+    else if (a.kind === 'pick' && res.picked) {
+      const p = island.pickups[a.tree ?? -1];
+      if (p) emit({ k: 'pick', x: p.x, y: p.y, text: res.picked === 'stick' ? '+1 Stock' : '+1 Stein' });
+    } else if (a.kind === 'craft' && res.crafted) emit({ k: 'craft', x: actor.x, y: actor.y, text: `${recipeOf(res.crafted)?.name ?? 'Werkzeug'} gebastelt!` });
   }
   // Aufgaben & Stufen
   for (const q of res.gain?.quests ?? []) {
-    const reward = [q.seeds ? `+${q.seeds} Samen` : '', q.wood ? `+${q.wood} Holz` : '', `+${q.xp} EP`].filter(Boolean).join(' ');
+    const reward = [q.seeds ? `+${q.seeds} Samen` : '', q.wood ? `+${q.wood} Holz` : '', q.coins ? `+${q.coins} Münzen` : '', `+${q.xp} EP`].filter(Boolean).join(' ');
     emit({ k: 'quest', x: actor.x, y: actor.y, text: `Aufgabe geschafft: ${q.text}! ${reward}` });
   }
   for (const n of res.gain?.levels ?? []) emit({ k: 'level', x: actor.x, y: actor.y, n });
+  if (res.gain?.quests.some((q) => q === questAt(TUTORIAL - 1)))
+    hud?.intro(
+      {
+        title: 'Super gemacht!',
+        text: 'Du hast dir dein erstes Werkzeug gebastelt. Als Belohnung bekommst du 3 Rübensamen.',
+        steps: [
+          { img: icons.axe, text: 'Mit der Axt fällst du Bäume – das gibt Holz zum Bauen.' },
+          { img: icons.hoe, text: 'Mit der Hacke legst du Felder an.' },
+          { img: icons.seeds, text: 'Dann säst du deine Rüben. Oben steht immer deine nächste Aufgabe.' },
+        ],
+        ok: 'Weiter',
+      },
+      () => sfx('click'),
+    );
   for (const al of res.album ?? []) emit({ k: 'quest', x: actor.x, y: actor.y, text: `Sammelalbum: ${al.at} Einträge! +${al.coins} Münzen` });
   // gemeinsame Insel: Aktion fürs Protokoll merken (beim Fällen nur das Umfallen) und bald schicken
   if (cloudOn() && (a.kind === 'axe' ? res.felled : res.done)) {
@@ -255,7 +278,19 @@ function facingWater() {
   }
   return false;
 }
-type Intent = ToolId | 'harvest' | 'refill' | 'cook' | 'rake' | 'trade' | 'enter' | 'exit' | 'sleep' | 'chest' | 'furnish' | 'stable' | 'horse' | 'dismount' | null;
+type Intent = ToolId | 'harvest' | 'refill' | 'cook' | 'rake' | 'pick' | 'trade' | 'enter' | 'exit' | 'sleep' | 'chest' | 'furnish' | 'stable' | 'horse' | 'dismount' | null;
+/** Stock/Stein direkt bei der Figur (Nummer in island.pickups) */
+function pickNear() {
+  let best = -1;
+  let bestD = 11;
+  island.pickups.forEach((p, i) => {
+    const d = Math.hypot(p.x - player.x, (p.y - player.y) * 1.4);
+    if (d >= bestD || !world.pickable(i) || farm.plot(...Farm.tileAt(p.x, p.y))) return;
+    bestD = d;
+    best = i;
+  });
+  return best;
+}
 /** Was würde der Aktions-Knopf jetzt tun? */
 /** Haustür vor der Figur? (Index des Hauses) */
 function doorAhead() {
@@ -359,6 +394,10 @@ function intent(): { kind: Intent; tree: number; tile: [number, number] } {
   if (farm.mown(...tile, Date.now()) === 'dry') return { kind: 'rake', tree: -1, tile };
   // am Lagerfeuer mit Rüben im Gepäck: braten
   if (farm.turnips > 0 && world.fireNear(player.x, player.y, 20) >= 0) return { kind: 'cook', tree: -1, tile };
+  // Stock oder Stein vor den Füßen: aufheben
+  const pk = pickNear();
+  if (pk >= 0) return { kind: 'pick', tree: pk, tile };
+  if (tool !== 'seeds' && !world.tools.has(tool)) return { kind: null, tree: -1, tile };
   if (tool === 'axe') {
     const tr = world.target(player.x, player.y);
     return { kind: tr >= 0 ? 'axe' : null, tree: tr, tile };
@@ -430,6 +469,48 @@ function useTool() {
   const err = doAction({ kind, c, r, tree: chopTarget });
   if (err) hud?.toast(err);
 }
+// ---------- Basteln ----------
+let craftUI: { update(d: CraftData): void } | null = null;
+function craftData(): CraftData {
+  return {
+    have: { sticks: world.sticks, stones: world.stones, wood: world.wood },
+    recipes: RECIPES.map((r) => ({ ...r, img: icons[r.id === 'water' ? 'bucket' : r.id], owned: world.tools.has(r.id) })),
+  };
+}
+function openCraft() {
+  sfx('click');
+  craftUI = hud?.openCraft(craftData(), (id) => {
+    const err = doAction({ kind: 'craft', item: id });
+    if (err) return hud?.toast(err);
+    // gleich in die Hand nehmen
+    tool = id as ToolKind;
+    hud?.setTool(tool);
+  }) ?? null;
+}
+/** „Basteln“ hüpft, wenn die Aufgabe ein Werkzeug will und man es bauen kann */
+function tutorialNudge() {
+  const stat = questAt(world.prog.quests).stat;
+  const can = RECIPES.some((r) => !world.tools.has(r.id) && world.sticks >= r.sticks && world.stones >= r.stones && world.wood >= r.wood);
+  hud?.nudge(can && (stat === 'crafted' || stat === 'bucket' || stat === 'scythe') ? 'craft' : null);
+}
+/** Tutorial: Pfeil über dem nächsten Stock bzw. Stein, den man noch braucht */
+function guideTarget(): { x: number; y: number } | null {
+  const q = world.prog.quests;
+  if (q >= 2) return null;
+  const want = q === 0 ? 'stick' : 'stone';
+  let best: { x: number; y: number } | null = null;
+  let bestD = Infinity;
+  island.pickups.forEach((p, i) => {
+    if (p.kind !== want || !world.pickable(i)) return;
+    const d = Math.hypot(p.x - player.x, p.y - player.y);
+    if (d < bestD) {
+      bestD = d;
+      best = p;
+    }
+  });
+  return best;
+}
+
 function syncHud() {
   if (!hud) return;
   hud.setInv(world.wood, farm.turnips, farm.meals);
@@ -437,11 +518,15 @@ function syncHud() {
   hud.setSlots(farm.seeds, farm.water, farm.capacity, farm.hasCan, farm.hay);
   hud.setCoins(world.coins);
   tradeUI?.update(tradeData());
+  hud.setOwned([...world.tools]);
+  craftUI?.update(craftData());
+  tutorialNudge();
   const q = questAt(world.prog.quests);
   const have = Math.min(q.goal, world.prog.stats[q.stat] ?? 0);
-  const reward = [q.seeds ? `${q.seeds} Samen` : '', q.wood ? `${q.wood} Holz` : '', `${q.xp} EP`].filter(Boolean).join(', ');
-  const can = farm.hasCan ? '' : `\nErnte ${CAN_GOAL} Rüben → Eisen-Gießkanne (${farm.harvested}/${CAN_GOAL})`;
-  hud.setGoal(`Aufgabe: ${q.text} (${have}/${q.goal})\nBelohnung: ${reward}${can}`);
+  const reward = [q.seeds ? `${q.seeds} Samen` : '', q.wood ? `${q.wood} Holz` : '', q.coins ? `${q.coins} Münzen` : '', `${q.xp} EP`].filter(Boolean).join(', ');
+  const can = farm.hasCan || !world.tools.has('water') ? '' : `\nErnte ${CAN_GOAL} Rüben → Eisen-Gießkanne (${farm.harvested}/${CAN_GOAL})`;
+  const tut = world.prog.quests < TUTORIAL ? ` · Schritt ${world.prog.quests + 1}/${TUTORIAL}` : '';
+  hud.setGoal(`Aufgabe: ${q.text} (${have}/${q.goal})${q.hint ? `\n${q.hint}` : ''}\nBelohnung: ${reward}${tut}${can}`);
   hud.setLevel(world.level, levelProgress(world.prog.xp));
   if (tod) hud.setClock(`Tag ${tod.day} · ${tod.label}${tod.rain ? ' · Regen' : ''}`);
 }
@@ -799,12 +884,28 @@ function startPlay() {
       menu: openMenu,
       act: (down) => {
         actHeld = down;
-        if (down && !intent().kind) hud?.toast(tool === 'water' && farm.water <= 0 ? 'Leer – am Wasser auffüllen' : toolHint[tool]);
+        if (down && !intent().kind)
+          hud?.toast(
+            world.prog.quests < 2
+              ? world.prog.quests === 0
+                ? 'Geh zu einem Stock – der gelbe Pfeil zeigt dir einen'
+                : 'Geh zu einem Stein am Strand – der gelbe Pfeil zeigt dir einen'
+              : tool !== 'seeds' && !world.tools.has(tool)
+                ? `${TOOL_NAME[tool]} hast du noch nicht – tipp auf „Basteln“`
+                : tool === 'water' && farm.water <= 0
+                  ? 'Leer – am Wasser auffüllen'
+                  : toolHint[tool],
+          );
       },
       tool: (t) => {
+        if (t !== 'seeds' && !world.tools.has(t)) {
+          sfx('nope');
+          return hud?.toast(`${TOOL_NAME[t]} hast du noch nicht – tipp auf „Basteln“`);
+        }
         tool = t;
         hud?.setTool(t);
       },
+      craft: openCraft,
       place: (what, item) => {
         placing = true;
         placeKind = what;
@@ -827,10 +928,35 @@ function startPlay() {
     icons,
     { house: HOUSE_COST, fire: FIRE_COST, stable: STABLE_COST, paddock: PADDOCK_COST },
   );
+  // neue Insel: noch nichts gebastelt → das erste eigene Werkzeug in die Hand
+  if (tool !== 'seeds' && !world.tools.has(tool)) tool = (['axe', 'hoe', 'water', 'scythe'] as const).find((t) => world.tools.has(t)) ?? tool;
   hud.setTool(tool);
   syncHud();
   updateCoopChip();
   void cloudSync();
+  const sl = mySlot();
+  if (world.prog.quests === 0 && !world.sticks && !sl.intro) {
+    hud.intro(
+      {
+        title: 'Willkommen auf deiner Insel!',
+        text: 'Du bist hier ganz ohne Gepäck angekommen. So geht es los:',
+        steps: [
+          { img: icons.stick, text: 'Sammle 4 Stöcke auf der Wiese – der gelbe Pfeil zeigt dir, wo einer liegt.' },
+          { img: icons.stone, text: 'Hol dir 3 Steine aus dem Sand am Strand.' },
+          { img: icons.craft, text: 'Tipp auf „Basteln“ und bau dir eine Axt und eine Hacke.' },
+          { img: icons.seeds, text: 'Dafür bekommst du 3 Rübensamen – dann geht es mit den Aufgaben weiter.' },
+        ],
+        ok: "Los geht's!",
+      },
+      () => {
+        sl.intro = true;
+        writeSave(save);
+        hint.classList.remove('gone');
+        setTimeout(() => hint.classList.add('gone'), 6000);
+      },
+    );
+    return;
+  }
   hint.classList.remove('gone');
   setTimeout(() => hint.classList.add('gone'), 6000);
 }
@@ -1042,7 +1168,11 @@ function remoteFx(op: Op) {
                 ? { k: 'mow', x: cx, y: cy }
                 : a.kind === 'build'
                   ? { k: 'build', x: a.x ?? 0, y: a.y ?? 0 }
-                  : null;
+                  : a.kind === 'pick' && island.pickups[a.tree ?? -1]
+                    ? { k: 'pick', x: island.pickups[a.tree!].x, y: island.pickups[a.tree!].y }
+                    : a.kind === 'craft'
+                      ? { k: 'craft', x: op.x, y: op.y }
+                      : null;
   if (fx && mode === 'play' && inside < 0 && Math.hypot(fx.x - player.x, fx.y - player.y) < 160) playFx(fx);
 }
 /** steckt die Figur nach dem Abgleich fest (z. B. ein Baum ist nachgewachsen)? → daneben stellen */
@@ -1208,13 +1338,14 @@ function frame(now: number) {
     // Werkzeug benutzen
     if (!placing) {
       const it = intent();
-      hud?.setAction(!!it.kind, it.kind === 'trade' ? icons.coin : it.kind === 'stable' ? icons.stable : it.kind === 'horse' || it.kind === 'dismount' ? horseIcon(world.horses[it.tree]?.breed ?? '', !!world.horses[it.tree] && isFoal(world.horses[it.tree], Date.now())) : it.kind && ROOM_ACTS.has(it.kind) ? icons.house : it.kind === 'cook' ? icons.meal : it.kind === 'harvest' ? icons.turnip : it.kind === 'rake' ? icons.hay : it.kind === 'refill' ? (farm.hasCan ? icons.can : icons.bucket) : icons[tool === 'water' ? (farm.hasCan ? 'can' : 'bucket') : tool]);
+      hud?.setAction(!!it.kind, it.kind === 'trade' ? icons.coin : it.kind === 'stable' ? icons.stable : it.kind === 'horse' || it.kind === 'dismount' ? horseIcon(world.horses[it.tree]?.breed ?? '', !!world.horses[it.tree] && isFoal(world.horses[it.tree], Date.now())) : it.kind && ROOM_ACTS.has(it.kind) ? icons.house : it.kind === 'cook' ? icons.meal : it.kind === 'harvest' ? icons.turnip : it.kind === 'rake' ? icons.hay : it.kind === 'pick' ? (island.pickups[it.tree]?.kind === 'stone' ? icons.stone : icons.stick) : it.kind === 'refill' ? (farm.hasCan ? icons.can : icons.bucket) : icons[tool === 'water' ? (farm.hasCan ? 'can' : 'bucket') : tool]);
       if (actHeld && swing <= 0 && it.kind && ROOM_ACTS.has(it.kind)) {
         actHeld = false;
         roomAction(it.kind, it.tree);
       } else if (actHeld && swing <= 0 && it.kind) {
         swingTool = it.kind as typeof swingTool;
         swingTile = it.tile;
+        if (it.kind === 'pick') chopTarget = it.tree;
         if (it.kind === 'axe') {
           chopTarget = it.tree;
           const d = island.decor[it.tree];
@@ -1223,7 +1354,7 @@ function frame(now: number) {
           const dy = d.y - player.y;
           player.dir = Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? Dir.Right : Dir.Left) : dy > 0 ? Dir.Down : Dir.Up;
         }
-        swing = it.kind === 'seeds' || it.kind === 'harvest' || it.kind === 'rake' ? SWING * 0.7 : SWING;
+        swing = it.kind === 'seeds' || it.kind === 'harvest' || it.kind === 'rake' || it.kind === 'pick' ? SWING * 0.7 : SWING;
         swingAt = Date.now();
         swingTl = it.kind;
       }
@@ -1307,7 +1438,8 @@ function frame(now: number) {
     boatOut: boatOut(world.clock, nowMs),
     boat: BOAT,
     ghost: play && placing ? { kind: placeKind, deco: placeDeco, x: ghost.x, y: ghost.y, ok: ghost.ok && world.wood >= BUILDS[placeKind].cost } : null,
-    marker: play && !placing && tool !== 'axe' && riding < 0 ? frontTile() : null,
+    marker: play && !placing && tool !== 'axe' && (tool === 'seeds' || world.tools.has(tool)) && riding < 0 ? frontTile() : null,
+    guide: play && !placing ? guideTarget() : null,
     inside,
   });
   drawOverlay(t, dt, nowMs);
@@ -1371,6 +1503,47 @@ function drawOverlay(t: number, dt: number, nowMs: number) {
         ctx.globalAlpha = 1;
       }
     });
+  }
+  // Tutorial: liegt das Ziel außerhalb des Bildes, zeigt ein Pfeil am Rand die Richtung
+  const gd = mode === 'play' && inside < 0 && !placing ? guideTarget() : null;
+  if (gd) {
+    const me = view.project(player.x, player.y, 1, { x: 0, y: 0 });
+    const q = view.project(gd.x, gd.y, 0.8, tmpP);
+    const top = 300;
+    const bottom = view.h - 150;
+    const off = !q || q.x < 24 || q.x > view.w - 24 || q.y < top || q.y > bottom;
+    if (off && me) {
+      const a = q ? Math.atan2(q.y - me.y, q.x - me.x) : Math.atan2(gd.y - player.y, gd.x - player.x);
+      // vom Spieler aus bis an den Rand des freien Bereichs
+      const cx = me.x;
+      const cy = Math.min(bottom - 10, Math.max(top + 10, me.y));
+      const kx = Math.cos(a);
+      const ky = Math.sin(a);
+      const tx = kx > 0 ? (view.w - 34 - cx) / kx : kx < 0 ? (34 - cx) / kx : Infinity;
+      const ty = ky > 0 ? (bottom - cy) / ky : ky < 0 ? (top - cy) / ky : Infinity;
+      const d = Math.max(0, Math.min(tx, ty));
+      const bob = Math.sin(t * 6) * 4;
+      const ex = (cx + kx * (d + bob)) * dpr;
+      const ey = (cy + ky * (d + bob)) * dpr;
+      ctx.setTransform(dpr, 0, 0, dpr, ex, ey);
+      ctx.rotate(a);
+      ctx.beginPath();
+      ctx.moveTo(16, 0);
+      ctx.lineTo(-4, -14);
+      ctx.lineTo(-4, -6);
+      ctx.lineTo(-16, -6);
+      ctx.lineTo(-16, 6);
+      ctx.lineTo(-4, 6);
+      ctx.lineTo(-4, 14);
+      ctx.closePath();
+      ctx.lineJoin = 'round';
+      ctx.lineWidth = 4;
+      ctx.strokeStyle = '#7a4a10';
+      ctx.stroke();
+      ctx.fillStyle = '#ffd23f';
+      ctx.fill();
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+    }
   }
   // „+4 Holz“
   if (floats.length) {
@@ -1603,6 +1776,8 @@ function roomAction(kind: Intent, slot: number) {
   if (kind === 'chest')
     return hud?.openChest([
       ['Holz', world.wood],
+      ['Stöcke', world.sticks],
+      ['Steine', world.stones],
       ['Samen', farm.seeds],
       ['Rüben', farm.turnips],
       ['Ofenrüben', farm.meals],

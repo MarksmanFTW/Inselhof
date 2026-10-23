@@ -83,6 +83,16 @@ function paddockMini() {
   return meshOf(b.geometry());
 }
 
+/** Basteln: Steinhammer mit Schnur */
+function craftTool() {
+  const b = new Build();
+  b.add(cyl(0.07, 0.08, 1.3, 10), '#a8743f', { p: [0, 0, 0], r: [0, 0, -0.6] });
+  b.add(new THREE.DodecahedronGeometry(0.3, 1), '#a9a6b2', { p: [0.36, 0.5, 0], s: [1.3, 0.85, 0.9], r: [0, 0, -0.6] });
+  for (const k of [-0.08, 0.04]) b.add(new THREE.TorusGeometry(0.1, 0.03, 5, 12), '#e8d090', { p: [0.3 + k * 0.6, 0.42 + k, 0], r: [Math.PI / 2, 0.6, 0] });
+  b.add(sphere(0.07, 8), '#e4e2ea', { p: [0.3, 0.68, 0.18], s: [1.5, 0.5, 1] });
+  return meshOf(b.geometry());
+}
+
 /** alle Symbole des Spiels (Namen wie bisher) – werden beim ersten Zugriff gerendert */
 const MAKERS = {
   log: () => photo('i:log', logs, { yaw: -0.6 }),
@@ -101,6 +111,9 @@ const MAKERS = {
   stable: () => photo('i:stable', M.stable, { yaw: -0.45, tilt: 0.42 }),
   fire: () => photo('i:fire', () => M.campfire().g, { yaw: 0, tilt: 0.6 }),
   paddock: () => photo('i:paddock', paddockMini, { yaw: -0.3, tilt: 0.4 }),
+  stick: () => photo('i:stick', () => M.stick(0), { yaw: 0.5, tilt: 0.7 }),
+  stone: () => photo('i:stone', () => M.pebble(0), { yaw: 0.3, tilt: 0.45 }),
+  craft: () => photo('i:craft', craftTool, { yaw: 0, tilt: 0.2 }),
 } satisfies Record<string, () => string>;
 
 /** Symbole als Objekt mit Eigenschaften, die erst beim Lesen entstehen */

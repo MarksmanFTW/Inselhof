@@ -14,9 +14,10 @@ export interface IslandState {
 
 /** eine Spiel-Aktion */
 export interface Action {
-  kind: 'axe' | 'hoe' | 'seeds' | 'water' | 'refill' | 'harvest' | 'build' | 'sleep' | 'eat' | 'cook' | 'furnish' | 'adopt' | 'feed' | 'brush' | 'foal' | 'mow' | 'rake' | 'sell' | 'buy' | 'dress';
+  kind: 'axe' | 'hoe' | 'seeds' | 'water' | 'refill' | 'harvest' | 'build' | 'sleep' | 'eat' | 'cook' | 'furnish' | 'adopt' | 'feed' | 'brush' | 'foal' | 'mow' | 'rake' | 'sell' | 'buy' | 'dress' | 'pick' | 'craft';
   c?: number;
   r?: number;
+  /** Baum (Axt) bzw. Stock/Stein (pick): Nummer */
   tree?: number;
   x?: number;
   y?: number;
@@ -39,7 +40,7 @@ export interface Action {
 
 /** Effekte (Splitter, „+4 Holz“) */
 export interface Fx {
-  k: 'chop' | 'fell' | 'till' | 'seed' | 'water' | 'refill' | 'harvest' | 'build' | 'can' | 'quest' | 'level' | 'sleep' | 'cook' | 'furnish' | 'horse' | 'feed' | 'brush' | 'foal' | 'mow' | 'rake' | 'trade';
+  k: 'chop' | 'fell' | 'till' | 'seed' | 'water' | 'refill' | 'harvest' | 'build' | 'can' | 'quest' | 'level' | 'sleep' | 'cook' | 'furnish' | 'horse' | 'feed' | 'brush' | 'foal' | 'mow' | 'rake' | 'trade' | 'pick' | 'craft';
   /** neue Stufe */
   n?: number;
   x: number;

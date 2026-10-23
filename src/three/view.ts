@@ -58,6 +58,8 @@ export interface Frame {
   boat: { x: number; y: number };
   ghost: { kind: BuildKind; deco: string; x: number; y: number; ok: boolean } | null;
   marker: [number, number] | null;
+  /** Tutorial: Pfeil über diesem Ziel (Welt-Pixel) */
+  guide: { x: number; y: number } | null;
   inside: number;
 }
 
@@ -132,6 +134,9 @@ export class View {
   private boat = M.boat();
   private ghost: { key: string; o: THREE.Object3D; foot: THREE.Mesh; mat: THREE.MeshStandardMaterial } | null = null;
   private marker: THREE.Mesh;
+  /** Stöcke und Steine zum Aufheben */
+  private pickups: THREE.Object3D[] = [];
+  private guide = M.guideArrow();
   private bits: { m: THREE.InstancedMesh; list: { p: THREE.Vector3; v: THREE.Vector3; life: number; c: THREE.Color }[] };
   private hearts: { s: THREE.Sprite; v: number; life: number; delay: number }[] = [];
   private heartTex: THREE.Texture;
@@ -180,6 +185,16 @@ export class View {
     this.terrain = buildTerrain(isl);
     s.add(this.terrain.group);
     isl.decor.forEach((d, i) => this.decor.push(this.makeDecor(d.kind, d.variant, d.x, d.y, d.flip, i)));
+    for (const p of isl.pickups) {
+      const o = p.kind === 'stick' ? M.stick(p.variant) : M.pebble(p.variant);
+      o.position.set(p.x * U, this.groundY(p.x, p.y), p.y * U);
+      o.rotation.y = p.rot;
+      if (p.kind === 'stick') o.scale.setScalar(1.25);
+      s.add(o);
+      this.pickups.push(o);
+    }
+    this.guide.visible = false;
+    s.add(this.guide);
 
     // Acker (instanziert)
     this.soil = this.inst(M.soilGeo(), 300, 0.95);
@@ -352,6 +367,13 @@ export class View {
       o.tree!.visible = st === 'tree';
       o.stump.visible = st === 'stump';
       o.sapling!.visible = st === 'sapling';
+    });
+  }
+
+  /** Stöcke/Steine: aufgehoben, überbaut oder unter einem Feld → weg */
+  private syncPickups() {
+    this.isl.pickups.forEach((p, i) => {
+      this.pickups[i].visible = this.world.pickable(i) && !this.farm.plot(Math.floor(p.x / TILE), Math.floor(p.y / TILE));
     });
   }
 
@@ -854,6 +876,7 @@ export class View {
       this.worldVer = this.world.version;
       this.syncBuilt();
       this.syncDecor(now);
+      this.syncPickups();
     }
     this.farmT -= fr.dt;
     if (this.farm.version !== this.farmVer || this.farmT <= 0) {
@@ -861,6 +884,7 @@ export class View {
       this.farmT = 0.25;
       this.syncFarm(now);
       this.syncDecor(now);
+      this.syncPickups();
       this.syncCovered();
     }
     this.fadeBlockers(fr);
@@ -916,6 +940,12 @@ export class View {
       this.marker.position.set(x * U, this.groundY(x, y) + 0.08, y * U);
       (this.marker.material as THREE.MeshBasicMaterial).opacity = 0.45 + Math.sin(fr.t * 6) * 0.25;
     } else this.marker.visible = false;
+    if (fr.guide && fr.mode === 'play' && fr.inside < 0) {
+      const { x, y } = fr.guide;
+      this.guide.visible = true;
+      this.guide.position.set(x * U, this.groundY(x, y) + 0.45 + Math.abs(Math.sin(fr.t * 3.2)) * 0.35, y * U);
+      this.guide.rotation.y = Math.sin(fr.t * 1.6) * 0.5;
+    } else this.guide.visible = false;
     this.stepEffects(fr);
     this.light(fr);
 

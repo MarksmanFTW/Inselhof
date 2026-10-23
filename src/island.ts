@@ -82,6 +82,17 @@ export interface Detail {
   variant: number;
 }
 
+/** Stöcke und Steine zum Aufsammeln (Basteln) */
+export type PickKind = 'stick' | 'stone';
+export interface Pickup {
+  kind: PickKind;
+  x: number;
+  y: number;
+  variant: number;
+  /** Drehung (Bogenmaß) */
+  rot: number;
+}
+
 export interface Island {
   ground: Uint8Array;
   /** Abstand (px, grob) vom Wasser zum Strand (bis 22) – für die helle Uferzone */
@@ -89,6 +100,8 @@ export interface Island {
   decor: Decor[];
   details: Detail[];
   dock: { x: number; y: number; w: number; h: number };
+  /** feste Plätze; aufgehobene liegen nach einer Weile wieder da (World.picked) */
+  pickups: Pickup[];
 }
 
 export function rng(seed: number) {
@@ -248,8 +261,8 @@ export function generate(seed = 7): Island {
       else if (p < 0.5) details.push({ kind: 'blade', x, y, variant: v });
     } else if (g === Ground.Sand && gAt(x + 6, y + 6) === Ground.Sand && gAt(x - 6, y - 6) === Ground.Sand && gAt(x, y - 8) !== Ground.Grass) {
       const p = r();
+      // (früher auch Deko-Kiesel – jetzt gibt es echte Steine zum Aufheben)
       if (p < 0.012) details.push({ kind: 'shell', x, y, variant: v });
-      else if (p < 0.03) details.push({ kind: 'pebble', x, y, variant: v });
     }
   }
   // fest platzierte Fundstücke am Strand (wie Vorlage)
@@ -259,10 +272,43 @@ export function generate(seed = 7): Island {
   details.push({ kind: 'shell', x: 261, y: 217, variant: 1 });
   details.push({ kind: 'shell', x: 218, y: 239, variant: 3 });
   details.push({ kind: 'shell', x: 159, y: 247, variant: 1 });
-  details.push({ kind: 'stick', x: 52, y: 84, variant: 0 });
-  details.push({ kind: 'stick', x: 276, y: 117, variant: 0 });
   for (const [x, y] of [[195, 98], [110, 124], [160, 152], [200, 101]] as const) details.push({ kind: 'flower', x, y, variant: 0 });
-  return { ground, shore, decor, details, dock };
+
+  // Stöcke (unter Bäumen und auf der Wiese) und Steine (im Sand am Strand)
+  const pickups: Pickup[] = [];
+  const pr = rng(seed * 17 + 3);
+  const around = (x: number, y: number, v: Ground, m: number) => [[-m, 0], [m, 0], [0, -m], [0, m], [0, 0]].every(([dx, dy]) => gAt(x + dx, y + dy) === v);
+  const clear = (x: number, y: number) =>
+    !decor.some((d) => d.kind !== 'grass' && Math.hypot(d.x - x, (d.y - y) * 1.6) < 12) &&
+    pickups.every((p) => Math.hypot(p.x - x, p.y - y) > 16) &&
+    !(x > dock.x - 8 && x < dock.x + dock.w + 8 && y > dock.y - 12);
+  const drop = (kind: PickKind, x: number, y: number) => pickups.push({ kind, x: Math.round(x), y: Math.round(y), variant: Math.floor(pr() * 3), rot: pr() * Math.PI * 2 });
+  for (const d of decor)
+    if (d.kind === 'tree')
+      for (let tries = 0; tries < 16; tries++) {
+        const a = pr() * Math.PI * 2;
+        const dist = 14 + pr() * 10;
+        const x = d.x + Math.cos(a) * dist;
+        const y = d.y + 4 + Math.abs(Math.sin(a)) * dist * 0.6;
+        if (around(x, y, Ground.Grass, 5) && clear(x, y)) {
+          drop('stick', x, y);
+          break;
+        }
+      }
+  const scatter = (kind: PickKind, g: Ground, n: number, x0: number, x1: number) => {
+    for (let k = 0, tries = 0; k < n && tries < 4000; tries++) {
+      const x = x0 + pr() * (x1 - x0);
+      const y = pr() * H;
+      if (!around(x, y, g, 6) || !clear(x, y)) continue;
+      drop(kind, x, y);
+      k++;
+    }
+  };
+  scatter('stick', Ground.Grass, 5, 0, EAST_X);
+  scatter('stick', Ground.Grass, 3, EAST_X, W);
+  scatter('stone', Ground.Sand, 9, 0, EAST_X);
+  scatter('stone', Ground.Sand, 7, EAST_X, W);
+  return { ground, shore, decor, details, dock, pickups };
 }
 
 /** Größe der Landfläche und ob sie zusammenhängt (für Tests) */

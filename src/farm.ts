@@ -9,9 +9,9 @@ import { Ground, TILE, W, type Island } from './island';
 export const GROW_MS = 40_000; // gegossen → nächste Stufe
 export const DRY_MS = 90_000; // leeres Feld trocknet wieder
 export const RIPE = 3; // Stufe 3 = erntereif
-export const START_SEEDS = 6;
-/** ein paar Rüben als Proviant für den Anfang */
-export const START_TURNIPS = 3;
+/** neue Inseln: man fängt mit nichts an (Samen gibt es im Tutorial) */
+export const START_SEEDS = 0;
+export const START_TURNIPS = 0;
 /** Ernten bis zur Eisen-Gießkanne */
 export const CAN_GOAL = 5;
 export const CAPACITY = { bucket: 4, can: 15 } as const;

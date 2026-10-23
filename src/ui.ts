@@ -384,6 +384,8 @@ export interface HudActions {
   call: () => void;
   /** Rübe essen (roh) oder Ofenrübe */
   eat: (cooked: boolean) => void;
+  /** Basteln-Fenster öffnen */
+  craft: () => void;
   confirm: () => void;
   cancel: () => void;
 }
@@ -406,6 +408,15 @@ export interface HudIcons {
   paddock: string;
   coin: string;
   book: string;
+  stick: string;
+  stone: string;
+  craft: string;
+}
+
+/** Basteln-Fenster */
+export interface CraftData {
+  have: { sticks: number; stones: number; wood: number };
+  recipes: { id: string; name: string; text: string; img: string; sticks: number; stones: number; wood: number; owned: boolean }[];
 }
 
 export interface TradeData {
@@ -498,6 +509,14 @@ export interface Hud {
   /** Händler-Boot; update() zeichnet neu, solange offen */
   openTrade(d: TradeData, act: { sell: (id: string, n: number) => void; buy: (id: string) => void }, onClose: () => void): { update(d: TradeData): void };
   openAlbum(d: AlbumData): void;
+  /** Basteln; update() zeichnet neu, solange offen */
+  openCraft(d: CraftData, make: (id: string) => void): { update(d: CraftData): void };
+  /** welche Werkzeuge schon gebastelt sind (die anderen sind gesperrt) */
+  setOwned(tools: string[]): void;
+  /** Knopf hüpfen lassen (Tutorial) */
+  nudge(what: 'craft' | null): void;
+  /** Begrüßung mit Schritten (Tutorial) */
+  intro(o: { title: string; text: string; steps: { img: string; text: string }[]; ok: string }, done: () => void): void;
   toast(text: string): void;
 }
 
@@ -527,6 +546,7 @@ export function showHud(on: HudActions, icons: HudIcons, costs: { house: number;
     </div>
     <div class="actions">
       <div class="act-row">
+        <button class="pbtn craft" data-act="craft" aria-label="Basteln"><img src="${icons.craft}" alt="" /><span>Basteln</span></button>
         <button class="pbtn album" data-act="album" aria-label="Sammelalbum"><img src="${icons.book}" alt="" /><span>Album</span></button>
         <button class="pbtn build" data-act="build" aria-label="Bauen"><img src="${icons.house}" alt="" /><span>Bauen</span></button>
         <button class="pbtn call" data-act="call" aria-label="Lieblingspferd rufen" hidden><img src="" alt="" /><span>Rufen</span></button>
@@ -576,6 +596,7 @@ export function showHud(on: HudActions, icons: HudIcons, costs: { house: number;
   });
   $('[data-act=build]').addEventListener('click', () => hud.openBuild(wood));
   $('[data-act=album]').addEventListener('click', on.album);
+  $('[data-act=craft]').addEventListener('click', on.craft);
   $('[data-act=call]').addEventListener('click', on.call);
   $('[data-act=cancel]').addEventListener('click', on.cancel);
   $('[data-act=confirm]').addEventListener('click', on.confirm);
@@ -654,6 +675,73 @@ export function showHud(on: HudActions, icons: HudIcons, costs: { house: number;
       $('.hotbar').hidden = onI;
       $('[data-act=build]').hidden = onI;
       $('[data-act=album]').hidden = onI;
+      $('[data-act=craft]').hidden = onI;
+    },
+    setOwned(tools) {
+      for (const b of ui.querySelectorAll<HTMLElement>('[data-tool]')) {
+        const t = b.dataset.tool!;
+        const locked = t !== 'seeds' && !tools.includes(t);
+        b.classList.toggle('locked', locked);
+        b.setAttribute('aria-label', `${TOOL_NAMES[t as ToolId]}${locked ? ' (noch nicht gebastelt)' : ''}`);
+      }
+    },
+    intro(o, done) {
+      const modal = document.createElement('div');
+      modal.className = 'modal';
+      modal.innerHTML = `<div class="panel build-panel intro-panel">
+          <h2>${esc(o.title)}</h2>
+          <p class="have">${esc(o.text)}</p>
+          <ol class="intro-steps">${o.steps.map((st) => `<li><img src="${st.img}" alt="" /><span>${esc(st.text)}</span></li>`).join('')}</ol>
+          <button class="pbtn green" data-m="ok">${esc(o.ok)}</button>
+        </div>`;
+      ui.appendChild(modal);
+      modal.addEventListener('click', (e) => {
+        if (!(e.target as HTMLElement).closest('[data-m=ok]')) return;
+        modal.remove();
+        done();
+      });
+    },
+    nudge(what) {
+      $('[data-act=craft]').classList.toggle('nudge', what === 'craft');
+    },
+    openCraft(d, make) {
+      const modal = document.createElement('div');
+      modal.className = 'modal';
+      const cost = (n: number, img: string, have: number, label: string) =>
+        n ? `<span class="cost${have < n ? ' miss' : ''}" title="${label}"><img src="${img}" alt="" />${n}</span>` : '';
+      const draw = (c: CraftData) => {
+        modal.innerHTML = `<div class="panel build-panel craft-panel">
+          <h2>Basteln</h2>
+          <p class="have craft-have">Du hast
+            <span><img src="${icons.stick}" alt="" /><b>${c.have.sticks}</b> Stöcke</span>
+            <span><img src="${icons.stone}" alt="" /><b>${c.have.stones}</b> Steine</span>
+            <span><img src="${icons.log}" alt="" /><b>${c.have.wood}</b> Holz</span>
+          </p>
+          <div class="craft-list">${c.recipes
+            .map((r) => {
+              const can = !r.owned && c.have.sticks >= r.sticks && c.have.stones >= r.stones && c.have.wood >= r.wood;
+              return `<div class="craft-row${r.owned ? ' owned' : ''}">
+                <img class="tool" src="${r.img}" alt="" />
+                <div class="what"><b>${esc(r.name)}</b><small>${esc(r.text)}</small>
+                  <div class="costs">${cost(r.sticks, icons.stick, c.have.sticks, 'Stöcke')}${cost(r.stones, icons.stone, c.have.stones, 'Steine')}${cost(r.wood, icons.log, c.have.wood, 'Holz')}</div>
+                </div>
+                ${r.owned ? '<span class="done">Hast du</span>' : `<button class="pbtn green small" data-c="${r.id}"${can ? '' : ' disabled'}>Basteln</button>`}
+              </div>`;
+            })
+            .join('')}</div>
+          <p class="mine small">Stöcke liegen auf der Wiese, Steine im Sand am Strand – nach einer Weile liegen neue da.</p>
+          <button class="pbtn small ghost" data-m="close">Zurück</button>
+        </div>`;
+      };
+      draw(d);
+      ui.appendChild(modal);
+      modal.addEventListener('click', (e) => {
+        const t = e.target as HTMLElement;
+        if (e.target === modal || t.closest('[data-m=close]')) return modal.remove();
+        const b = t.closest<HTMLButtonElement>('[data-c]');
+        if (b && !b.disabled) make(b.dataset.c!);
+      });
+      return { update: (c: CraftData) => modal.isConnected && draw(c) };
     },
     openChest(items) {
       const modal = document.createElement('div');

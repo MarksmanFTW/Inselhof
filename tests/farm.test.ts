@@ -9,11 +9,13 @@ describe('Ackerbau', () => {
 
   it('Hacken, säen, gießen, wachsen, ernten', () => {
     const f = new Farm(isl);
+    expect(f.seeds).toBe(START_SEEDS);
+    f.seeds = 6;
     expect(f.plant(c, r)).toMatch(/Hacke/);
     expect(f.till(c, r, true)).toBeNull();
     expect(f.till(c, r, true)).not.toBeNull();
     expect(f.plant(c, r)).toBeNull();
-    expect(f.seeds).toBe(START_SEEDS - 1);
+    expect(f.seeds).toBe(5);
     let now = 1000;
     for (let s = 0; s < RIPE; s++) {
       expect(f.pour(c, r, now)).toBeNull();

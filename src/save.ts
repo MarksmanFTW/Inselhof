@@ -31,6 +31,8 @@ export interface Slot {
   fav?: number;
   /** Energie der Figur auf dieser Insel (0..100, fehlt = ausgeruht) */
   energy?: number;
+  /** Begrüßung (Tutorial) schon gesehen */
+  intro?: boolean;
 }
 
 export interface Save {

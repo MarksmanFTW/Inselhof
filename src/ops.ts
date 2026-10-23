@@ -13,6 +13,8 @@ import { napOffset, newClock, sleepOffset, sleepyHour, timeOf } from './time';
 import { TILE } from './island';
 import type { Action } from './net/types';
 import { BUILDS, type BuildKind, type World } from './world';
+import { TOOL_NAME, type ToolKind } from './craft';
+import type { PickKind } from './island';
 
 /**
  * eine gemachte Aktion mit Ort und Zeit (für den Abgleich).
@@ -42,6 +44,9 @@ export interface OpResult {
   done: boolean;
   /** erledigte Aufgaben / neue Stufen durch diese Aktion */
   gain?: Gain;
+  /** aufgehoben / gebastelt */
+  picked?: PickKind;
+  crafted?: ToolKind;
 }
 
 /** Ackerbau kennt die Fähigkeiten der Insel-Stufe */
@@ -49,14 +54,19 @@ export function link(world: World, farm: Farm) {
   farm.perks = () => world.perks;
 }
 
-const STAT: Partial<Record<Action['kind'], Stat>> = { hoe: 'tilled', seeds: 'planted', water: 'watered', harvest: 'harvested', build: 'built', adopt: 'adopted', foal: 'adopted', mow: 'mowed', feed: 'cared', brush: 'cared' };
+const STAT: Partial<Record<Action['kind'], Stat>> = { hoe: 'tilled', seeds: 'planted', water: 'watered', harvest: 'harvested', adopt: 'adopted', foal: 'adopted', mow: 'mowed', feed: 'cared', brush: 'cared', cook: 'cooked' };
+/** Bauen: was zählt wofür (Deko und Koppel zählen nicht) */
+const BUILT: Partial<Record<BuildKind, Stat>> = { house: 'built', fire: 'fire', stable: 'stable' };
+/** welches Werkzeug eine Aktion braucht */
+const NEEDS: Partial<Record<Action['kind'], ToolKind>> = { axe: 'axe', hoe: 'hoe', water: 'water', refill: 'water', mow: 'scythe' };
 
 /** Aktion ausführen und Fortschritt verbuchen */
 export function applyOp(world: World, farm: Farm, op: Op): OpResult {
   const res = run(world, farm, op);
-  const give = (r: { seeds?: number; wood?: number }) => {
+  const give = (r: { seeds?: number; wood?: number; coins?: number }) => {
     if (r.seeds) farm.seeds += r.seeds;
     if (r.wood) world.wood += r.wood;
+    if (r.coins) world.coins += r.coins;
   };
   const merge = (g: Gain) => {
     res.gain = { quests: [...(res.gain?.quests ?? []), ...g.quests], levels: [...(res.gain?.levels ?? []), ...g.levels] };
@@ -64,10 +74,19 @@ export function applyOp(world: World, farm: Farm, op: Op): OpResult {
   if (res.felled) {
     merge(gain(world.prog, 'felled', 1, give));
     merge(gain(world.prog, 'wood', res.wood ?? 0, give));
-  } else {
-    // nur Häuser zählen als „gebaut“ (nicht Lagerfeuer und Stall)
-    const stat = op.a.kind === 'build' && op.a.what && op.a.what !== 'house' ? undefined : STAT[op.a.kind];
-    if (res.done && stat) merge(gain(world.prog, stat, 1, give));
+  } else if (res.done) {
+    const a = op.a;
+    if (a.kind === 'pick' && res.picked) merge(gain(world.prog, res.picked === 'stick' ? 'sticks' : 'stones', 1, give));
+    else if (a.kind === 'craft' && res.crafted) {
+      merge(gain(world.prog, 'crafted', 1, give));
+      if (res.crafted === 'water') merge(gain(world.prog, 'bucket', 1, give));
+      if (res.crafted === 'scythe') merge(gain(world.prog, 'scythe', 1, give));
+    } else if (a.kind === 'rake') merge(gain(world.prog, 'hay', res.hay ?? 0, give));
+    else {
+      // „gebaut“ zählt nur Häuser; Lagerfeuer und Stall haben eigene Aufgaben
+      const stat = a.kind === 'build' ? BUILT[a.what ?? 'house'] : STAT[a.kind];
+      if (stat) merge(gain(world.prog, stat, 1, give));
+    }
   }
   const album = world.claimAlbum();
   if (album.length) res.album = album;
@@ -99,6 +118,16 @@ function run(world: World, farm: Farm, op: Op): OpResult {
   const c = a.c ?? 0;
   const r = a.r ?? 0;
   let err: string | null = null;
+  const need = NEEDS[a.kind];
+  if (need && !world.tools.has(need)) return { err: `Dafür brauchst du erst ${need === 'water' ? 'einen' : 'eine'} ${TOOL_NAME[need]} – tipp auf „Basteln“`, done: false };
+  if (a.kind === 'pick') {
+    const got = world.pick(a.tree ?? -1, t);
+    return { err: got ? null : 'Schon aufgehoben', done: !!got, picked: got ?? undefined };
+  }
+  if (a.kind === 'craft') {
+    err = world.craft(a.item ?? '');
+    return { err, done: !err, crafted: err ? undefined : (a.item as ToolKind) };
+  }
   if (a.kind === 'axe') {
     if (!world.isl.decor[a.tree ?? -1]) return { err: null, done: false };
     if (a.fell) {

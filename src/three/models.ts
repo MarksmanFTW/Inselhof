@@ -197,6 +197,61 @@ export function sapling() {
   );
 }
 
+/** Stock zum Aufheben (liegt flach im Gras, ein kleiner Zweig dran) */
+export function stick(variant: number) {
+  return meshOf(
+    cached(`stick${variant % 3}`, () => {
+      const b = new Build();
+      const r = seeded(91 + variant);
+      const len = 1.05 + (variant % 3) * 0.12;
+      const bend = (r() - 0.5) * 0.25;
+      b.add(strand([[-len / 2, 0.07, 0], [0, 0.09, bend], [len / 2, 0.07, 0]], 0.065, 0.7, 6, 6), '#9a6a40');
+      // Zweig mit Blatt
+      b.add(strand([[0.1, 0.08, bend * 0.5], [0.28, 0.1, 0.22], [0.38, 0.11, 0.3]], 0.035, 0.6, 4, 5), '#8a5a34');
+      b.add(sphere(0.08, 7), '#6cc46a', { p: [0.42, 0.12, 0.34], s: [1.4, 0.4, 0.8], r: [0, 0.6, 0] });
+      // helle Schnittflächen
+      b.add(sphere(0.06, 6), '#e8c890', { p: [-len / 2, 0.07, 0], s: [0.4, 1, 1] });
+      b.add(sphere(0.055, 6), '#e8c890', { p: [len / 2, 0.07, 0], s: [0.4, 1, 1] });
+      return b.geometry();
+    }),
+    0.9,
+  );
+}
+
+/** Stein zum Aufheben (rundlich, grau mit hellem Glanz) */
+export function pebble(variant: number) {
+  return meshOf(
+    cached(`pebble${variant % 3}`, () => {
+      const b = new Build();
+      const r = seeded(97 + variant);
+      const cols = ['#a9a6b2', '#9c98a8', '#b8b2a8'];
+      b.add(new THREE.DodecahedronGeometry(0.28, 1), cols[variant % 3], { p: [0, 0.15, 0], s: [1.25, 0.7, 1], r: [0, r() * 6, 0] });
+      b.add(new THREE.DodecahedronGeometry(0.15, 1), tint(cols[variant % 3], -0.1), { p: [0.3, 0.08, 0.12], s: [1, 0.75, 1], r: [0, r() * 6, 0] });
+      b.add(sphere(0.06, 6), '#e4e2ea', { p: [-0.08, 0.31, 0.06], s: [1.5, 0.4, 1] });
+      return b.geometry();
+    }),
+    0.75,
+  );
+}
+
+/** Pfeil, der im Tutorial auf das Ziel zeigt (Spitze unten am Ursprung, flach zur Kamera) */
+export function guideArrow() {
+  const sh = new THREE.Shape();
+  sh.moveTo(0, 0);
+  sh.lineTo(0.42, 0.42);
+  sh.lineTo(0.16, 0.42);
+  sh.lineTo(0.16, 0.86);
+  sh.lineTo(-0.16, 0.86);
+  sh.lineTo(-0.16, 0.42);
+  sh.lineTo(-0.42, 0.42);
+  sh.closePath();
+  const geo = new THREE.ExtrudeGeometry(sh, { depth: 0.08, bevelEnabled: true, bevelThickness: 0.04, bevelSize: 0.04, bevelSegments: 2 });
+  geo.translate(0, 0, -0.04);
+  const m = new THREE.Mesh(geo, curve(new THREE.MeshStandardMaterial({ color: '#ffd23f', emissive: '#ffa020', emissiveIntensity: 0.45, roughness: 0.5 })));
+  m.castShadow = true;
+  return m;
+}
+
 // ---------- Bauten ----------
 /** Prisma fürs Satteldach (First entlang x) */
 function roofGeo(len: number, depth: number, height: number, over = 0.12) {
