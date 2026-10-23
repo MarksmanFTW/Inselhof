@@ -83,6 +83,8 @@ interface DecorObj {
   tree?: THREE.Object3D;
   stump?: THREE.Object3D;
   sapling?: THREE.Object3D;
+  /** Äpfel bzw. Beeren (weg nach dem Schütteln) */
+  fruit?: THREE.Object3D;
   state: string;
   phase: number;
 }
@@ -340,11 +342,19 @@ export class View {
       t.g.rotation.y = kind === 'tree' ? yaw * 3 : flip ? Math.PI : 0;
       o.tree = t.g;
       o.crown = t.crown;
+      if ('fruit' in t) o.fruit = t.fruit as THREE.Object3D;
       o.stump = M.stump(kind === 'tree');
       o.sapling = M.sapling();
       root.add(t.g, o.stump, o.sapling);
       o.stump.visible = o.sapling.visible = false;
-    } else if (kind === 'bush') root.add(M.bush(variant)).rotation.y = yaw;
+    } else if (kind === 'bush') {
+      const b = M.bush(variant);
+      b.g.rotation.y = yaw;
+      root.add(b.g);
+      // wiegt sich leicht und wackelt beim Pflücken
+      o.crown = b.g;
+      if (b.berries) o.fruit = b.berries;
+    }
     else if (kind === 'rock' || kind === 'boulder') root.add(M.rock(kind === 'boulder', variant)).rotation.y = yaw * 4;
     else if (kind === 'grass') {
       o.tree = M.tallGrass(variant);
@@ -357,6 +367,7 @@ export class View {
     const w = this.world;
     this.isl.decor.forEach((d, i) => {
       const o = this.decor[i];
+      if (o.fruit) o.fruit.visible = w.hasFruit(i, now);
       if (!o.stump) {
         if (d.kind === 'grass' && o.tree) o.tree.visible = !this.farm.meadow.has(plotKey(Math.floor(d.x / TILE), Math.floor(d.y / TILE)));
         return;

@@ -44,9 +44,10 @@ export interface OpResult {
   done: boolean;
   /** erledigte Aufgaben / neue Stufen durch diese Aktion */
   gain?: Gain;
-  /** aufgehoben / gebastelt */
+  /** aufgehoben / gebastelt / geschüttelt */
   picked?: PickKind;
   crafted?: ToolKind;
+  fruit?: { apples: number; berries: number };
 }
 
 /** Ackerbau kennt die Fähigkeiten der Insel-Stufe */
@@ -76,6 +77,7 @@ export function applyOp(world: World, farm: Farm, op: Op): OpResult {
   } else if (res.done) {
     const a = op.a;
     if (a.kind === 'pick' && res.picked) merge(gain(world.prog, res.picked === 'stick' ? 'sticks' : 'stones', 1, give));
+    else if (a.kind === 'shake' && res.fruit) merge(gain(world.prog, 'fruit', res.fruit.apples + res.fruit.berries, give));
     else if (a.kind === 'craft' && res.crafted) {
       merge(gain(world.prog, 'crafted', 1, give));
       if (res.crafted === 'water') merge(gain(world.prog, 'bucket', 1, give));
@@ -131,6 +133,10 @@ function run(world: World, farm: Farm, op: Op): OpResult {
     world.version++;
     return { err: null, done: true, crafted: r.id };
   }
+  if (a.kind === 'shake') {
+    const got = world.shake(a.tree ?? -1, t);
+    return { err: got ? null : 'Hier hängt gerade nichts', done: !!got, fruit: got ?? undefined };
+  }
   if (a.kind === 'tut') {
     // Tutorial geschafft: Rübensamen für die Insel
     farm.seeds += TUT_SEEDS;
@@ -167,11 +173,13 @@ function run(world: World, farm: Farm, op: Op): OpResult {
       const n = Math.max(1, Math.floor(a.n ?? 1));
       const price = SELL[item];
       if (!price) return { err: 'Das kauft der Händler nicht', done: false };
-      const have = item === 'wood' ? world.wood : item === 'turnip' ? farm.turnips : item === 'meal' ? farm.meals : farm.hay;
+      const have = item === 'wood' ? world.wood : item === 'turnip' ? farm.turnips : item === 'meal' ? farm.meals : item === 'apple' ? world.apples : item === 'berry' ? world.berries : farm.hay;
       if (have < n) return { err: 'So viel hast du nicht', done: false };
       if (item === 'wood') world.wood -= n;
       else if (item === 'turnip') farm.turnips -= n;
       else if (item === 'meal') farm.meals -= n;
+      else if (item === 'apple') world.apples -= n;
+      else if (item === 'berry') world.berries -= n;
       else farm.hay -= n;
       world.coins += price * n;
       world.version++;
@@ -211,6 +219,14 @@ function run(world: World, farm: Farm, op: Op): OpResult {
     world.clock.offset = night ? sleepOffset(world.clock, t) : napOffset(world.clock);
     world.version++;
     return { err: null, done: true, slept: night ? 'night' : 'nap' };
+  } else if (a.kind === 'eat' && (a.item === 'apple' || a.item === 'berry')) {
+    // Obst aus dem Insel-Vorrat
+    if (a.item === 'apple' ? world.apples <= 0 : world.berries <= 0) err = a.item === 'apple' ? 'Keine Äpfel mehr' : 'Keine Beeren mehr';
+    else {
+      if (a.item === 'apple') world.apples--;
+      else world.berries--;
+      world.version++;
+    }
   } else if (a.kind === 'eat') {
     if (!farm.eat(!!a.cooked)) err = a.cooked ? 'Keine Ofenrüben mehr' : 'Keine Rüben mehr';
   } else if (a.kind === 'cook') {
@@ -224,10 +240,15 @@ function run(world: World, farm: Farm, op: Op): OpResult {
       return true;
     });
   } else if (a.kind === 'feed' || a.kind === 'brush') {
-    // Heu (Standard), Leckerli = Rübe, Bürsten kostet nichts
-    const what = a.kind === 'brush' ? 'brushed' : a.item === 'turnip' ? 'treat' : 'fed';
+    // Heu (Standard), Leckerli = Apfel oder Rübe, Bürsten kostet nichts
+    const what = a.kind === 'brush' ? 'brushed' : a.item === 'turnip' || a.item === 'apple' ? 'treat' : 'fed';
     err = world.care(a.horse ?? -1, what, t, () => {
       if (what === 'brushed') return true;
+      if (a.item === 'apple') {
+        if (world.apples <= 0) return false;
+        world.apples--;
+        return true;
+      }
       if (what === 'treat' ? farm.turnips <= 0 : farm.hay <= 0) return false;
       if (what === 'treat') farm.turnips--;
       else farm.hay--;

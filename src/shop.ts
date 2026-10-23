@@ -7,9 +7,9 @@ import { RARE_BREEDS, STABLE_BREEDS } from './horses';
 import { timeOf, type Clock } from './time';
 
 /** Verkaufspreise in Münzen pro Stück */
-export const SELL = { turnip: 4, meal: 10, wood: 1, hay: 2 } as const;
+export const SELL = { turnip: 4, meal: 10, wood: 1, hay: 2, apple: 1, berry: 1 } as const;
 export type SellItem = keyof typeof SELL;
-export const SELL_NAMES: Record<SellItem, string> = { turnip: 'Rübe', meal: 'Ofenrübe', wood: 'Holz', hay: 'Heu' };
+export const SELL_NAMES: Record<SellItem, string> = { turnip: 'Rübe', meal: 'Ofenrübe', wood: 'Holz', hay: 'Heu', apple: 'Apfel', berry: 'Beeren' };
 /** Samen gibt es im Päckchen */
 export const SEED_PACK = { n: 5, price: 8 };
 

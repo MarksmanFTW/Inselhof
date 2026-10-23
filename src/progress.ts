@@ -24,7 +24,9 @@ export type Stat =
   | 'fire'
   | 'cooked'
   | 'hay'
-  | 'stable';
+  | 'stable'
+  // Obst gesammelt (Stück)
+  | 'fruit';
 
 export interface Progress {
   xp: number;
@@ -84,6 +86,7 @@ export const XP: Record<Exclude<Stat, 'wood'>, number> = {
   cooked: 2,
   hay: 0,
   stable: 20,
+  fruit: 0,
 };
 
 /** XP bis Stufe L: 30 · L(L-1)/2 → 30, 90, 180, 300 … */

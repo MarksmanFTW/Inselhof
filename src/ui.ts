@@ -382,8 +382,8 @@ export interface HudActions {
   album: () => void;
   /** Lieblingspferd rufen */
   call: () => void;
-  /** Rübe essen (roh) oder Ofenrübe */
-  eat: (cooked: boolean) => void;
+  /** essen: Rübe (roh), Ofenrübe, Apfel, Beeren */
+  eat: (what: 'raw' | 'cooked' | 'apple' | 'berry') => void;
   /** Basteln-Fenster öffnen */
   craft: () => void;
   confirm: () => void;
@@ -411,6 +411,8 @@ export interface HudIcons {
   stick: string;
   stone: string;
   craft: string;
+  apple: string;
+  berry: string;
 }
 
 /** Basteln-Fenster */
@@ -421,8 +423,8 @@ export interface CraftData {
 
 export interface TradeData {
   coins: number;
-  have: Record<'turnip' | 'meal' | 'wood' | 'hay', number>;
-  sell: { id: 'turnip' | 'meal' | 'wood' | 'hay'; name: string; price: number; img: string }[];
+  have: Record<'turnip' | 'meal' | 'wood' | 'hay' | 'apple' | 'berry', number>;
+  sell: { id: 'turnip' | 'meal' | 'wood' | 'hay' | 'apple' | 'berry'; name: string; price: number; img: string }[];
   seeds: { n: number; price: number; img: string };
   deco: { id: string; name: string; price: number; img: string; owned: boolean }[];
   horses: { id: string; name: string; text: string; price: number; img: string }[];
@@ -472,7 +474,7 @@ export interface HorseCard {
 }
 
 export interface Hud {
-  setInv(wood: number, turnips: number, meals: number): void;
+  setInv(wood: number, turnips: number, meals: number, apples: number, berries: number): void;
   /** Energie 0..100 */
   setEnergy(v: number): void;
   setTool(t: ToolId): void;
@@ -489,7 +491,7 @@ export interface Hud {
   /** Pferdestall: Rassen zum Aufnehmen, eigene Pferde */
   openStable(o: { breeds: BreedCard[]; turnips: number; level: number; mine: string[]; space: number }, pick: (id: string, name: string) => void): void;
   /** eigenes Pferd: füttern oder reiten */
-  openHorse(h: HorseCard, have: { turnips: number; hay: number }, hearts: [string, string], on: { feed: () => void; treat: () => void; brush: () => void; ride: () => void; foal: () => void; pet: () => void; fav: () => void; dress: (id: string) => void }): void;
+  openHorse(h: HorseCard, have: { turnips: number; hay: number; treatImg?: string }, hearts: [string, string], on: { feed: () => void; treat: () => void; brush: () => void; ride: () => void; foal: () => void; pet: () => void; fav: () => void; dress: (id: string) => void }): void;
   /** „Rufen“-Knopf fürs Lieblingspferd */
   setCall(icon: string | null): void;
   /** Namen eingeben (Fohlen) */
@@ -537,6 +539,8 @@ export function showHud(on: HudActions, icons: HudIcons, costs: { house: number;
       <span class="r" title="Holz"><img src="${icons.log}" alt="" /><b class="n-wood">0</b></span>
       <button class="r eat" data-eat="raw" aria-label="Rübe essen"><img class="turnip" src="${icons.turnip}" alt="" /><b class="n-turnip">0</b></button>
       <button class="r eat" data-eat="cooked" aria-label="Ofenrübe essen"><img class="meal" src="${icons.meal}" alt="" /><b class="n-meal">0</b></button>
+      <button class="r eat" data-eat="apple" aria-label="Apfel essen" hidden><img src="${icons.apple}" alt="" /><b class="n-apple">0</b></button>
+      <button class="r eat" data-eat="berry" aria-label="Beeren essen" hidden><img src="${icons.berry}" alt="" /><b class="n-berry">0</b></button>
       <span class="r" title="Münzen"><img class="coin" src="${icons.coin}" alt="" /><b class="n-coins">0</b></span>
     </div>
     <button class="goal" hidden aria-label="Aufgabe"></button>
@@ -563,7 +567,7 @@ export function showHud(on: HudActions, icons: HudIcons, costs: { house: number;
     <div class="toast" hidden></div>`;
   const $ = <T extends HTMLElement>(q: string) => ui.querySelector<T>(q)!;
   $('[data-act=menu]').addEventListener('click', on.menu);
-  for (const b of ui.querySelectorAll<HTMLElement>('[data-eat]')) b.addEventListener('click', () => on.eat(b.dataset.eat === 'cooked'));
+  for (const b of ui.querySelectorAll<HTMLElement>('[data-eat]')) b.addEventListener('click', () => on.eat(b.dataset.eat as 'raw' | 'cooked' | 'apple' | 'berry'));
   const use = $('[data-act=use]');
   use.addEventListener('pointerdown', (e) => {
     e.preventDefault();
@@ -611,11 +615,16 @@ export function showHud(on: HudActions, icons: HudIcons, costs: { house: number;
   let toastTimer = 0;
   let actionIcon = '';
   const hud: Hud = {
-    setInv(w, turnips, meals) {
+    setInv(w, turnips, meals, apples, berries) {
       wood = w;
       bump($('.n-wood'), String(w));
       bump($('.n-turnip'), String(turnips));
       bump($('.n-meal'), String(meals));
+      // Obst nur zeigen, wenn man welches hat
+      $('[data-eat=apple]').hidden = apples <= 0;
+      $('[data-eat=berry]').hidden = berries <= 0;
+      bump($('.n-apple'), String(apples));
+      bump($('.n-berry'), String(berries));
     },
     setEnergy(v) {
       const bar = $('.enbar i');
@@ -860,7 +869,7 @@ export function showHud(on: HudActions, icons: HudIcons, costs: { house: number;
           </div>
           <div class="care">
             ${btn('feed', h.fed ? 'Satt' : `<img src="${icons.hay}" alt="" />Heu · ${have.hay}`, h.fed || have.hay <= 0)}
-            ${btn('treat', h.treat ? 'Lecker!' : `<img src="${icons.turnip}" alt="" />Leckerli`, h.treat || have.turnips <= 0)}
+            ${btn('treat', h.treat ? 'Lecker!' : `<img src="${have.treatImg ?? icons.turnip}" alt="" />Leckerli`, h.treat || have.turnips <= 0)}
             ${btn('brush', h.brushed ? 'Glänzt' : 'Bürsten', h.brushed)}
           </div>
           <p class="mine small">Füttern, Leckerli und Bürsten geht je einmal am Tag.</p>

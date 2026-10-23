@@ -22,6 +22,11 @@ export const SPROUT_MS = 60_000;
 export const REGROW_MS = 180_000;
 /** Reichweite der Axt (Welt-Pixel vom Fuß zum Stamm) */
 export const REACH = 16;
+/** Obst: so viel fällt beim Schütteln herunter, so lange dauert es, bis wieder etwas dran ist (ms) */
+export const FRUIT = { tree: 3, bush: 4 } as const;
+export const FRUIT_MS = 240_000;
+/** Beeren wachsen nur an den Beerenbüschen (jede zweite Sorte) */
+export const berryBush = (d: Decor) => d.kind === 'bush' && d.variant % 2 === 1;
 
 /** Grundfläche des Hauses relativ zum Fußpunkt (Mitte unten) */
 export const HOUSE_FOOT = { left: -18, right: 18, top: -14, bottom: 1 };
@@ -75,6 +80,10 @@ export interface WorldSave {
   tools?: ToolKind[];
   /** Index in island.pickups → Zeitpunkt des Aufhebens */
   picked?: Record<number, number>;
+  /** Obst im Vorrat und wann welcher Baum/Busch (Index in island.decor) geschüttelt wurde */
+  apples?: number;
+  berries?: number;
+  shaken?: Record<number, number>;
 }
 
 export type TreeStage = 'tree' | 'stump' | 'sapling';
@@ -106,6 +115,9 @@ export class World {
   clock: Clock | null = null;
   prog: Progress = newProgress();
   picked = new Map<number, number>();
+  apples = 0;
+  berries = 0;
+  shaken = new Map<number, number>();
   /** Treffer am aktuellen Baum (nicht gespeichert) */
   private hits = new Map<number, number>();
   /** wird bei jeder Änderung hochgezählt (Schatten neu malen, speichern) */
@@ -130,6 +142,12 @@ export class World {
       for (const [k, v] of Object.entries(save.picked ?? {})) {
         const i = Number(k);
         if (isl.pickups[i] && typeof v === 'number') this.picked.set(i, v);
+      }
+      this.apples = Math.max(0, Math.floor(save.apples ?? 0));
+      this.berries = Math.max(0, Math.floor(save.berries ?? 0));
+      for (const [k, v] of Object.entries(save.shaken ?? {})) {
+        const i = Number(k);
+        if (isl.decor[i] && typeof v === 'number') this.shaken.set(i, v);
       }
       this.horses = cleanHorses(save.horses, this.stables.length);
       this.paddocks = (save.paddocks ?? []).filter((h) => typeof h?.x === 'number' && typeof h?.y === 'number');
@@ -163,6 +181,9 @@ export class World {
     this.album = w.album;
     this.albumClaimed = w.albumClaimed;
     this.picked = w.picked;
+    this.apples = w.apples;
+    this.berries = w.berries;
+    this.shaken = w.shaken;
     this.version++;
   }
 
@@ -180,6 +201,7 @@ export class World {
       ...(this.clock ? { clock: { ...this.clock } } : {}),
       prog: { xp: this.prog.xp, stats: { ...this.prog.stats }, quests: this.prog.quests, v: this.prog.v },
       ...(this.picked.size ? { picked: Object.fromEntries(this.picked) } : {}),
+      ...(this.apples || this.berries || this.shaken.size ? { apples: this.apples, berries: this.berries, shaken: Object.fromEntries(this.shaken) } : {}),
     };
   }
 
@@ -198,10 +220,15 @@ export class World {
 
   /** Bäume nachwachsen lassen – aber nicht, wenn jemand genau dort steht */
   grow(now: number, standing?: { x: number; y: number }) {
-    // aufgehobene Stöcke und Steine liegen wieder da
+    // aufgehobene Stöcke und Steine liegen wieder da, Obst wächst nach
     for (const [i, t] of this.picked)
       if (now - t >= PICK_REGROW_MS) {
         this.picked.delete(i);
+        this.version++;
+      }
+    for (const [i, t] of this.shaken)
+      if (now - t >= FRUIT_MS) {
+        this.shaken.delete(i);
         this.version++;
       }
     for (const [i, t] of this.felled) {
@@ -247,6 +274,41 @@ export class World {
     ] as const)
       for (const h of list) if (x + fw > h.x + f.left && x - fw < h.x + f.right && y + fh > h.y + f.top && y - fh < h.y + f.bottom) return true;
     return false;
+  }
+
+  /** Hängt an diesem Baum/Busch gerade Obst? */
+  hasFruit(i: number, now = Date.now()) {
+    const d = this.isl.decor[i];
+    if (!d || !(d.kind === 'tree' || berryBush(d))) return false;
+    if (d.kind === 'tree' && this.felled.has(i)) return false;
+    const t = this.shaken.get(i);
+    return t === undefined || now - t >= FRUIT_MS;
+  }
+
+  /** Nächster Baum/Busch mit Obst in Reichweite (Index in island.decor, -1 = keiner) */
+  fruitTarget(x: number, y: number, now = Date.now()) {
+    let best = -1;
+    let bestD = Infinity;
+    this.isl.decor.forEach((d, i) => {
+      if (d.kind !== 'tree' && d.kind !== 'bush') return;
+      const dist = Math.hypot(d.x - x, (d.y - y) * 1.6);
+      if (dist >= (d.kind === 'bush' ? REACH + 4 : REACH) || dist >= bestD || !this.hasFruit(i, now)) return;
+      bestD = dist;
+      best = i;
+    });
+    return best;
+  }
+
+  /** Baum schütteln / Beeren pflücken: Obst kommt in den Vorrat der Insel */
+  shake(i: number, now = Date.now()): { apples: number; berries: number } | null {
+    if (!this.hasFruit(i, now)) return null;
+    const tree = this.isl.decor[i].kind === 'tree';
+    this.shaken.set(i, now);
+    const got = { apples: tree ? FRUIT.tree : 0, berries: tree ? 0 : FRUIT.bush };
+    this.apples += got.apples;
+    this.berries += got.berries;
+    this.version++;
+    return got;
   }
 
   /** Liegt dieser Stock/Stein gerade da? (nicht aufgehoben, nicht überbaut) */

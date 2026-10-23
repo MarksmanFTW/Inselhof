@@ -64,19 +64,30 @@ export function tree(variant: number) {
           [0.3, 0.6, -0.7, 0.78],
         ];
         for (const [x, y, z, s] of blobs) b.add(sphere(s, 13), GREENS[Math.floor(r() * GREENS.length)], { p: [x, y, z] });
-        for (let k = 0; k < 9; k++) {
-          const a = r() * Math.PI * 2;
-          const y = 0.2 + r() * 1.1;
-          const rad = 1.0 + (1 - Math.abs(y - 0.7)) * 0.25;
-          b.add(dot(0.13), FRUIT[v], { p: [Math.cos(a) * rad, y, Math.sin(a) * rad] });
-        }
         return b.geometry();
       }),
       0.92,
     ),
   );
+  // Äpfel extra, damit sie nach dem Schütteln verschwinden können
+  const fruit = meshOf(
+    cached(`fruit${v}`, () => {
+      const r = seeded(11 + v * 7 + 100);
+      const b = new Build();
+      for (let k = 0; k < 9; k++) {
+        const a = r() * Math.PI * 2;
+        const y = 0.2 + r() * 1.1;
+        const rad = 1.0 + (1 - Math.abs(y - 0.7)) * 0.25;
+        b.add(dot(0.13), FRUIT[v], { p: [Math.cos(a) * rad, y, Math.sin(a) * rad] });
+      }
+      return b.geometry();
+    }),
+    0.6,
+    false,
+  );
+  crown.add(fruit);
   g.add(trunk, crown);
-  return { g, crown };
+  return { g, crown, fruit };
 }
 
 export function palm(variant: number) {
@@ -111,23 +122,44 @@ export function palm(variant: number) {
   return { g, crown };
 }
 
+/** Busch; Beerenbüsche (jede zweite Sorte) mit Beeren als eigenem Teil (zum Pflücken) */
 export function bush(variant: number) {
-  return meshOf(
-    cached(`bush${variant % 2}`, () => {
-      const r = seeded(31 + variant);
-      const b = new Build();
-      for (const [x, z, s] of [
-        [0, 0, 0.62],
-        [0.5, 0.12, 0.48],
-        [-0.48, 0.05, 0.46],
-        [0.1, -0.3, 0.45],
-      ] as const)
-        b.add(sphere(s, 11), GREENS[Math.floor(r() * 4)], { p: [x, s * 0.72, z] });
-      if (variant % 2) for (let k = 0; k < 7; k++) b.add(dot(0.075), k % 2 ? '#9a6ad0' : '#b884e8', { p: [(r() - 0.5) * 1.1, 0.35 + r() * 0.45, 0.32 + r() * 0.25] });
-      return b.geometry();
-    }),
-    0.92,
+  const g = new THREE.Group();
+  g.add(
+    meshOf(
+      cached(`bush${variant % 2}`, () => {
+        const r = seeded(31 + variant);
+        const b = new Build();
+        for (const [x, z, s] of [
+          [0, 0, 0.62],
+          [0.5, 0.12, 0.48],
+          [-0.48, 0.05, 0.46],
+          [0.1, -0.3, 0.45],
+        ] as const)
+          b.add(sphere(s, 11), GREENS[Math.floor(r() * 4)], { p: [x, s * 0.72, z] });
+        return b.geometry();
+      }),
+      0.92,
+    ),
   );
+  let berries: THREE.Mesh | null = null;
+  if (variant % 2) {
+    berries = meshOf(
+      cached('berries', () => {
+        const r = seeded(32);
+        const b = new Build();
+        for (let k = 0; k < 11; k++) {
+          const a = -1.2 + r() * 2.4;
+          b.add(dot(0.085), k % 2 ? '#9a6ad0' : '#b884e8', { p: [Math.sin(a) * 0.62, 0.3 + r() * 0.5, Math.cos(a) * 0.5 + 0.05] });
+        }
+        return b.geometry();
+      }),
+      0.5,
+      false,
+    );
+    g.add(berries);
+  }
+  return { g, berries };
 }
 
 export function rock(big: boolean, variant = 0) {

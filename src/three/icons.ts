@@ -83,6 +83,25 @@ function paddockMini() {
   return meshOf(b.geometry());
 }
 
+function apple() {
+  const b = new Build();
+  b.add(sphere(0.45, 20), '#e0483e', { s: [1.05, 0.95, 1.05] });
+  b.add(sphere(0.12, 10), '#ff8a7a', { p: [-0.18, 0.2, 0.33], s: [1, 0.8, 0.5] });
+  b.add(cyl(0.035, 0.045, 0.28, 6), '#7a5228', { p: [0.02, 0.48, 0], r: [0, 0, -0.2] });
+  b.add(sphere(0.14, 10), '#5fae4e', { p: [0.18, 0.52, 0], r: [0, 0, -0.7], s: [1.4, 0.45, 0.8] });
+  return meshOf(b.geometry());
+}
+function berries() {
+  const b = new Build();
+  const pts: [number, number, number][] = [[0, 0, 0.1], [0.28, 0.06, 0], [-0.27, 0.04, 0.02], [0.13, 0.3, -0.05], [-0.14, 0.28, 0], [0.05, -0.25, 0.05], [0.32, -0.2, -0.05], [-0.3, -0.22, 0]];
+  pts.forEach(([x, y, z], k) => {
+    b.add(sphere(0.17, 12), k % 2 ? '#9a6ad0' : '#b884e8', { p: [x, y, z] });
+    b.add(sphere(0.045, 6), '#efe2ff', { p: [x - 0.05, y + 0.07, z + 0.14] });
+  });
+  b.add(sphere(0.16, 10), '#5fae4e', { p: [0.05, 0.52, -0.1], r: [0, 0, 0.5], s: [1.5, 0.45, 0.9] });
+  return meshOf(b.geometry());
+}
+
 /** Basteln: Steinhammer mit Schnur */
 function craftTool() {
   const b = new Build();
@@ -114,6 +133,8 @@ const MAKERS = {
   stick: () => photo('i:stick', () => M.stick(0), { yaw: 0.5, tilt: 0.7 }),
   stone: () => photo('i:stone', () => M.pebble(0), { yaw: 0.3, tilt: 0.45 }),
   craft: () => photo('i:craft', craftTool, { yaw: 0, tilt: 0.2 }),
+  apple: () => photo('i:apple', apple, { yaw: 0.3, tilt: 0.25 }),
+  berry: () => photo('i:berry', berries, { yaw: 0, tilt: 0.2 }),
 } satisfies Record<string, () => string>;
 
 /** Symbole als Objekt mit Eigenschaften, die erst beim Lesen entstehen */
