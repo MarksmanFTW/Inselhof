@@ -39,9 +39,18 @@ body {
 [hidden] {
   display: none !important;
 }
-#screen {
+/* 3D-Welt ganz unten, darüber die Schrift-Ebene (Namen, Joystick), darüber die Knöpfe */
+.world3d {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
   display: block;
-  image-rendering: pixelated;
+}
+#screen {
+  position: fixed;
+  inset: 0;
+  z-index: 1;
+  display: block;
 }
 .hint {
   position: fixed;
@@ -136,7 +145,6 @@ body {
 }
 .stage-canvas {
   display: block;
-  image-rendering: pixelated;
 }
 
 /* ---------- Hauptmenü ---------- */

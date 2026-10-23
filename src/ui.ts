@@ -2,7 +2,8 @@
  * Menüs als HTML über dem Spielbild: Hauptmenü (Holzschild-Optik, Pixel-Schrift)
  * und der Aussehen-Editor mit großer, laufender Vorschau der Figur.
  */
-import { Dir, FOOT_X, FOOT_Y, HAIR_COLORS, PANTS, PARTS, SHIRTS, SKINS, makeCharacter, randomLook, type Look } from './character';
+import { Dir, HAIR_COLORS, PANTS, PARTS, SHIRTS, SKINS, randomLook, type Look } from './character';
+import { Stage3D } from './three/stage';
 import { prefs, setPrefs } from './audio';
 import { levelOf } from './progress';
 import { MAX_SLOTS, activeSlot, type Save, type Slot } from './save';
@@ -103,50 +104,7 @@ export function showSettings(o: {
 
 const esc = (s: string) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]!);
 
-/** Kleine Bühne: Figur auf einem Grasfleck, groß und pixelscharf */
-class Stage {
-  readonly canvas = document.createElement('canvas');
-  private sheet = makeCharacter({ skin: 0, hair: 0, hairColor: 0, shirt: 0, pants: 0, hat: 0 });
-  dir: Dir = Dir.Down;
-  walking = true;
-  private raf = 0;
-  constructor(readonly scale: number) {
-    this.canvas.width = 28;
-    this.canvas.height = 30;
-    this.canvas.className = 'stage-canvas';
-    this.canvas.style.width = `${28 * scale}px`;
-    this.canvas.style.height = `${30 * scale}px`;
-  }
-  set(look: Look) {
-    this.sheet = makeCharacter(look);
-  }
-  start() {
-    const g = this.canvas.getContext('2d')!;
-    const tick = (now: number) => {
-      this.raf = requestAnimationFrame(tick);
-      g.clearRect(0, 0, 28, 30);
-      // Grasfleck mit dunklem Rand
-      for (let y = -3; y <= 3; y++)
-        for (let x = -12; x <= 12; x++) {
-          const d = (x / 12) ** 2 + (y / 3.4) ** 2;
-          if (d > 1) continue;
-          g.fillStyle = d > 0.72 ? '#1f4a1e' : y < 0 ? '#6cb45a' : '#4f9a44';
-          g.fillRect(14 + x, 25 + y, 1, 1);
-        }
-      g.fillStyle = 'rgba(10,40,12,0.45)';
-      g.fillRect(9, 25, 10, 2);
-      g.fillRect(10, 24, 8, 1);
-      const f = this.walking ? Math.floor(now / 140) % 4 : 0;
-      g.drawImage(this.sheet[this.dir][f], 14 - FOOT_X, 26 - FOOT_Y);
-    };
-    this.raf = requestAnimationFrame(tick);
-  }
-  stop() {
-    cancelAnimationFrame(this.raf);
-  }
-}
-
-let stage: Stage | null = null;
+let stage: Stage3D | null = null;
 function clear() {
   stage?.stop();
   stage = null;
@@ -198,7 +156,7 @@ export function showMenu(
     </div>
     <p class="foot">Bauen, farmen, Pferde lieben – allein oder zu zweit</p>
     </div>`;
-  stage = new Stage(3);
+  stage = new Stage3D(3);
   stage.set(save.look);
   ui.querySelector('.menu-hero')!.appendChild(stage.canvas);
   stage.start();
@@ -381,7 +339,7 @@ export function showCustomize(save: Save, done: (s: Save) => void, opts: { first
         <button class="pbtn green small" data-act="done">${opts.first ? "Los geht's!" : 'Fertig'}</button>
       </div>
     </div>`;
-  stage = new Stage(6);
+  stage = new Stage3D(6);
   ui.querySelector('.stage-slot')!.appendChild(stage.canvas);
   stage.start();
   const st = stage;

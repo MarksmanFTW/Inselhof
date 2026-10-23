@@ -1,73 +1,33 @@
 import '@fontsource/pixelify-sans/latin-500.css';
 import '@fontsource/pixelify-sans/latin-700.css';
 import './style.css';
-import { CH, CW, Dir, FOOT_X, FOOT_Y, PANTS, makeCharacter, type CharSheet, type Look } from './character';
+import { Dir, type Look } from './character';
 import { ACCESSORIES } from './horses';
 import { ALBUM_REWARDS, ALBUM_TOTAL, DECO, SEED_PACK, SELL, SELL_NAMES, albumCount, boatOut, decoById, horseOffers, merchantHere, type SellItem } from './shop';
-import { boat, bookIcon, coinIcon, decoArt } from './decoart';
-import { BREEDS, RARE_BREEDS, islandDay, STABLE_BREEDS, FOAL_GROW_MS, GATE, MAX_LOVE, PADDOCK_COST, PADDOCK_FOOT, STABLE_COST, STABLE_SPACE, TRUST, breedById, foalBreed, horsePose, isFoal, pasture, type HorsePose, type Paddock } from './horses';
-import { FENCE, HH, HOX, HOY, HW, hayIcon, hayTile, heartIcon, horseSheet, paddockIcon, saddle, scythe, stable as stableArt } from './horseart';
-import { Ground, H, TILE, W, generate, rng } from './island';
-import { Shore, paintDock, paintLand, paintShadows, waveTile } from './paint';
+import { bookIcon, coinIcon, decoArt } from './decoart';
+import { BREEDS, RARE_BREEDS, islandDay, STABLE_BREEDS, FOAL_GROW_MS, MAX_LOVE, PADDOCK_COST, STABLE_COST, STABLE_SPACE, TRUST, breedById, foalBreed, horsePose, isFoal, pasture, type HorsePose } from './horses';
+import { hayIcon, heartIcon, horseSheet, paddockIcon, scythe, stable as stableArt } from './horseart';
+import { Ground, H, TILE, W, generate } from './island';
 import { setScene, sfx, unlockAudio } from './audio';
 import { FURNITURE } from './furniture';
-import { DOOR, ROOM_H, ROOM_W, furnitureIcon, nearSpot, paintRoom, roomFree } from './interior';
+import { DOOR, ROOM_H, furnitureIcon, nearSpot, roomFree } from './interior';
 import { Player } from './player';
 import { httpApi, syncIsland } from './cloud';
 import { CAN_GOAL, Farm, RIPE, key as plotKey } from './farm';
 import { applyOp, farmUnder as farmUnderOf, link, tileFree as tileFreeOf, type Op } from './ops';
 import { PERKS, levelProgress, questAt } from './progress';
 import { newClock, timeOf, type TimeOfDay } from './time';
-import { campfire, mealIcon, axe, bucket, cropStage, hoe, house, logIcon, sapling, seedBag, soilTile, toUrl, treeStump, turnipIcon, wateringCan } from './props';
+import { campfire, mealIcon, axe, bucket, hoe, house, logIcon, seedBag, toUrl, turnipIcon, wateringCan } from './props';
 import { MAX_SLOTS, activeSlot, addSlot, loadSave, removeSlot, writeSave, type Save, type Slot } from './save';
-import { butterfly, gull, makeSprites } from './sprites';
 import { PROTOCOL, Room, cleanCode, type Action, type Fx, type Msg, type PlayerState } from './net/room';
 import { showCoop, showCustomize, showHud, showMenu, showSettings, showSlots, showWait, textScale, type Hud, type ToolId, type TradeData } from './ui';
-import { BUILDS, FIRE_COST, HOUSE_COST, HOUSE_FOOT, STABLE_FOOT, World, type BuildKind } from './world';
+import { BUILDS, FIRE_COST, HOUSE_COST, World, type BuildKind } from './world';
+import { View } from './three/view';
 
 const screen = document.querySelector<HTMLCanvasElement>('#screen')!;
 const ctx = screen.getContext('2d')!;
 
 const island = generate();
-const sprites = makeSprites();
-const baseLand = paintLand(island);
-const land = document.createElement('canvas');
-land.width = baseLand.width;
-land.height = baseLand.height;
-const shore = new Shore(island);
-const sea = ctx.createPattern(waveTile(), 'repeat')!;
-
-// Gespiegelte Bilder (für Abwechslung) einmal vorbereiten
-const flipped = new Map<HTMLCanvasElement, HTMLCanvasElement>();
-function mirror(img: HTMLCanvasElement) {
-  let m = flipped.get(img);
-  if (!m) {
-    m = document.createElement('canvas');
-    m.width = img.width;
-    m.height = img.height;
-    const g = m.getContext('2d')!;
-    g.translate(img.width, 0);
-    g.scale(-1, 1);
-    g.drawImage(img, 0, 0);
-    flipped.set(img, m);
-  }
-  return m;
-}
-
-// ---------- Möwen & Schmetterlinge ----------
-const gullImg = gull();
-const gulls = [0, 1].map((i) => ({ r: 140 + i * 20, speed: 0.12 + i * 0.04, ph: i * 2.6, dir: i % 2 ? -1 : 1 }));
-const bfImgs = ['#ffffff', '#ffd23f', '#ff9fc4'].map(butterfly);
-const flies = (() => {
-  const r = rng(77);
-  const out: { x: number; y: number; ph: number; c: number }[] = [];
-  while (out.length < 7) {
-    const x = Math.round(W / 2 + (r() - 0.5) * (W - 160));
-    const y = Math.round(H / 2 + (r() - 0.5) * 160);
-    if (island.ground[y * W + x] === Ground.Grass) out.push({ x, y, ph: r() * 9, c: out.length % 3 });
-  }
-  return out;
-})();
 
 // ---------- Spielfigur & was sich auf der Insel ändert ----------
 let save: Save = loadSave();
@@ -76,6 +36,8 @@ const mySlot = () => activeSlot(save);
 const world = new World(island, mySlot().world);
 const farm = new Farm(island, mySlot().farm);
 link(world, farm);
+/** 3D-Ansicht (liegt unter der Schrift-Ebene) */
+const view = new View(island, world, farm, document.body);
 const START = { x: 176, y: 172 };
 const player = new Player(island, world, START.x, START.y);
 /** neue/alte Insel ohne Uhr: es ist 7 Uhr morgens */
@@ -86,7 +48,6 @@ const ensureClock = () => {
   const pos = mySlot().pos;
   if (pos && player.free(pos.x, pos.y)) Object.assign(player, pos);
 }
-let sheet = makeCharacter(save.look);
 
 /** im Haus Nummer … (-1 = draußen), Position vor der Tür */
 let inside = -1;
@@ -99,10 +60,7 @@ const CALL_MS = 60_000;
 /** gerade gestreichelt */
 let petting: { i: number; until: number } | null = null;
 /** Herzchen über Pferden */
-const heartFx: { x: number; y: number; life: number; dx: number }[] = [];
-const loveHearts = (x: number, y: number, n: number) => {
-  for (let k = 0; k < n; k++) heartFx.push({ x: x + (Math.random() - 0.5) * 10, y: y - Math.random() * 4, life: 1.2 + k * 0.18, dx: (Math.random() - 0.5) * 6 });
-};
+const loveHearts = (x: number, y: number, n: number) => view.heartsAt(x, y, n, 2.4);
 /** abgestiegen: Pferd läuft von hier gemütlich zurück zur Weide */
 const released = new Map<number, { x: number; y: number; at: number }>();
 const pastureFree = pasture(island, (x, y) => world.blocked(x, y, 6, 2));
@@ -131,26 +89,17 @@ function horseAt(i: number, now = Date.now()): HorsePose | null {
 type Mode = 'menu' | 'custom' | 'play';
 let mode: Mode = 'menu';
 
-// Bau- und Fäll-Grafiken
+// Bilder für Knöpfe und Fenster
 const houseImg = house();
-const stumpBig = treeStump(true);
-const stumpSmall = treeStump(false);
-const saplingImg = sapling();
 const axeImg = axe();
 const logImg = logIcon();
 const hoeImg = hoe();
 const bucketImg = bucket();
 const canImg = wateringCan();
 const turnipImg = turnipIcon();
-const soilDry = soilTile(false);
-const soilWet = soilTile(true);
-const crops = [0, 1, 2, 3].map(cropStage);
-const fireImgs = [0, 1, 2].map(campfire);
 const stableImg = stableArt();
-const boatImg = boat();
 const decoImgs = new Map(DECO.map((d) => [d.id as string, decoArt(d.id)]));
 const scytheImg = scythe();
-const hayTiles = { fresh: hayTile('fresh'), dry: hayTile('dry'), stubble: hayTile('stubble') };
 /** Rasse fürs Bild: Fohlen haben eigene kleine Bilder */
 const lookOf = (id: string, foal = false) => {
   const b = breedById(id) ?? BREEDS[0];
@@ -186,31 +135,6 @@ const icons = {
 };
 const decoIcon = (id: string) => toUrl(decoImgs.get(id)!.img);
 
-/** Boden + Schatten neu malen, wenn Bäume fallen oder Häuser dazukommen */
-let landVersion = -1;
-function paintWorldLand() {
-  landVersion = world.version;
-  const g = land.getContext('2d')!;
-  g.clearRect(0, 0, land.width, land.height);
-  g.drawImage(baseLand, 0, 0);
-  // gefällte Bäume werfen nur noch den kleinen Stumpf-Schatten
-  const decor = island.decor.map((d, i) => (world.felled.has(i) ? { ...d, kind: 'stump' as const } : d));
-  paintShadows(g, { ...island, decor });
-  paintDock(g, island);
-  // Hausschatten
-  for (const h of world.houses) {
-    g.fillStyle = 'rgba(8,40,10,0.45)';
-    g.fillRect(h.x + HOUSE_FOOT.left + 1, h.y - 2, HOUSE_FOOT.right - HOUSE_FOOT.left + 3, 4);
-    g.fillRect(h.x + HOUSE_FOOT.right, h.y - 12, 4, 12);
-  }
-  for (const h of world.stables) {
-    g.fillStyle = 'rgba(8,40,10,0.45)';
-    g.fillRect(h.x + STABLE_FOOT.left + 1, h.y - 2, STABLE_FOOT.right - STABLE_FOOT.left + 3, 4);
-    g.fillRect(h.x + STABLE_FOOT.right, h.y - 14, 4, 14);
-  }
-}
-paintWorldLand();
-
 // ---------- Holzfällen ----------
 let hud: Hud | null = null;
 let actHeld = false;
@@ -222,25 +146,9 @@ const SWING = 0.34;
 let swingTool: ToolId | 'harvest' | 'refill' | 'cook' | 'rake' = 'axe';
 let swingTile: [number, number] = [0, 0];
 const shake = new Map<number, number>();
-interface Bit {
-  x: number;
-  y: number;
-  z: number;
-  vx: number;
-  vy: number;
-  vz: number;
-  life: number;
-  col: string;
-}
-const bits: Bit[] = [];
-const floats: { x: number; y: number; text: string; life: number }[] = [];
-function burst(x: number, y: number, z: number, n: number, cols: string[], speed = 30) {
-  for (let i = 0; i < n; i++) {
-    const a = Math.random() * Math.PI * 2;
-    const v = speed * (0.4 + Math.random());
-    bits.push({ x, y, z, vx: Math.cos(a) * v, vy: Math.sin(a) * v * 0.5, vz: 20 + Math.random() * 40, life: 0.6 + Math.random() * 0.6, col: cols[i % cols.length] });
-  }
-}
+/** schwebende Texte („+4 Holz“): Welt-Pixel + Höhe (Einheiten) */
+const floats: { x: number; y: number; h: number; text: string; life: number }[] = [];
+const burst = (x: number, y: number, z: number, n: number, cols: string[], speed = 30) => view.burst(x, y, z, n, cols, speed);
 // ---------- Aktionen (allein oder als Gastgeber ausgeführt, Effekte auch beim Gast) ----------
 const CHIPS = ['#c8925a', '#8c6440', '#e8c890'];
 const LEAVES = ['#2a6630', '#3f8640', '#68a85a', '#163c1e'];
@@ -266,12 +174,14 @@ const FX_SOUND: Partial<Record<Fx['k'], Parameters<typeof sfx>[0]>> = {
   rake: 'harvest',
   trade: 'coin',
 };
+/** wie hoch der Text über dem Boden schwebt (Einheiten) */
+const FX_H: Partial<Record<Fx['k'], number>> = { fell: 3.6, build: 3, horse: 2.8, feed: 2.8, brush: 2.8, foal: 2.6, trade: 2.4, can: 2.6, cook: 2.2 };
 function playFx(fx: Fx) {
   const snd = FX_SOUND[fx.k];
   if (snd) sfx(snd);
   if (fx.k === 'chop') {
     if (fx.tree !== undefined) shake.set(fx.tree, 1);
-    burst(fx.x, fx.y, 6, 6, CHIPS);
+    burst(fx.x, fx.y, 6, 7, CHIPS);
   } else if (fx.k === 'fell') {
     // Blätter rieseln, Holz fliegt in den Rucksack
     burst(fx.x, fx.y, 24, 26, LEAVES, 40);
@@ -284,13 +194,13 @@ function playFx(fx: Fx) {
   else if (fx.k === 'can') hud?.toast('Belohnung: Eisen-Gießkanne!');
   else if (fx.k === 'mow') burst(fx.x, fx.y, 3, 10, ['#5a9a3a', '#7ab84a', '#a8d870'], 22);
   else if (fx.k === 'rake') burst(fx.x, fx.y, 3, 8, ['#e0b84a', '#f4d878', '#b08a2a'], 18);
-  else if (fx.k === 'brush') burst(fx.x, fx.y, 8, 10, ['#ffffff', '#fff3a0', '#ffd23f'], 14);
-  else if (fx.k === 'feed' || fx.k === 'horse' || fx.k === 'foal') burst(fx.x, fx.y, 6, 8, ['#e0485a', '#ff9aa8', '#ffffff'], 16);
+  else if (fx.k === 'brush') burst(fx.x, fx.y, 12, 10, ['#ffffff', '#fff3a0', '#ffd23f'], 14);
+  else if (fx.k === 'feed' || fx.k === 'horse' || fx.k === 'foal') burst(fx.x, fx.y, 14, 8, ['#e0485a', '#ff9aa8', '#ffffff'], 16);
   else if (fx.k === 'cook') burst(fx.x, fx.y, 6, 8, ['#ffd23f', '#ff9a2a', '#ffffff'], 18);
   else if (fx.k === 'quest') hud?.toast(fx.text ?? 'Aufgabe geschafft!');
   else if (fx.k === 'level' && fx.n) hud?.levelUp(fx.n, PERKS.find((p) => p.level === fx.n)?.text);
   if (fx.k === 'quest' || fx.k === 'level') return;
-  if (fx.text) floats.push({ x: fx.x, y: fx.y - (fx.k === 'fell' ? -6 : 8), text: fx.text, life: fx.k === 'can' ? 2.2 : 1.5 });
+  if (fx.text) floats.push({ x: fx.x, y: fx.y, h: FX_H[fx.k] ?? 1.6, text: fx.text, life: fx.k === 'can' ? 2.2 : 1.5 });
 }
 function emit(fx: Fx) {
   playFx(fx);
@@ -307,7 +217,7 @@ function perform(a: Action, actor: { x: number; y: number }): string | null {
   if (a.kind === 'axe') {
     const d = island.decor[a.tree ?? -1];
     if (d) emit({ k: 'chop', x: d.x + (actor.x < d.x ? -3 : 3), y: d.y - 2, tree: a.tree });
-    if (d && res.felled) emit({ k: 'fell', x: d.x, y: d.y - 26, text: `+${res.wood} Holz` });
+    if (d && res.felled) emit({ k: 'fell', x: d.x, y: d.y, text: `+${res.wood} Holz` });
   } else if (res.done) {
     if (a.kind === 'hoe') emit({ k: 'till', x: cx, y: cy });
     else if (a.kind === 'seeds') emit({ k: 'seed', x: cx, y: cy });
@@ -315,7 +225,7 @@ function perform(a: Action, actor: { x: number; y: number }): string | null {
     else if (a.kind === 'water') emit({ k: 'water', x: cx, y: cy });
     else if (a.kind === 'harvest' && res.harvest) {
       emit({ k: 'harvest', x: cx, y: cy, text: `+1 Rübe  +${res.harvest.seeds} Samen` });
-      if (res.harvest.gotCan) emit({ k: 'can', x: actor.x, y: actor.y - 18, text: 'Eisen-Gießkanne!' });
+      if (res.harvest.gotCan) emit({ k: 'can', x: actor.x, y: actor.y, text: 'Eisen-Gießkanne!' });
     } else if (a.kind === 'build') emit({ k: 'build', x: a.x ?? 0, y: a.y ?? 0, text: a.what === 'fire' ? 'Lagerfeuer!' : a.what === 'stable' ? 'Pferdestall!' : a.what === 'paddock' ? 'Koppel!' : a.what === 'deco' ? `${decoById(a.item ?? '')?.name ?? 'Deko'} steht!` : 'Haus gebaut!' });
     else if (a.kind === 'adopt') {
       const st = world.stables[a.house ?? -1];
@@ -323,22 +233,22 @@ function perform(a: Action, actor: { x: number; y: number }): string | null {
       if (st && h) emit({ k: 'horse', x: st.x, y: st.y + 4, text: `${h.name} zieht ein!` });
     } else if (a.kind === 'feed' || a.kind === 'brush') {
       const p = horseAt(a.horse ?? -1) ?? actor;
-      emit({ k: a.kind, x: p.x, y: p.y - 18, text: a.kind === 'brush' ? 'Glänzt! +1 Vertrauen' : a.item === 'turnip' ? 'Lecker! +1 Vertrauen' : 'Mampf! +1 Vertrauen' });
+      emit({ k: a.kind, x: p.x, y: p.y, text: a.kind === 'brush' ? 'Glänzt! +1 Vertrauen' : a.item === 'turnip' ? 'Lecker! +1 Vertrauen' : 'Mampf! +1 Vertrauen' });
     } else if (a.kind === 'foal') {
       const h = world.horses[world.horses.length - 1];
       const p = horseAt(a.horse ?? -1) ?? actor;
-      if (h) emit({ k: 'foal', x: p.x, y: p.y - 20, text: `${h.name} ist geboren!` });
+      if (h) emit({ k: 'foal', x: p.x, y: p.y, text: `${h.name} ist geboren!` });
     } else if (a.kind === 'mow') emit({ k: 'mow', x: cx, y: cy });
     else if (a.kind === 'rake') emit({ k: 'rake', x: cx, y: cy, text: `+${res.hay ?? 0} Heu` });
-    else if (a.kind === 'sell') emit({ k: 'trade', x: actor.x, y: actor.y - 18, text: `+${res.coins ?? 0} Münzen` });
+    else if (a.kind === 'sell') emit({ k: 'trade', x: actor.x, y: actor.y, text: `+${res.coins ?? 0} Münzen` });
     else if (a.kind === 'buy') {
       const it = a.item ?? '';
       const h = world.horses[world.horses.length - 1];
       const text = it.startsWith('horse:') && h ? `${h.name} zieht in den Stall!` : it === 'seeds' ? `+${SEED_PACK.n} Samen` : `${decoById(it.slice(5))?.name ?? 'Deko'} gekauft – im Bau-Menü aufstellen`;
-      emit({ k: 'trade', x: actor.x, y: actor.y - 18, text });
-      if (it.startsWith('horse:')) emit({ k: 'horse', x: actor.x, y: actor.y - 10 });
+      emit({ k: 'trade', x: actor.x, y: actor.y, text });
+      if (it.startsWith('horse:')) emit({ k: 'horse', x: actor.x, y: actor.y });
     }
-    else if (a.kind === 'cook') emit({ k: 'cook', x: actor.x, y: actor.y - 6, text: '+1 Ofenrübe' });
+    else if (a.kind === 'cook') emit({ k: 'cook', x: actor.x, y: actor.y, text: '+1 Ofenrübe' });
   }
   // Aufgaben & Stufen
   for (const q of res.gain?.quests ?? []) {
@@ -541,7 +451,7 @@ function eat(cooked: boolean) {
   if (err) return hud?.toast(err);
   setEnergy(energy() + (cooked ? FOOD.cooked : FOOD.raw));
   sfx('eat');
-  floats.push({ x: player.x, y: player.y - 24, text: `+${cooked ? FOOD.cooked : FOOD.raw} Energie`, life: 1.3 });
+  floats.push({ x: player.x, y: player.y, h: 2.3, text: `+${cooked ? FOOD.cooked : FOOD.raw} Energie`, life: 1.3 });
   writeSave(save);
 }
 
@@ -597,8 +507,9 @@ function ghostSpot() {
 // ---------- Grafik-Qualität: Auflösung passt sich schwachen Handys an ----------
 export type Gfx = 'auto' | 'high' | 'low';
 const GFX_KEY = 'cozyisland.gfx';
-const CAP_KEY = 'cozyisland.dprcap';
-const CAPS = [3, 2, 1.5, 1];
+const CAP_KEY = 'cozyisland.dprcap3d';
+/** 3D: Auflösungs-Stufen (Bildpunkte pro CSS-Pixel) */
+const CAPS = [2, 1.5, 1.25, 1];
 const store = {
   get: (k: string) => {
     try {
@@ -616,18 +527,18 @@ const store = {
   },
 };
 let gfx: Gfx = (['auto', 'high', 'low'] as const).find((g) => g === store.get(GFX_KEY)) ?? 'auto';
-let autoCap = CAPS.includes(Number(store.get(CAP_KEY))) ? Number(store.get(CAP_KEY)) : 3;
-const dprCap = () => (gfx === 'high' ? 3 : gfx === 'low' ? 1.25 : autoCap);
+let autoCap = CAPS.includes(Number(store.get(CAP_KEY))) ? Number(store.get(CAP_KEY)) : 2;
+const dprCap = () => (gfx === 'high' ? 2 : gfx === 'low' ? 1 : autoCap);
 function setGfx(g: Gfx) {
   gfx = g;
   store.set(GFX_KEY, g);
   if (g === 'auto') {
-    autoCap = 3;
-    store.set(CAP_KEY, '3');
+    autoCap = 2;
+    store.set(CAP_KEY, '2');
   }
   resize();
 }
-/** Bildzeiten messen; ruckelt es dauerhaft, eine Stufe weniger Pixel */
+/** Bildzeiten messen; ruckelt es dauerhaft, eine Stufe weniger Pixel (ganz unten ohne Schatten) */
 const perf = { sum: 0, n: 0 };
 function watchPerf(ms: number) {
   if (gfx !== 'auto' || mode !== 'play' || document.visibilityState !== 'visible' || ms > 250) return;
@@ -637,58 +548,29 @@ function watchPerf(ms: number) {
   const avg = perf.sum / perf.n;
   perf.sum = perf.n = 0;
   const i = CAPS.indexOf(autoCap);
-  if (avg > 26 && i < CAPS.length - 1 && (window.devicePixelRatio || 1) > CAPS[i + 1]) {
+  if (avg > 26 && i < CAPS.length - 1) {
     autoCap = CAPS[i + 1];
     store.set(CAP_KEY, String(autoCap));
     resize();
   }
 }
 
-/** sichtbarer Teil der Insel (Welt-Pixel) */
-const VIEW = { w: 300, h: 270 };
-/** beim Spielen näher dran */
-const PLAY_VIEW = { w: 175, h: 235 };
-/** eigene Zoom-Stufe (mit zwei Fingern) merken: Stufen über/unter dem Standard */
-const ZOOM_KEY = 'cozyisland.zoom';
-const zoomPref = () => {
-  try {
-    return Number(localStorage.getItem(ZOOM_KEY)) || 0;
-  } catch {
-    return 0;
-  }
-};
-const clampZoom = (z: number) => Math.max(minZoom, Math.min(minZoom * 4, Math.round(z)));
-let cw = 0;
-let ch = 0;
-let zoom = 0;
-let minZoom = 1;
-let playZoom = 2;
-const cam = { x: W / 2, y: H / 2 };
+/** eigene Zoom-Stufe (mit zwei Fingern) merken */
+const ZOOM_KEY = 'cozyisland.zoom3d';
+view.setZoom(Number(store.get(ZOOM_KEY)) || 1);
+function setZoom(z: number) {
+  view.setZoom(z);
+  if (mode === 'play' && inside < 0) store.set(ZOOM_KEY, view.zoom.toFixed(2));
+}
 function resize() {
-  const dpr = Math.min(dprCap(), window.devicePixelRatio || 1);
-  cw = screen.width = Math.round(innerWidth * dpr);
-  ch = screen.height = Math.round(innerHeight * dpr);
+  // Schrift-Ebene scharf, 3D je nach Gerät
+  const dpr = Math.min(2, window.devicePixelRatio || 1);
+  screen.width = Math.round(innerWidth * dpr);
+  screen.height = Math.round(innerHeight * dpr);
   screen.style.width = `${innerWidth}px`;
   screen.style.height = `${innerHeight}px`;
-  // ganze Insel im Bild, in ganzen Pixel-Stufen (bleibt scharf)
-  minZoom = Math.max(1, Math.floor(Math.min(cw / VIEW.w, ch / VIEW.h)));
-  playZoom = Math.max(minZoom + 1, Math.floor(Math.min(cw / PLAY_VIEW.w, ch / PLAY_VIEW.h)));
-  zoom = mode === 'play' ? Math.max(minZoom, zoom || playZoom) : minZoom;
-  clampCam();
-}
-function clampCam() {
-  // Insel bleibt immer im Bild
-  cam.x = Math.max(40, Math.min(W + (mode === 'play' ? -40 : 200), cam.x));
-  cam.y = Math.max(40, Math.min(H + (mode === 'play' ? -40 : 120), cam.y));
-}
-function setZoom(z: number) {
-  zoom = clampZoom(z);
-  if (mode === 'play' && inside < 0)
-    try {
-      localStorage.setItem(ZOOM_KEY, String(zoom - playZoom));
-    } catch {
-      /* egal */
-    }
+  const cap = Math.min(dprCap(), window.devicePixelRatio || 1);
+  view.setQuality({ dpr: cap, shadows: gfx === 'low' || (gfx === 'auto' && autoCap <= 1) ? 0 : gfx === 'high' ? 2 : 1 });
 }
 addEventListener('resize', resize);
 resize();
@@ -697,7 +579,7 @@ resize();
 const pointers = new Map<number, { x: number; y: number }>();
 let stick: { id: number; ox: number; oy: number; x: number; y: number } | null = null;
 let pinch0 = 0;
-let zoom0 = zoom;
+let zoom0 = 1;
 const STICK_R = 46; // CSS-Pixel bis Vollgas
 const hint = document.querySelector<HTMLElement>('.hint')!;
 
@@ -710,7 +592,7 @@ screen.addEventListener('pointerdown', (e) => {
     stick = null;
     const [a, b] = [...pointers.values()];
     pinch0 = Math.hypot(a.x - b.x, a.y - b.y);
-    zoom0 = zoom;
+    zoom0 = view.zoom;
   }
   hint.classList.add('gone');
 });
@@ -745,7 +627,7 @@ screen.addEventListener(
   'wheel',
   (e) => {
     e.preventDefault();
-    if (mode === 'play') setZoom(zoom + (e.deltaY < 0 ? 1 : -1));
+    if (mode === 'play') setZoom(view.zoom * (e.deltaY < 0 ? 1.1 : 1 / 1.1));
   },
   { passive: false },
 );
@@ -829,7 +711,6 @@ function applySlot(sl: Slot) {
   player.x = pos.x;
   player.y = pos.y;
   shake.clear();
-  bits.length = 0;
   floats.length = 0;
   savedVersion = versionNow();
   writeSave(save);
@@ -883,7 +764,6 @@ function openMenu() {
   stick = null;
   pointers.clear();
   hint.classList.add('gone');
-  zoom = minZoom;
   showMenu(save, {
     settings: openSettings,
     play: startPlay,
@@ -941,7 +821,6 @@ function openCustom(first: boolean) {
     save,
     (s) => {
       save = s;
-      sheet = makeCharacter(save.look);
       writeSave(save);
       room?.send({ t: 'look', name: save.name, look: save.look });
       if (pendingJoin) {
@@ -957,9 +836,7 @@ function openCustom(first: boolean) {
 function startPlay() {
   if (!save.created) return openCustom(true);
   mode = 'play';
-  zoom = clampZoom(playZoom + zoomPref());
-  cam.x = player.x;
-  cam.y = player.y - 10;
+  view.snap();
   placing = false;
   hud = showHud(
     {
@@ -1024,7 +901,7 @@ let room: Room | null = null;
 let pendingJoin = '';
 interface Mate {
   name: string;
-  sheet: CharSheet;
+  look: Look;
   x: number;
   y: number;
   tx: number;
@@ -1036,7 +913,8 @@ interface Mate {
   in?: number;
   /** reitet Pferd … */
   rh?: number;
-  pants: string;
+  /** zuletzt bewegt (fürs Laufen) */
+  movedAt: number;
 }
 let mate: Mate | null = null;
 /** als Gast: welche Insel wir besuchen */
@@ -1056,7 +934,7 @@ const myState = (): PlayerState => ({
   ...(riding >= 0 ? { rh: riding } : {}),
 });
 function makeMate(name: string, look: Look, p: PlayerState): Mate {
-  return { name: name || 'Freund', sheet: makeCharacter(look), x: p.x, y: p.y, tx: p.x, ty: p.y, d: p.d as Dir, f: p.f, s: p.s, tl: p.tl, rh: p.rh, pants: PANTS[look.pants] ?? PANTS[0] };
+  return { name: name || 'Freund', look, x: p.x, y: p.y, tx: p.x, ty: p.y, d: p.d as Dir, f: p.f, s: p.s, tl: p.tl, rh: p.rh, movedAt: 0 };
 }
 const islandState = () => ({ world: world.toSave(), farm: farm.toSave() });
 function updateCoopChip() {
@@ -1315,13 +1193,13 @@ function onNet(m: Msg) {
       if ((m.p.in ?? -1) !== (mate.in ?? -1)) Object.assign(mate, { x: m.p.x, y: m.p.y });
       // Freund steigt ab: Pferd läuft von dort zurück
       if (mate.rh !== undefined && mate.rh !== m.p.rh) released.set(mate.rh, { x: mate.x, y: mate.y, at: Date.now() });
+      if (Math.hypot(m.p.x - mate.tx, m.p.y - mate.ty) > 0.2) mate.movedAt = Date.now();
       Object.assign(mate, { tx: m.p.x, ty: m.p.y, d: m.p.d, f: m.p.f, s: m.p.s, tl: m.p.tl, in: m.p.in ?? -1, rh: m.p.rh });
       break;
     case 'look':
       if (!mate) return;
       mate.name = m.name || mate.name;
-      mate.sheet = makeCharacter(m.look);
-      mate.pants = PANTS[m.look.pants] ?? PANTS[0];
+      mate.look = m.look;
       updateCoopChip();
       break;
     case 'bye':
@@ -1451,8 +1329,10 @@ if (pendingJoin) {
   joinRoom(code);
 } else openMenu();
 
-// ---------- Zeichnen ----------
+// ---------- Bild für Bild ----------
 let last = performance.now();
+/** Joystick-Richtung (die Figur dreht sich weich dorthin) */
+let moveIn: [number, number] = [0, 0];
 function frame(now: number) {
   requestAnimationFrame(frame);
   watchPerf(now - last);
@@ -1460,8 +1340,10 @@ function frame(now: number) {
   last = now;
   const t = (window as unknown as { __t?: number }).__t ?? now / 1000;
 
+  moveIn = [0, 0];
   if (mode === 'play') {
     const [mx, my] = input();
+    moveIn = [mx, my];
     if (riding >= 0 && !world.horses[riding]) riding = -1;
     const rb = riding >= 0 ? breedById(world.horses[riding].breed) : undefined;
     // je mehr Vertrauen, desto flotter (bis +20 %)
@@ -1511,23 +1393,7 @@ function frame(now: number) {
       world.grow(Date.now(), player);
       farm.update(Date.now(), tod?.rain);
     }
-    // Kamera folgt weich (im Haus: ganzer Raum fest im Bild)
-    if (inside >= 0) {
-      cam.x = ROOM_W / 2;
-      cam.y = ROOM_H / 2 + 4;
-    } else {
-      const k = 1 - Math.exp(-dt * 6);
-      cam.x += (player.x - cam.x) * k;
-      cam.y += (player.y - 10 - cam.y) * k;
-    }
-  } else {
-    // Menü: Kamera schwebt langsam über die Insel
-    // Hochformat: Insel etwas über der Mitte (Schild unten); Querformat: Insel links, Menü rechts
-    const wide = cw > ch * 1.2;
-    cam.x = W / 2 + Math.sin(t * 0.05) * 110 + (wide ? (cw * 0.2) / zoom : 0);
-    cam.y = H / 2 + Math.cos(t * 0.05) * 16 + (wide ? 0 : (ch * 0.1) / zoom);
   }
-  if (inside < 0) clampCam();
   netTick(now);
   if (mode === 'play') horseLife(dt, now);
   if (mate) {
@@ -1547,200 +1413,111 @@ function frame(now: number) {
     setScene({ night: tod?.dark ?? 0, rain: !!tod?.rain, fire: mode === 'play' && inside < 0 ? Math.max(0, 1 - fi / 70) : 0, menu: mode !== 'play', inside: inside >= 0 });
   }
   if (mode === 'play' && hud && tod) hud.setClock(`Tag ${tod.day} · ${tod.label}${tod.rain ? ' · Regen' : ''}`);
-  if (world.version !== landVersion) paintWorldLand();
   for (const [i, v] of shake) {
     const nv = v - dt * 3;
     if (nv <= 0) shake.delete(i);
     else shake.set(i, nv);
   }
-  shore.update(t);
-  ctx.setTransform(1, 0, 0, 1, 0, 0);
-  ctx.imageSmoothingEnabled = false;
-  const ox = Math.round(cw / 2 - cam.x * zoom);
-  const oy = Math.round(ch / 2 - cam.y * zoom);
-  ctx.setTransform(zoom, 0, 0, zoom, ox, oy);
-  scene: {
-  if (inside >= 0) {
-    drawInterior(t);
-    break scene;
-  }
-  // Meer: Wellenmuster treibt langsam schräg
-  const drift = Math.floor(t * 2) % 24;
-  sea.setTransform(new DOMMatrix([1, 0, 0, 1, drift, 0]));
-  ctx.fillStyle = sea;
-  ctx.fillRect(-ox / zoom - 16, -oy / zoom - 16, cw / zoom + 32, ch / zoom + 32);
-  ctx.drawImage(shore.canvas, 0, 0);
-  ctx.drawImage(land, 0, 0);
-  for (const [k, p] of farm.plots) {
-    const [c, r] = k.split(',').map(Number);
-    ctx.drawImage(p.wetAt ? soilWet : soilDry, c * TILE, r * TILE);
-  }
-  for (const k of farm.meadow.keys()) {
-    const [c, r] = k.split(',').map(Number);
-    ctx.drawImage(hayTiles[farm.mown(c, r, Date.now())!], c * TILE, r * TILE);
-  }
-
-  // Bäume, Palmen, Büsche, Steine, hohes Gras, Häuser und die Figur – von hinten nach vorn
-  const showPlayer = mode === 'play';
   const nowMs = Date.now();
-  const items: { y: number; draw: () => void }[] = [];
-  island.decor.forEach((d, i) => items.push({ y: d.y, draw: () => drawDecor(i, t, nowMs) }));
-  for (const h of world.houses) items.push({ y: h.y, draw: () => drawHouse(h.x, h.y) });
-  for (const h of world.stables) items.push({ y: h.y, draw: () => ctx.drawImage(stableImg.img, h.x - stableImg.ox, h.y - stableImg.oy) });
-  world.horses.forEach((h, i) => {
-    const p = horseAt(i, nowMs);
-    if (p) items.push({ y: p.y, draw: () => drawHorse(h.breed, p.x, p.y, p.dir, p.moving ? Math.floor(t * 7 + i) % 4 : p.graze ? 4 : 0, isFoal(h, nowMs), h.acc) });
+  const play = mode === 'play';
+  view.render({
+    mode,
+    t,
+    dt,
+    now: nowMs,
+    tod,
+    me: play
+      ? {
+          x: player.x,
+          y: player.y,
+          dir: player.dir,
+          moving: player.moving,
+          swing: swing > 0 ? 1 - swing / SWING : 0,
+          tool: swing > 0 ? swingTool : '',
+          rides: riding,
+          in: inside,
+          look: save.look,
+          mx: moveIn[0],
+          my: moveIn[1],
+          speed: player.speedMul,
+        }
+      : null,
+    mate:
+      play && mate
+        ? { x: mate.x, y: mate.y, dir: mate.d, moving: nowMs - mate.movedAt < 220, swing: mate.s, tool: mate.tl, rides: mate.rh ?? -1, in: mate.in ?? -1, look: mate.look }
+        : null,
+    canTool: farm.hasCan,
+    horseAt: (i) => horseAt(i, nowMs),
+    petting: petting && nowMs < petting.until ? petting.i : -1,
+    shake,
+    boatOut: boatOut(world.clock, nowMs),
+    boat: BOAT,
+    ghost: play && placing ? { kind: placeKind, deco: placeDeco, x: ghost.x, y: ghost.y, ok: ghost.ok && world.wood >= BUILDS[placeKind].cost } : null,
+    marker: play && !placing && tool !== 'axe' && riding < 0 ? frontTile() : null,
+    inside,
   });
-  for (const pd of world.paddocks) pushFence(items, pd, 1);
-  for (const d of world.decos) {
-    const im = decoImgs.get(d.id);
-    if (im) items.push({ y: d.y, draw: () => ctx.drawImage(im.img, d.x - im.ox, d.y - im.oy) });
-  }
-  const out = boatOut(world.clock, nowMs);
-  if (out !== null) {
-    const bx = Math.round(BOAT.x + out * 140);
-    const by = BOAT.y + Math.round(Math.sin(t * 1.8) * 0.8);
-    items.push({ y: BOAT.y, draw: () => ctx.drawImage(boatImg.img, bx - boatImg.ox, by - boatImg.oy) });
-  }
-  for (const f of world.fires) {
-    const im = fireImgs[Math.floor(t * 8 + f.x) % 3];
-    items.push({ y: f.y, draw: () => ctx.drawImage(im.img, f.x - im.ox, f.y - im.oy) });
-  }
-  for (const [k, p] of farm.plots) {
-    if (!p.crop) continue;
-    const [c, r] = k.split(',').map(Number);
-    const im = crops[p.crop.stage];
-    const ripeBob = p.crop.stage >= RIPE ? Math.round(Math.sin(t * 3 + c) * 0.6) : 0;
-    items.push({ y: r * TILE + 6, draw: () => ctx.drawImage(im.img, c * TILE + 4 - im.ox, r * TILE + 7 - im.oy + ripeBob) });
-  }
-  // Ziel-Kachel markieren (Feld-Werkzeuge)
-  if (showPlayer && !placing && tool !== 'axe') {
-    const [c, r] = frontTile();
-    const blink = 0.5 + Math.sin(t * 6) * 0.25;
-    ctx.globalAlpha = blink;
-    ctx.fillStyle = '#fff8e6';
-    const x0 = c * TILE;
-    const y0 = r * TILE;
-    for (const [a, b, w, h] of [[0, 0, 3, 1], [0, 0, 1, 3], [5, 0, 3, 1], [7, 0, 1, 3], [0, 7, 3, 1], [0, 5, 1, 3], [5, 7, 3, 1], [7, 5, 1, 3]]) ctx.fillRect(x0 + a, y0 + b, w, h);
-    ctx.globalAlpha = 1;
-  }
-  if (showPlayer) items.push({ y: player.y, draw: drawPlayer });
-  const m = mate;
-  if (showPlayer && m && (m.in ?? -1) === -1)
-    items.push({ y: m.y, draw: () => (m.rh !== undefined && world.horses[m.rh] ? drawRider(m.sheet, m.x, m.y, m.d, m.f, world.horses[m.rh].breed, m.pants, world.horses[m.rh].acc) : drawChar(m.sheet, m.x, m.y, m.d, m.f, m.s, m.tl)) });
-  if (showPlayer && placing) items.push({ y: ghost.y, draw: drawGhost });
-  items.sort((a, b) => a.y - b.y);
-  for (const it of items) it.draw();
+  drawOverlay(t, dt, nowMs);
+}
+requestAnimationFrame(frame);
 
-  // Splitter & Blätter
-  for (let k = bits.length - 1; k >= 0; k--) {
-    const b = bits[k];
-    b.life -= dt;
-    b.vz -= 160 * dt;
-    b.x += b.vx * dt;
-    b.y += b.vy * dt;
-    b.z = Math.max(0, b.z + b.vz * dt);
-    if (b.z === 0) {
-      b.vx *= 0.8;
-      b.vy *= 0.8;
-    }
-    if (b.life <= 0) {
-      bits.splice(k, 1);
-      continue;
-    }
-    ctx.globalAlpha = Math.min(1, b.life * 2);
-    ctx.fillStyle = b.col;
-    ctx.fillRect(Math.round(b.x), Math.round(b.y - b.z), 1, 1);
-  }
-  ctx.globalAlpha = 1;
-
-  // Schmetterlinge
-  for (const f of flies) {
-    const x = Math.round(f.x + Math.sin(t * 0.7 + f.ph) * 18 + Math.sin(t * 1.9 + f.ph) * 5);
-    const y = Math.round(f.y + Math.cos(t * 0.5 + f.ph) * 12 - Math.abs(Math.sin(t * 3 + f.ph)) * 3);
-    ctx.drawImage(bfImgs[f.c][Math.floor(t * 8 + f.ph) % 2], x, y);
-  }
-
-  // Möwen kreisen über dem Meer (mit Schatten aufs Wasser)
-  for (const gl of gulls) {
-    const a = gl.ph + t * gl.speed * gl.dir;
-    const x = Math.round(W / 2 + Math.cos(a) * gl.r * 1.2);
-    const y = Math.round(H / 2 + Math.sin(a) * gl.r * 0.9);
-    ctx.globalAlpha = 0.2;
-    ctx.fillStyle = '#0b2a3a';
-    ctx.fillRect(x + 2, y + 16, 5, 1);
-    ctx.globalAlpha = 1;
-    ctx.drawImage(gullImg[Math.floor(t * 4 + gl.ph) % 2], x, y);
-  }
-
-  // Herzchen (Streicheln, Begrüßung)
-  for (let k = heartFx.length - 1; k >= 0; k--) {
-    const hf = heartFx[k];
-    hf.life -= dt;
-    if (hf.life <= 0) {
-      heartFx.splice(k, 1);
-      continue;
-    }
-    if (hf.life > 1.2) continue; // wartet noch
-    const up = (1.2 - hf.life) * 16;
-    ctx.globalAlpha = Math.min(1, hf.life * 1.6);
-    ctx.drawImage(heartImg, Math.round(hf.x + hf.dx * (1.2 - hf.life) - 4), Math.round(hf.y - up - 8), 7, 6);
-    ctx.globalAlpha = 1;
-  }
-  drawWeather(t, dt, ox, oy);
-  }
-
+// ---------- Schrift über der 3D-Welt: Namen, „+4 Holz“, Joystick ----------
+const tmpP = { x: 0, y: 0 };
+function pill(text: string, x: number, y: number, size: number, bg: string) {
+  const dpr = screen.width / innerWidth;
+  ctx.font = `700 ${Math.round(size * dpr * textScale)}px 'Pixelify Sans', sans-serif`;
+  ctx.textAlign = 'center';
+  const w = ctx.measureText(text).width + 12 * dpr;
+  const hh = (size + 7) * dpr * textScale;
+  ctx.fillStyle = bg;
+  ctx.beginPath();
+  if (ctx.roundRect) ctx.roundRect(x * dpr - w / 2, y * dpr - hh * 0.78, w, hh, hh / 2);
+  else ctx.rect(x * dpr - w / 2, y * dpr - hh * 0.78, w, hh);
+  ctx.fill();
+  ctx.fillStyle = '#fff';
+  ctx.fillText(text, x * dpr, y * dpr);
+}
+/** Höhe des Pferdekopfs (für Namen und „z z z“) */
+const horseTop = (breed: string, foal: boolean) => {
+  const b = breedById(breed);
+  return foal || b?.size === 3 ? 1.55 : b?.size === 0 ? 2.1 : b?.size === 2 ? 2.75 : 2.45;
+};
+function drawOverlay(t: number, dt: number, nowMs: number) {
+  const dpr = screen.width / innerWidth;
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.clearRect(0, 0, screen.width, screen.height);
   // Name über dem Mitspieler
   if (mode === 'play' && mate && (mate.in ?? -1) === inside) {
-    const dpr = cw / innerWidth;
-    ctx.setTransform(1, 0, 0, 1, 0, 0);
-    ctx.font = `700 ${Math.round(14 * dpr * textScale)}px 'Pixelify Sans', sans-serif`;
-    ctx.textAlign = 'center';
-    const sx = ox + mate.x * zoom;
-    const sy = oy + (mate.y - 25) * zoom;
-    const w = ctx.measureText(mate.name).width + 12 * dpr;
-    ctx.fillStyle = 'rgba(20,40,60,0.65)';
-    ctx.fillRect(sx - w / 2, sy - 15 * dpr, w, 20 * dpr);
-    ctx.fillStyle = '#fff';
-    ctx.fillText(mate.name, sx, sy);
+    const rides = mate.rh !== undefined && (mate.in ?? -1) < 0 && world.horses[mate.rh];
+    const p = view.project(mate.x, mate.y, rides ? horseTop(rides.breed, false) + 1.3 : 2.2, tmpP);
+    if (p) pill(mate.name, p.x, p.y, 14, 'rgba(20,40,60,0.65)');
   }
   // Pferdenamen in der Nähe, nachts „z z z“
   if (mode === 'play' && inside < 0 && world.horses.length) {
-    const dpr = cw / innerWidth;
-    ctx.setTransform(1, 0, 0, 1, 0, 0);
-    ctx.textAlign = 'center';
-    const nowMs = Date.now();
     world.horses.forEach((h, i) => {
       const p = horseAt(i, nowMs);
       if (!p) return;
-      const near = Math.hypot(p.x - player.x, p.y - player.y) < 34;
-      const sx = ox + p.x * zoom;
-      if (near) {
-        const sy = oy + (p.y - (isFoal(h, nowMs) ? 18 : 30)) * zoom;
-        const label = (save.slots.find((x) => x.id === save.active)?.fav === i ? '♥ ' : '') + h.name;
-        ctx.font = `700 ${Math.round(12 * dpr * textScale)}px 'Pixelify Sans', sans-serif`;
-        const w = ctx.measureText(label).width + 10 * dpr;
-        ctx.fillStyle = 'rgba(120,40,80,0.6)';
-        ctx.fillRect(sx - w / 2, sy - 12 * dpr, w, 16 * dpr);
-        ctx.fillStyle = '#fff';
-        ctx.fillText(label, sx, sy);
+      const top = horseTop(h.breed, isFoal(h, nowMs));
+      if (Math.hypot(p.x - player.x, p.y - player.y) < 34) {
+        const q = view.project(p.x, p.y, top + 0.45, tmpP);
+        if (q) pill((mySlot().fav === i ? '♥ ' : '') + h.name, q.x, q.y, 12, 'rgba(120,40,80,0.6)');
       }
       if (tod?.night && !p.moving) {
-        ctx.font = `700 ${Math.round(11 * dpr * textScale)}px 'Pixelify Sans', sans-serif`;
-        ctx.fillStyle = 'rgba(230,240,255,0.85)';
+        const q = view.project(p.x, p.y, top, tmpP);
+        if (!q) return;
+        ctx.font = `700 ${Math.round(13 * dpr * textScale)}px 'Pixelify Sans', sans-serif`;
+        ctx.textAlign = 'center';
+        ctx.fillStyle = 'rgba(230,240,255,0.9)';
         for (let k = 0; k < 3; k++) {
-          const ph = ((t * 0.5 + k / 3 + i * 0.37) % 1);
+          const ph = (t * 0.5 + k / 3 + i * 0.37) % 1;
           ctx.globalAlpha = Math.sin(ph * Math.PI);
-          ctx.fillText('z', sx + (8 + ph * 8) * zoom * 0.5, oy + (p.y - 24 - ph * 10) * zoom);
+          ctx.fillText('z', (q.x + 14 + ph * 16) * dpr, (q.y - 6 - ph * 26) * dpr);
         }
         ctx.globalAlpha = 1;
       }
     });
   }
-  // „+4 Holz“ (Bildschirm-Pixel, damit die Schrift scharf bleibt)
+  // „+4 Holz“
   if (floats.length) {
-    const dpr = cw / innerWidth;
-    ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.font = `700 ${Math.round(20 * dpr * textScale)}px 'Pixelify Sans', sans-serif`;
     ctx.textAlign = 'center';
     for (let k = floats.length - 1; k >= 0; k--) {
@@ -1750,8 +1527,10 @@ function frame(now: number) {
         floats.splice(k, 1);
         continue;
       }
-      const sx = ox + f.x * zoom;
-      const sy = oy + (f.y - (1.4 - f.life) * 14) * zoom;
+      const p = view.project(f.x, f.y, f.h + (1.4 - f.life) * 0.9, tmpP);
+      if (!p) continue;
+      const sx = p.x * dpr;
+      const sy = p.y * dpr;
       ctx.globalAlpha = Math.min(1, f.life * 2);
       ctx.fillStyle = '#2a1a10';
       for (const [ax, ay] of [[-2, 0], [2, 0], [0, -2], [0, 2], [2, 2]]) ctx.fillText(f.text, sx + ax * dpr, sy + ay * dpr);
@@ -1760,10 +1539,8 @@ function frame(now: number) {
     }
     ctx.globalAlpha = 1;
   }
-
-  // Joystick anzeigen (Bildschirm-Pixel)
+  // Joystick
   if (mode === 'play' && stick) {
-    const dpr = cw / innerWidth;
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.globalAlpha = 0.35;
     ctx.fillStyle = '#0e2a3a';
@@ -1782,232 +1559,9 @@ function frame(now: number) {
     ctx.globalAlpha = 1;
   }
 }
-requestAnimationFrame(frame);
 
-function drawDecor(i: number, t: number, nowMs: number) {
-  const d = island.decor[i];
-  // hohes Gras ist weggemäht
-  if (d.kind === 'grass' && farm.meadow.has(plotKey(...Farm.tileAt(d.x, d.y)))) return;
-  if (world.felled.has(i)) {
-    const p = world.stage(i, nowMs) === 'sapling' ? saplingImg : d.kind === 'tree' ? stumpBig : stumpSmall;
-    ctx.drawImage(p.img, d.x - p.ox + (d.kind === 'palm' ? 0 : 1), d.y - p.oy);
-    return;
-  }
-  const s = sprites[d.kind][d.variant % sprites[d.kind].length];
-  const img = d.flip ? mirror(s.img) : s.img;
-  const fx = d.flip ? s.img.width - s.ox : s.ox;
-  const x = d.x - fx;
-  const y = d.y - s.oy;
-  const amp = d.kind === 'palm' ? 1.3 : d.kind === 'grass' ? 1 : d.kind === 'tree' || d.kind === 'bush' ? 0.6 : 0;
-  let sway = Math.round(Math.sin(t * (d.kind === 'grass' ? 1.6 : 0.9) + d.phase) * amp);
-  // getroffen: Krone zittert
-  const sh = shake.get(i);
-  if (sh) sway += Math.round(Math.sin(t * 50) * sh * 2);
-  if (sway === 0 || s.split >= img.height) ctx.drawImage(img, x, y);
-  else {
-    ctx.drawImage(img, 0, s.split, img.width, img.height - s.split, x, y + s.split, img.width, img.height - s.split);
-    ctx.drawImage(img, 0, 0, img.width, s.split, x + sway, y, img.width, s.split);
-  }
-}
-
-/** Werkzeug in der Hand: k = Fortschritt des Schwungs 0..1 */
-function drawTool(px: number, py: number, dir: Dir, k: number, tl: string) {
-  // Schwung: von hinten oben nach vorn unten
-  const a = -1.9 + k * 2.6;
-  const side = dir === Dir.Left ? -1 : 1;
-  const hx = dir === Dir.Right ? px + 3 : dir === Dir.Left ? px - 3 : px + 4;
-  const hy = py - 9;
-  const img = tl === 'scythe' ? scytheImg : tl === 'hoe' ? hoeImg : tl === 'water' || tl === 'refill' ? (farm.hasCan ? canImg : bucketImg) : tl === 'axe' ? axeImg : null;
-  if (!img) return;
-  ctx.save();
-  ctx.translate(hx, hy);
-  ctx.scale(side, 1);
-  if (img === bucketImg || img === canImg) {
-    // Gießen: Gefäß kippt nach vorn
-    ctx.rotate(0.5 * k);
-    ctx.drawImage(img, 0, -6);
-  } else {
-    ctx.rotate(a);
-    ctx.drawImage(img, -1, -9);
-  }
-  ctx.restore();
-}
-
-/** Figur mit Schatten und Werkzeug zeichnen (ich oder Mitspieler) */
-function drawChar(sh: CharSheet, x: number, y: number, dir: Dir, f: number, k: number, tl: string) {
-  const px = Math.round(x);
-  const py = Math.round(y);
-  const onGrass = island.ground[py * W + px] === Ground.Grass;
-  ctx.fillStyle = onGrass ? 'rgba(8,40,10,0.45)' : 'rgba(100,70,35,0.38)';
-  ctx.fillRect(px - 4, py - 1, 9, 2);
-  ctx.fillRect(px - 3, py + 1, 7, 1);
-  const swinging = k > 0 && !!tl;
-  if (swinging && dir === Dir.Up) drawTool(px, py, dir, k, tl);
-  ctx.drawImage(sh[dir][f], px - FOOT_X, py - FOOT_Y, CW, CH);
-  if (swinging && dir !== Dir.Up) drawTool(px, py, dir, k, tl);
-}
-
-/** Pferd mit Schatten */
-function drawHorse(breed: string, x: number, y: number, dir: number, frame: number, foal = false, acc = '') {
-  if (!breedById(breed)) return;
-  const b = lookOf(breed, foal);
-  const px = Math.round(x);
-  const py = Math.round(y);
-  const w = dir >= 2 ? [14, 18, 20, 10][b.size] : [8, 9, 11, 6][b.size];
-  ctx.fillStyle = 'rgba(8,40,10,0.4)';
-  ctx.fillRect(px - w / 2, py - 1, w, 2);
-  ctx.fillRect(px - w / 2 + 1, py + 1, w - 2, 1);
-  ctx.drawImage(horseSheet(b, acc)[dir][frame], px - HOX, py - HOY, HW, HH);
-}
-/** Reiter im Sattel: oberer Teil der Figur, Bein seitlich am Pferd */
-function drawRider(sh: CharSheet, x: number, y: number, dir: Dir, f: number, breed: string, pants: string, acc = '') {
-  const b = breedById(breed);
-  if (!b) return drawChar(sh, x, y, dir, f, 0, '');
-  const px = Math.round(x);
-  const py = Math.round(y);
-  const s = saddle(b, dir);
-  const bob = f % 2 === 1 ? -1 : 0;
-  const sx = px + s.x;
-  const sy = py + s.y + bob;
-  const rider = () => ctx.drawImage(sh[dir][0], 0, 0, CW, 17, sx - FOOT_X, sy - 16, CW, 17);
-  if (dir === Dir.Down) {
-    rider();
-    drawHorse(breed, x, y, dir, f, false, acc);
-    return;
-  }
-  drawHorse(breed, x, y, dir, f, false, acc);
-  rider();
-  if (dir === Dir.Right || dir === Dir.Left) {
-    ctx.fillStyle = '#1a1210';
-    ctx.fillRect(sx - 2, sy - 1, 4, 6);
-    ctx.fillStyle = pants;
-    ctx.fillRect(sx - 1, sy - 1, 2, 4);
-    ctx.fillStyle = '#4a3020';
-    ctx.fillRect(sx - 1, sy + 3, 2, 1);
-  }
-}
-
-function drawPlayer() {
-  if (riding >= 0 && world.horses[riding]) {
-    const b = world.horses[riding].breed;
-    return drawRider(sheet, player.x, player.y, player.dir, player.moving ? Math.floor(player.anim) : 0, b, PANTS[save.look.pants] ?? PANTS[0], world.horses[riding].acc);
-  }
-  const st = myState();
-  drawChar(sheet, player.x, player.y, player.dir, st.f, swing > 0 ? 1 - swing / SWING : 0, swing > 0 ? swingTool : '');
-}
-
-// ---------- Tag & Nacht, Regen ----------
+// ---------- Tag & Nacht ----------
 let tod: TimeOfDay | null = null;
-const shade = document.createElement('canvas');
-const SHADE_DIV = 4;
-const drops: { x: number; y: number; v: number }[] = [];
-const flies2 = Array.from({ length: 26 }, (_, i) => ({ x: 70 + ((i * 53) % (W - 140)), y: 80 + ((i * 97) % (H - 160)), ph: i * 1.7 }));
-/** Fenster der Häuser (relativ zum Fußpunkt) */
-const WINDOWS = [
-  [-11, -13],
-  [10, -13],
-];
-function drawHouse(x: number, y: number) {
-  ctx.drawImage(houseImg.img, x - houseImg.ox, y - houseImg.oy);
-  // abends leuchten die Fenster warm
-  const d = tod?.dark ?? 0;
-  if (d > 0.05) {
-    ctx.globalAlpha = Math.min(1, d * 1.2);
-    ctx.fillStyle = '#ffd87a';
-    for (const [wx, wy] of WINDOWS) ctx.fillRect(x + wx - 2, y + wy - 2, 5, 4);
-    ctx.globalAlpha = 1;
-  }
-}
-function drawWeather(t: number, dt: number, ox: number, oy: number) {
-  const T = tod;
-  if (!T) return;
-  const dpr = cw / innerWidth;
-  ctx.setTransform(1, 0, 0, 1, 0, 0);
-  const sx = (x: number) => ox + x * zoom;
-  const sy = (y: number) => oy + y * zoom;
-  // Abendrot / Morgenrot
-  if (T.glow > 0.02) {
-    ctx.fillStyle = `rgba(255,130,60,${(T.glow * 0.16).toFixed(3)})`;
-    ctx.fillRect(0, 0, cw, ch);
-  }
-  // Nacht: Dunkelheit mit Lichtern (Fenster, Feuer, wir selbst)
-  const dark = Math.max(T.dark * 0.66, T.rain ? 0.18 : 0);
-  if (dark > 0.01) {
-    // Dunkelheit in 1/4 Auflösung – die Lichter sind ohnehin weich (viel schneller)
-    const sw = Math.ceil(cw / SHADE_DIV);
-    const sh = Math.ceil(ch / SHADE_DIV);
-    if (shade.width !== sw || shade.height !== sh) {
-      shade.width = sw;
-      shade.height = sh;
-    }
-    const g = shade.getContext('2d')!;
-    g.setTransform(1 / SHADE_DIV, 0, 0, 1 / SHADE_DIV, 0, 0);
-    g.globalCompositeOperation = 'source-over';
-    g.clearRect(0, 0, cw, ch);
-    g.fillStyle = `rgba(12,18,52,${dark.toFixed(3)})`;
-    g.fillRect(0, 0, cw, ch);
-    g.globalCompositeOperation = 'destination-out';
-    const light = (x: number, y: number, r: number, a = 1) => {
-      const rr = r * zoom;
-      const grad = g.createRadialGradient(sx(x), sy(y), 0, sx(x), sy(y), rr);
-      grad.addColorStop(0, `rgba(0,0,0,${a})`);
-      grad.addColorStop(1, 'rgba(0,0,0,0)');
-      g.fillStyle = grad;
-      g.fillRect(sx(x) - rr, sy(y) - rr, rr * 2, rr * 2);
-    };
-    if (T.dark > 0.05) {
-      for (const h of world.houses) for (const [wx, wy] of WINDOWS) light(h.x + wx, h.y + wy + 6, 20, 0.8);
-      for (const f of world.fires) light(f.x, f.y - 5, 46 + Math.sin(t * 9 + f.x) * 2.5, 1);
-      for (const d of world.decos) if (d.id === 'lantern') light(d.x, d.y - 18, 34, 0.9);
-      if (mode === 'play') {
-        light(player.x, player.y - 8, 30, 0.75);
-        if (mate) light(mate.x, mate.y - 8, 30, 0.75);
-      }
-      for (const fl of flies2) light(fl.x + Math.sin(t * 0.6 + fl.ph) * 14, fl.y + Math.cos(t * 0.45 + fl.ph) * 9, 6, 0.6);
-    }
-    ctx.imageSmoothingEnabled = true;
-    ctx.drawImage(shade, 0, 0, sw, sh, 0, 0, sw * SHADE_DIV, sh * SHADE_DIV);
-    ctx.imageSmoothingEnabled = false;
-    // Feuerschein warm
-    for (const f of world.fires) {
-      const rr = 40 * zoom;
-      const grad = ctx.createRadialGradient(sx(f.x), sy(f.y - 5), 0, sx(f.x), sy(f.y - 5), rr);
-      grad.addColorStop(0, `rgba(255,150,60,${(0.25 * Math.max(0.3, T.dark)).toFixed(3)})`);
-      grad.addColorStop(1, 'rgba(255,150,60,0)');
-      ctx.fillStyle = grad;
-      ctx.fillRect(sx(f.x) - rr, sy(f.y - 5) - rr, rr * 2, rr * 2);
-    }
-  }
-  // Glühwürmchen
-  if (T.dark > 0.4) {
-    for (const fl of flies2) {
-      const x = fl.x + Math.sin(t * 0.6 + fl.ph) * 14;
-      const y = fl.y + Math.cos(t * 0.45 + fl.ph) * 9;
-      const on = Math.sin(t * 2.3 + fl.ph * 3) > -0.2;
-      if (!on) continue;
-      ctx.fillStyle = '#e8ff8a';
-      ctx.fillRect(Math.round(sx(x)), Math.round(sy(y)), zoom, zoom);
-    }
-  }
-  // Regen: schräge Striche
-  if (T.rain) {
-    while (drops.length < 140) drops.push({ x: Math.random() * cw, y: Math.random() * ch, v: 0.8 + Math.random() * 0.4 });
-    ctx.strokeStyle = 'rgba(200,225,255,0.55)';
-    ctx.lineWidth = Math.max(1, dpr);
-    ctx.beginPath();
-    for (const d of drops) {
-      d.y += 900 * dpr * dt * d.v;
-      d.x -= 160 * dpr * dt * d.v;
-      if (d.y > ch) {
-        d.y = -10;
-        d.x = Math.random() * cw * 1.2;
-      }
-      ctx.moveTo(d.x, d.y);
-      ctx.lineTo(d.x + 4 * dpr, d.y - 18 * dpr);
-    }
-    ctx.stroke();
-  } else drops.length = 0;
-}
 
 // ---------- Im Haus ----------
 const ROOM_ACTS = new Set<Intent>(['enter', 'exit', 'sleep', 'chest', 'furnish', 'stable', 'horse', 'dismount', 'trade']);
@@ -2021,7 +1575,6 @@ function mount(i: number) {
   sfx('neigh');
   hud?.toast(`Du reitest ${world.horses[i].name} – Knopf rechts zum Absteigen`);
 }
-const heartImg = heartIcon(true);
 const favIndex = () => mySlot().fav;
 /** Lieblingspferd rufen: trabt herbei und folgt eine Minute lang */
 function callFav() {
@@ -2099,8 +1652,6 @@ function enterHouse(i: number) {
   placing = false;
   hud?.setInside(true);
   hint.classList.add('gone');
-  // Raum füllt den Bildschirm
-  zoom = Math.max(playZoom, Math.floor(Math.min(cw / (ROOM_W + 8), ch / (ROOM_H + 60))));
   sfx('door');
 }
 function leaveHouse() {
@@ -2111,9 +1662,7 @@ function leaveHouse() {
   player.y = h ? h.y + 7 : outsidePos.y;
   player.dir = Dir.Down;
   hud?.setInside(false);
-  zoom = clampZoom(playZoom + zoomPref());
-  cam.x = player.x;
-  cam.y = player.y - 10;
+  view.snap();
   sfx('door');
 }
 function roomAction(kind: Intent, slot: number) {
@@ -2224,113 +1773,5 @@ function roomAction(kind: Intent, slot: number) {
     sfx('sleep');
   }
 }
-function drawInterior(t: number) {
-  const h = world.houses[inside];
-  if (!h) {
-    leaveHouse();
-    return;
-  }
-  ctx.fillStyle = '#20140c';
-  ctx.fillRect(-cw, -ch, cw * 2 + ROOM_W, ch * 2 + ROOM_H);
-  ctx.drawImage(paintRoom(h.furn, !!tod?.night), 0, 0);
-  // Abend: warmes Licht im Raum
-  if (tod && tod.dark > 0.1) {
-    ctx.fillStyle = `rgba(255,170,80,${(tod.dark * 0.12).toFixed(3)})`;
-    ctx.fillRect(0, 0, ROOM_W, ROOM_H);
-  }
-  const chars: { y: number; draw: () => void }[] = [{ y: player.y, draw: drawPlayer }];
-  const m = mate;
-  if (m && (m.in ?? -1) === inside) chars.push({ y: m.y, draw: () => drawChar(m.sheet, m.x, m.y, m.d, m.f, m.s, m.tl) });
-  chars.sort((a, b) => a.y - b.y);
-  for (const c of chars) c.draw();
-  void t;
-}
-
-/** Koppel-Zaun als einzelne Stücke (richtig vor/hinter Figuren und Pferden) */
-function pushFence(items: { y: number; draw: () => void }[], pd: Paddock, alpha: number) {
-  const f = PADDOCK_FOOT;
-  const L = pd.x + f.left;
-  const R = pd.x + f.right;
-  const T = pd.y + f.top;
-  const B = pd.y;
-  const post = (x: number, y: number) => {
-    ctx.fillStyle = FENCE.post;
-    ctx.fillRect(x - 1, y - 7, 3, 8);
-    ctx.fillStyle = FENCE.postHi;
-    ctx.fillRect(x - 1, y - 7, 1, 7);
-  };
-  const railH = (x0: number, x1: number, y: number) => {
-    for (const dy of [5, 2]) {
-      ctx.fillStyle = FENCE.rail;
-      ctx.fillRect(x0, y - dy, x1 - x0, 1);
-      ctx.fillStyle = FENCE.railDark;
-      ctx.fillRect(x0, y - dy + 1, x1 - x0, 1);
-    }
-  };
-  const wrap = (fn: () => void) => () => {
-    ctx.globalAlpha = alpha;
-    fn();
-    ctx.globalAlpha = 1;
-  };
-  // hinten: durchgehend
-  items.push({
-    y: T,
-    draw: wrap(() => {
-      railH(L, R, T);
-      for (let x = L; x <= R; x += 8) post(x, T);
-    }),
-  });
-  // Seiten: Pfosten mit Latten nach oben
-  for (const sx of [L, R])
-    for (let y = T + 8; y <= B; y += 8) {
-      const yy = Math.min(y, B);
-      items.push({
-        y: yy,
-        draw: wrap(() => {
-          ctx.fillStyle = FENCE.rail;
-          ctx.fillRect(sx, yy - 13, 1, 9);
-          ctx.fillStyle = FENCE.railDark;
-          ctx.fillRect(sx + 1, yy - 13, 1, 9);
-          post(sx, yy);
-        }),
-      });
-    }
-  // vorn: links und rechts vom Tor
-  items.push({
-    y: B + 0.5,
-    draw: wrap(() => {
-      railH(L, pd.x - GATE, B);
-      railH(pd.x + GATE, R, B);
-      for (let x = L + 8; x < pd.x - GATE; x += 8) post(x, B);
-      for (let x = R - 8; x > pd.x + GATE; x -= 8) post(x, B);
-      post(pd.x - GATE, B);
-      post(pd.x + GATE, B);
-    }),
-  });
-}
-
-function drawGhost() {
-  const { x, y, ok } = ghost;
-  if (placeKind === 'paddock') {
-    const f = PADDOCK_FOOT;
-    ctx.fillStyle = ok && world.wood >= PADDOCK_COST ? 'rgba(120,230,110,0.3)' : 'rgba(240,70,60,0.35)';
-    ctx.fillRect(x + f.left, y + f.top, f.right - f.left, f.bottom - f.top);
-    const parts: { y: number; draw: () => void }[] = [];
-    pushFence(parts, { x, y }, 0.75);
-    for (const p of parts) p.draw();
-    return;
-  }
-  const im = placeKind === 'fire' ? fireImgs[0] : placeKind === 'stable' ? stableImg : placeKind === 'deco' ? decoImgs.get(placeDeco)! : houseImg;
-  ctx.globalAlpha = 0.7;
-  ctx.drawImage(im.img, x - im.ox, y - im.oy);
-  ctx.globalAlpha = 1;
-  // Grundfläche: grün = passt, rot = geht nicht
-  const f = BUILDS[placeKind].foot;
-  ctx.fillStyle = ok && world.wood >= BUILDS[placeKind].cost ? 'rgba(120,230,110,0.45)' : 'rgba(240,70,60,0.5)';
-  ctx.fillRect(x + f.left, y + f.top, f.right - f.left, f.bottom - f.top);
-  ctx.fillStyle = ok ? '#2a7a2a' : '#a02020';
-  ctx.fillRect(x + f.left, y + f.bottom, f.right - f.left, 1);
-}
-
 // zum Testen von außen
-(window as unknown as { __game?: unknown }).__game = { player, world, farm, syncHud, get mode() { return mode; }, get mate() { return mate; }, get room() { return room; }, horsePos: (i: number) => horseAt(i), get riding() { return riding; } };
+(window as unknown as { __game?: unknown }).__game = { player, world, farm, syncHud, view, mount, enterHouse, leaveHouse, get mode() { return mode; }, get mate() { return mate; }, get room() { return room; }, horsePos: (i: number) => horseAt(i), get riding() { return riding; } };
