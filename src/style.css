@@ -1548,3 +1548,8 @@ img.c,
 .lvl .st-bar small {
   width: calc(30px * var(--fs));
 }
+
+/* Fotos der 3D-Modelle weich skalieren (nicht wie Pixelbilder) */
+img[src$='#foto'] {
+  image-rendering: auto !important;
+}

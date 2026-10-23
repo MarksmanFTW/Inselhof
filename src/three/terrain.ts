@@ -192,7 +192,12 @@ export function buildTerrain(isl: Island): Terrain {
       // Wiese mit Flecken
       const gAmt = ss((h - 0.06) / 0.16);
       if (gAmt > 0) {
-        tc.copy(g1).lerp(g2, ss(noise(x / 26, y / 26, 3) * 1.6 - 0.4)).lerp(g3, ss(noise(x / 40, y / 40, 4) * 1.8 - 0.9) * 0.7);
+        // gedrehte Koordinaten + zwei Lagen: weiche, runde Flecken statt Rechtecke
+        const u = x * 0.8 + y * 0.6;
+        const v = -x * 0.6 + y * 0.8;
+        const n1 = noise(u / 30, v / 30, 3) * 0.65 + noise(v / 13, u / 13, 6) * 0.35;
+        const n2 = noise(v / 46, u / 46, 4) * 0.7 + noise(u / 17, v / 17, 8) * 0.3;
+        tc.copy(g1).lerp(g2, ss((n1 - 0.35) * 2.2) * 0.8).lerp(g3, ss((n2 - 0.5) * 2.4) * 0.55);
         // Kante (schräg) etwas dunkler – wirkt wie ein weicher Rand
         tc.lerp(rim, Math.min(1, (1 - nrm.getY(i)) * 3.2));
         c.lerp(tc, gAmt);

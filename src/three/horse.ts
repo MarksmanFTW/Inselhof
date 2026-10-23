@@ -746,7 +746,7 @@ export function makeHorse(b: Breed, acc = '', foal = false): HorseModel {
   };
 }
 
-/** Vorab bauen (Ladezeit verteilen) */
-export function warmHorses() {
-  for (const s of [1, 0, 2, 3] as const) skinOf(s);
+/** Vorab bauen (Ladezeit verteilen): eine Größe 0 Pony, 1 Pferd, 2 Kaltblut, 3 Fohlen */
+export function warmHorse(size: 0 | 1 | 2 | 3) {
+  skinOf(size);
 }

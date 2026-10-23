@@ -49,12 +49,14 @@ function headGeo(look: Look) {
   // Frisur
   const cap = (s = 1.07, len = 0.52) => new THREE.SphereGeometry(0.4 * s, 22, 12, 0, Math.PI * 2, 0, Math.PI * len);
   const style = look.hair;
+  // Mütze und Kopftuch bedecken den Haaransatz: dann keine Fransen und Locken obendrauf
+  const covered = look.hat === 2 || look.hat === 3;
   if (style !== 5) {
     b.add(cap(), hair, { p: [0, 0.02, -0.03], r: [-0.25, 0, 0] });
     // Stirnfransen
-    for (const [x, s] of [[-0.18, 0.13], [0, 0.14], [0.18, 0.13]] as const) b.add(sphere(s, 10), hair, { p: [x, 0.2, 0.28], s: [1.1, 0.7, 0.6] });
+    if (!covered) for (const [x, s] of [[-0.18, 0.13], [0, 0.14], [0.18, 0.13]] as const) b.add(sphere(s, 10), hair, { p: [x, 0.2, 0.28], s: [1.1, 0.7, 0.6] });
   }
-  if (style === 1)
+  if (style === 1 && !covered)
     for (let k = 0; k < 9; k++) {
       const a = (k / 9) * Math.PI * 2;
       b.add(sphere(0.14, 10), hair, { p: [Math.cos(a) * 0.26, 0.3 + (k % 2) * 0.05, Math.sin(a) * 0.26 - 0.05] });
@@ -68,7 +70,8 @@ function headGeo(look: Look) {
     for (let k = 0; k < 4; k++) b.add(sphere(0.12 - k * 0.015, 10), hair, { p: [0, 0.05 - k * 0.15, -0.5 - k * 0.04] });
   }
   if (style === 4) {
-    b.add(new THREE.SphereGeometry(0.44, 22, 12, 0, Math.PI * 2, 0, Math.PI * 0.7), hair, { p: [0, 0.03, -0.04], r: [-0.12, 0, 0], s: [1, 1, 1] });
+    // glatter Bob: Seiten und Hinterkopf, vorn fürs Gesicht offen
+    b.add(new THREE.SphereGeometry(0.44, 22, 12, Math.PI / 2 + 0.95, Math.PI * 2 - 1.9, 0, Math.PI * 0.68), hair, { p: [0, 0.03, -0.04], r: [-0.12, 0, 0] });
     b.add(rbox(0.7, 0.08, 0.12, 0.04), hair, { p: [0, 0.22, 0.31] });
   }
   // Hut

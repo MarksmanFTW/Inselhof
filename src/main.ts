@@ -5,8 +5,8 @@ import { Dir, type Look } from './character';
 import { ACCESSORIES } from './horses';
 import { ALBUM_REWARDS, ALBUM_TOTAL, DECO, SEED_PACK, SELL, SELL_NAMES, albumCount, boatOut, decoById, horseOffers, merchantHere, type SellItem } from './shop';
 import { bookIcon, coinIcon, decoArt } from './decoart';
-import { BREEDS, RARE_BREEDS, islandDay, STABLE_BREEDS, FOAL_GROW_MS, MAX_LOVE, PADDOCK_COST, STABLE_COST, STABLE_SPACE, TRUST, breedById, foalBreed, horsePose, isFoal, pasture, type HorsePose } from './horses';
-import { hayIcon, heartIcon, horseSheet, paddockIcon, scythe, stable as stableArt } from './horseart';
+import { BREEDS, RARE_BREEDS, islandDay, STABLE_BREEDS, FOAL_GROW_MS, MAX_LOVE, PADDOCK_COST, STABLE_COST, STABLE_SPACE, TRUST, breedById, horsePose, isFoal, pasture, type HorsePose } from './horses';
+import { hayIcon, heartIcon, paddockIcon, scythe, stable as stableArt } from './horseart';
 import { Ground, H, TILE, W, generate } from './island';
 import { setScene, sfx, unlockAudio } from './audio';
 import { FURNITURE } from './furniture';
@@ -23,6 +23,8 @@ import { PROTOCOL, Room, cleanCode, type Action, type Fx, type Msg, type PlayerS
 import { showCoop, showCustomize, showHud, showMenu, showSettings, showSlots, showWait, textScale, type Hud, type ToolId, type TradeData } from './ui';
 import { BUILDS, FIRE_COST, HOUSE_COST, World, type BuildKind } from './world';
 import { View } from './three/view';
+import { horsePhoto } from './three/portrait';
+import { warmHorse } from './three/horse';
 
 const screen = document.querySelector<HTMLCanvasElement>('#screen')!;
 const ctx = screen.getContext('2d')!;
@@ -100,18 +102,9 @@ const turnipImg = turnipIcon();
 const stableImg = stableArt();
 const decoImgs = new Map(DECO.map((d) => [d.id as string, decoArt(d.id)]));
 const scytheImg = scythe();
-/** Rasse fürs Bild: Fohlen haben eigene kleine Bilder */
-const lookOf = (id: string, foal = false) => {
-  const b = breedById(id) ?? BREEDS[0];
-  return foal ? foalBreed(b) : b;
-};
-/** Pferd fürs Fenster und den Knopf: Seitenansicht */
-const horseIcons = new Map<string, string>();
+/** Pferd fürs Fenster und den Knopf: Foto vom 3D-Modell */
 function horseIcon(id: string, foal = false, acc = '') {
-  const k = `${id}${foal ? '~f' : ''}|${acc}`;
-  let u = horseIcons.get(k);
-  if (!u) horseIcons.set(k, (u = toUrl(horseSheet(lookOf(id, foal), acc)[2][0])));
-  return u;
+  return horsePhoto(breedById(id) ?? BREEDS[0], acc, foal);
 }
 const hearts: [string, string] = [toUrl(heartIcon(true)), toUrl(heartIcon(false))];
 const icons = {
@@ -1328,6 +1321,20 @@ if (pendingJoin) {
   pendingJoin = '';
   joinRoom(code);
 } else openMenu();
+// Pferde-Modelle und -Fotos nach und nach im Leerlauf vorbereiten (kein Ruckeln später)
+{
+  const idle = (fn: () => void) => ('requestIdleCallback' in window ? requestIdleCallback(fn, { timeout: 4000 }) : setTimeout(fn, 800));
+  const jobs: (() => void)[] = [0, 2, 3].map((s) => () => warmHorse(s as 0 | 2 | 3));
+  for (const h of world.horses) jobs.push(() => void horseIcon(h.breed, isFoal(h, Date.now()), h.acc));
+  for (const id of world.album.horses) jobs.push(() => void horseIcon(id));
+  const next = () => {
+    const job = jobs.shift();
+    if (!job) return;
+    job();
+    setTimeout(() => idle(next), 300);
+  };
+  setTimeout(() => idle(next), 2500);
+}
 
 // ---------- Bild für Bild ----------
 let last = performance.now();
@@ -1774,4 +1781,15 @@ function roomAction(kind: Intent, slot: number) {
   }
 }
 // zum Testen von außen
-(window as unknown as { __game?: unknown }).__game = { player, world, farm, syncHud, view, mount, enterHouse, leaveHouse, get mode() { return mode; }, get mate() { return mate; }, get room() { return room; }, horsePos: (i: number) => horseAt(i), get riding() { return riding; } };
+(window as unknown as { __game?: unknown }).__game = {
+  player,
+  world,
+  farm,
+  syncHud,
+  view,
+  mount,
+  enterHouse,
+  leaveHouse,
+  /** Mitspieler vortäuschen (Tests) */
+  fakeMate: (look: Look, x: number, y: number) => (mate = makeMate('Lena', look, { x, y, d: Dir.Down, f: 0, s: 0, tl: '' })),
+  swingNow: (tl: typeof swingTool) => ((swingTool = tl), (swing = SWING * 0.5)), get mode() { return mode; }, get mate() { return mate; }, get room() { return room; }, horsePos: (i: number) => horseAt(i), get riding() { return riding; } };
