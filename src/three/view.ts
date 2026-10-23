@@ -48,7 +48,8 @@ export interface Frame {
   now: number;
   tod: TimeOfDay | null;
   me: Actor | null;
-  mate: Actor | null;
+  /** wer sonst noch auf der Insel ist */
+  mates: (Actor & { key: string })[];
   canTool: boolean;
   horseAt: (i: number) => HorsePose | null;
   petting: number;
@@ -117,7 +118,7 @@ export class View {
   private fires: { flames: THREE.Mesh[]; x: number; y: number; glow: THREE.Sprite }[] = [];
   private smoke: { m: THREE.Mesh; base: THREE.Vector3; ph: number }[] = [];
   private horses: HorseSlot[] = [];
-  private kids = new Map<'me' | 'mate', KidSlot>();
+  private kids = new Map<string, KidSlot>();
   private worldVer = -1;
   private farmVer = -1;
   private farmT = 0;
@@ -502,7 +503,7 @@ export class View {
       h.m.dispose();
     }
     const riders = new Map<number, Actor>();
-    for (const a of [fr.me, fr.mate]) if (a && a.rides >= 0 && a.in < 0) riders.set(a.rides, a);
+    for (const a of [fr.me, ...fr.mates]) if (a && a.rides >= 0 && a.in < 0) riders.set(a.rides, a);
     w.horses.forEach((h, i) => {
       const b = breedById(h.breed) ?? BREEDS[0];
       const foal = isFoal(h, now);
@@ -549,7 +550,7 @@ export class View {
       s.m.pose({ walk: s.walk, moving, graze: s.graze, t: fr.t + i * 1.7, sleep: !!fr.tod?.night && !moving && !rider, pet: s.pet, ridden: !!rider });
     });
   }
-  private syncKid(which: 'me' | 'mate', a: Actor | null, fr: Frame) {
+  private syncKid(which: string, a: Actor | null, fr: Frame) {
     let s = this.kids.get(which);
     const visible = !!a && fr.mode === 'play' && (a.in === fr.inside);
     if (!a || !visible) {
@@ -908,7 +909,18 @@ export class View {
       if (fr.me) this.interior.follow(fr.me.x * U, !this.insideNow);
     }
     this.syncKid('me', fr.me, fr);
-    this.syncKid('mate', fr.mate, fr);
+    const keys = new Set(['me']);
+    for (const m of fr.mates) {
+      keys.add(`m:${m.key}`);
+      this.syncKid(`m:${m.key}`, m, fr);
+    }
+    // gegangen: Figur weg
+    for (const [k, s] of this.kids)
+      if (!keys.has(k)) {
+        s.kid.g.parent?.remove(s.kid.g);
+        s.kid.dispose();
+        this.kids.delete(k);
+      }
     this.insideNow = fr.inside >= 0 && !!this.interior;
     if (this.insideNow) {
       // drinnen ist nichts gewölbt

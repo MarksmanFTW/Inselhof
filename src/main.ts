@@ -12,14 +12,14 @@ import { setScene, sfx, unlockAudio } from './audio';
 import { FURNITURE } from './furniture';
 import { DOOR, ROOM_H, nearSpot, roomFree } from './interior';
 import { Player } from './player';
-import { httpApi, syncIsland } from './cloud';
+import { absorb, httpApi, newPid, opId, request, type Other, type PendingOp, type Presence, type Shared } from './cloud';
 import { CAN_GOAL, Farm, RIPE, key as plotKey } from './farm';
 import { applyOp, farmUnder as farmUnderOf, link, tileFree as tileFreeOf, type Op } from './ops';
 import { PERKS, levelProgress, questAt } from './progress';
-import { newClock, timeOf, type TimeOfDay } from './time';
+import { newClock, rainSince, timeOf, type TimeOfDay } from './time';
 import { MAX_SLOTS, activeSlot, addSlot, loadSave, removeSlot, writeSave, type Save, type Slot } from './save';
-import { PROTOCOL, Room, cleanCode, type Action, type Fx, type Msg, type PlayerState } from './net/room';
-import { showCoop, showCustomize, showHud, showMenu, showSettings, showSlots, showWait, textScale, type Hud, type ToolId, type TradeData } from './ui';
+import type { Action, Fx } from './net/types';
+import { showCoop, showCustomize, showHud, showMenu, showSettings, showSlots, textScale, type Hud, type ToolId, type TradeData } from './ui';
 import { BUILDS, FIRE_COST, HOUSE_COST, World, type BuildKind } from './world';
 import { View } from './three/view';
 import { horsePhoto } from './three/portrait';
@@ -44,7 +44,7 @@ const START = { x: 176, y: 172 };
 const player = new Player(island, world, START.x, START.y);
 /** neue/alte Insel ohne Uhr: es ist 7 Uhr morgens */
 const ensureClock = () => {
-  if (!world.clock && role !== 'guest') world.clock = newClock(Date.now());
+  if (!world.clock) world.clock = newClock(Date.now());
 };
 {
   const pos = mySlot().pos;
@@ -71,7 +71,7 @@ const dirTo = (dx: number, dy: number) => (Math.abs(dx) > Math.abs(dy) ? (dx > 0
 function horseAt(i: number, now = Date.now()): HorsePose | null {
   const h = world.horses[i];
   const st = h && world.stables[h.stable];
-  if (!h || !st || i === riding || (mate && (mate.in ?? -1) === -1 && mate.rh === i)) return null;
+  if (!h || !st || i === riding || [...mates.values()].some((m) => m.in === -1 && m.rh === i)) return null;
   let slot = 0;
   for (let k = 0; k < i; k++) if (world.horses[k].stable === h.stable) slot++;
   // gerufen: läuft dir hinterher; gestreichelt: schaut dich an
@@ -169,9 +169,8 @@ function playFx(fx: Fx) {
 }
 function emit(fx: Fx) {
   playFx(fx);
-  if (role === 'host') room?.send({ t: 'fx', fx });
 }
-/** Aktion ausführen (nur allein oder beim Gastgeber); liefert einen Hinweis bei Fehlschlag */
+/** Aktion ausführen; liefert einen Hinweis bei Fehlschlag */
 function perform(a: Action, actor: { x: number; y: number }): string | null {
   const op: Op = { a, x: Math.round(actor.x), y: Math.round(actor.y), t: Date.now() };
   const res = applyOp(world, farm, op);
@@ -222,21 +221,18 @@ function perform(a: Action, actor: { x: number; y: number }): string | null {
   }
   for (const n of res.gain?.levels ?? []) emit({ k: 'level', x: actor.x, y: actor.y, n });
   for (const al of res.album ?? []) emit({ k: 'quest', x: actor.x, y: actor.y, text: `Sammelalbum: ${al.at} Einträge! +${al.coins} Münzen` });
-  // gemeinsame Insel: Aktion für den Abgleich merken (beim Fällen nur das Umfallen)
+  // gemeinsame Insel: Aktion fürs Protokoll merken (beim Fällen nur das Umfallen) und bald schicken
   if (cloudOn() && (a.kind === 'axe' ? res.felled : res.done)) {
     const sl = mySlot();
-    (sl.pending ??= []).push(a.kind === 'axe' ? { ...op, a: { ...a, fell: true } } : op);
+    (sl.pending ??= []).push({ ...(a.kind === 'axe' ? { ...op, a: { ...a, fell: true } } : op), id: opId(pid) });
+    syncSoon = true;
   }
   syncHud();
   persist();
   return res.err;
 }
-/** eigene Aktion: allein/Gastgeber gleich ausführen, als Gast an den Gastgeber schicken */
+/** eigene Aktion gleich ausführen (bei gemeinsamen Inseln kommt sie ins Protokoll) */
 function doAction(a: Action) {
-  if (role === 'guest') {
-    room?.send({ t: 'do', a });
-    return null;
-  }
   return perform(a, player);
 }
 
@@ -294,8 +290,6 @@ function openTrade() {
   const act = (a: Action) => {
     const err = doAction(a);
     if (err) hud?.toast(err);
-    // als Gast kommt der neue Stand gleich vom Gastgeber
-    if (role === 'guest') setTimeout(() => tradeUI?.update(tradeData()), 500);
   };
   tradeUI =
     hud?.openTrade(
@@ -646,28 +640,15 @@ function persist() {
   const changed = versionNow() !== savedVersion;
   savedVersion = versionNow();
   const pos = inside >= 0 ? { ...outsidePos } : { x: Math.round(player.x), y: Math.round(player.y) };
-  if (role === 'guest') {
-    // als Gast: eigene Kopie der gemeinsamen Insel mitschreiben (die eigene Insel bleibt unberührt)
-    if (!hostSlot) return writeSave(save);
-    let copy = save.slots.find((x) => x.id === hostSlot!.id);
-    if (!copy) {
-      // „Meine Insel“ des Freundes heißt bei mir „Insel von …“
-      const title = hostSlot.title === 'Meine Insel' ? `Insel von ${mate?.name ?? 'Freund'}`.slice(0, 20) : hostSlot.title;
-      copy = { id: hostSlot.id, title, createdAt: now, updatedAt: now };
-      save.slots.push(copy);
-    }
-    Object.assign(copy, { shared: { with: mate?.name ?? copy.shared?.with ?? 'Freund' }, pos, world: world.toSave(), farm: farm.toSave() });
-    if (changed) copy.updatedAt = now;
-  } else {
-    const sl = mySlot();
-    Object.assign(sl, { pos, world: world.toSave(), farm: farm.toSave() });
-    if (changed) sl.updatedAt = now;
-    if (role === 'host' && mate) sl.shared = { with: mate.name };
-  }
+  const sl = mySlot();
+  Object.assign(sl, { pos, world: world.toSave(), farm: farm.toSave() });
+  if (changed) sl.updatedAt = now;
   writeSave(save);
 }
 /** Insel wechseln: Stand aus dem Spielstand laden */
 function applySlot(sl: Slot) {
+  // die alte gemeinsame Insel verlassen (dort verschwindet man)
+  leaveShared();
   save.active = sl.id;
   world.apply(sl.world ?? {});
   farm.apply(sl.farm ?? {});
@@ -717,7 +698,6 @@ function openSlots() {
       },
       back: openMenu,
     },
-    !!room,
   );
 }
 function openMenu() {
@@ -725,6 +705,8 @@ function openMenu() {
   riding = -1;
   hud = null;
   if (mode === 'play') persist();
+  // im Menü ist man nicht auf der Insel – der Freund sieht einen nicht mehr
+  if (mode === 'play') leaveShared();
   mode = 'menu';
   stick = null;
   pointers.clear();
@@ -735,10 +717,8 @@ function openMenu() {
     slots: openSlots,
     look: () => openCustom(false),
     coop: () => openCoop(),
-    leave: room ? () => (leaveCoop(), openMenu()) : undefined,
-    coopText: room ? (role === 'host' ? `Deine Insel ist offen – Code ${room.code}` : `Zu Besuch bei ${mate?.name || 'deinem Freund'}`) : undefined,
     // gemeinsame Inseln direkt im Menü (ohne Umweg über Spielstände)
-    shared: room ? [] : save.slots.filter((x) => x.shared && x.id !== save.active).map((x) => ({ id: x.id, title: x.title })),
+    shared: save.slots.filter((x) => x.shared && x.id !== save.active).map((x) => ({ id: x.id, title: x.title })),
     playSlot: (id) => {
       const sl = save.slots.find((x) => x.id === id);
       if (!sl) return;
@@ -787,12 +767,7 @@ function openCustom(first: boolean) {
     (s) => {
       save = s;
       writeSave(save);
-      room?.send({ t: 'look', name: save.name, look: save.look });
-      if (pendingJoin) {
-        const code = pendingJoin;
-        pendingJoin = '';
-        joinRoom(code);
-      } else if (first) startPlay();
+      if (first) startPlay();
       else openMenu();
     },
     { first },
@@ -859,12 +834,25 @@ function confirmBuild() {
   if (err) hud?.toast(err);
 }
 
-// ---------- Koop ----------
-type Role = 'solo' | 'host' | 'guest';
-let role: Role = 'solo';
-let room: Room | null = null;
-let pendingJoin = '';
+// ---------- Gemeinsame Insel: Abgleich über island.php ----------
+/*
+ * Gemeinsame Inseln liegen auf der Website. Jeder spielt auf seinem Gerät sofort
+ * weiter; die eigenen Aktionen kommen ins gemeinsame Protokoll, die des Freundes
+ * kommen dazu (cloud.ts). Wer gerade auf der Insel ist, meldet seine Position –
+ * so sieht man sich, wenn beide gleichzeitig spielen.
+ */
+const cloud = httpApi();
+/** Kennung dieses Geräts (eigene Aktionen und Anwesenheit erkennen) */
+const pid = (() => {
+  let p = store.get('cozyisland.pid') ?? '';
+  if (!/^[a-z0-9]{6,24}$/.test(p)) {
+    p = newPid();
+    store.set('cozyisland.pid', p);
+  }
+  return p;
+})();
 interface Mate {
+  pid: string;
   name: string;
   look: Look;
   x: number;
@@ -872,48 +860,199 @@ interface Mate {
   tx: number;
   ty: number;
   d: Dir;
-  f: number;
-  s: number;
-  tl: string;
-  in?: number;
-  /** reitet Pferd … */
-  rh?: number;
+  /** im Haus (−1 draußen), reitet Pferd (−1 nein) */
+  in: number;
+  rh: number;
   /** zuletzt bewegt (fürs Laufen) */
   movedAt: number;
+  /** letzter Werkzeug-Schwung (seine Zeit) und wann er hier begann */
+  sw: number;
+  swingAt: number;
+  tl: string;
+  sp: number;
 }
-let mate: Mate | null = null;
-/** als Gast: welche Insel wir besuchen */
-let hostSlot: { id: string; title: string; updatedAt: number } | null = null;
-let guestSaveTimer = 0;
-let lastPos = 0;
-let lastState = 0;
-let sentVersion = '';
-const myState = (): PlayerState => ({
-  x: Math.round(player.x * 10) / 10,
-  y: Math.round(player.y * 10) / 10,
-  d: player.dir,
-  f: swing > 0 ? (swing > SWING / 2 ? 1 : 3) : player.frame,
-  s: swing > 0 ? Math.round((1 - swing / SWING) * 100) / 100 : 0,
-  tl: swing > 0 ? swingTool : '',
-  in: inside,
-  ...(riding >= 0 ? { rh: riding } : {}),
-});
-function makeMate(name: string, look: Look, p: PlayerState): Mate {
-  return { name: name || 'Freund', look, x: p.x, y: p.y, tx: p.x, ty: p.y, d: p.d as Dir, f: p.f, s: p.s, tl: p.tl, rh: p.rh, movedAt: 0 };
-}
+/** wer außer mir gerade auf der Insel ist */
+const mates = new Map<string, Mate>();
+let syncing = false;
+let syncSoon = false;
+let lastSync = -1e9;
+let compactNext = false;
+let cloudState: 'ok' | 'offline' | '' = '';
+/** eigener letzter Werkzeug-Schwung (für die Anzeige beim Freund) */
+let swingAt = 0;
+let swingTl = '';
 const islandState = () => ({ world: world.toSave(), farm: farm.toSave() });
+/** aktive Insel ist gemeinsam */
+function cloudOn() {
+  return !!mySlot().shared;
+}
+/** Stand der gemeinsamen Insel aus dem Spielstand (ältere Stände bekommen Kennungen) */
+function sharedOf(sl: Slot): Shared {
+  const pending = (sl.pending ?? []).map((p) => ('id' in p && typeof p.id === 'string' ? (p as PendingOp) : { ...p, id: opId(pid) }));
+  sl.pending = pending;
+  return { base: sl.base ?? null, rev: sl.base ? (sl.rev ?? 0) : 0, pending };
+}
+/** wo ich gerade bin (null = nicht auf der Insel) */
+function presence(): Presence | null {
+  if (mode !== 'play' || document.visibilityState !== 'visible') return null;
+  return {
+    n: save.name || 'Freund',
+    l: save.look,
+    x: Math.round(player.x * 10) / 10,
+    y: Math.round(player.y * 10) / 10,
+    d: player.dir,
+    m: player.moving ? 1 : 0,
+    sw: swingAt,
+    tl: swingTl,
+    rh: riding,
+    in: inside,
+    sp: Math.round(player.speedMul * 100) / 100,
+  };
+}
 function updateCoopChip() {
   if (!hud) return;
-  if (!room) {
-    const sh = mySlot().shared;
-    return hud.setCoop(sh ? `Gemeinsam mit ${sh.with}${cloudState === 'offline' ? ' · offline' : ''}` : null);
+  const sh = mySlot().shared;
+  if (!sh) return hud.setCoop(null);
+  const here = [...mates.values()].map((m) => m.name);
+  hud.setCoop(here.length ? `Gemeinsam · ${here.join(', ')} ${here.length > 1 ? 'sind' : 'ist'} da` : `Gemeinsam mit ${sh.with}${cloudState === 'offline' ? ' · offline' : ''}`);
+}
+/** gemeinsame Insel verlassen: beim Freund verschwinden */
+function leaveShared() {
+  const sl = mySlot();
+  if (sl.shared) cloud.leave(sl.id, pid);
+  for (const m of mates.values()) if (m.rh >= 0) released.set(m.rh, { x: m.x, y: m.y, at: Date.now() });
+  mates.clear();
+  compactNext = false;
+}
+async function cloudSync() {
+  if (!cloudOn() || syncing) return;
+  syncing = true;
+  syncSoon = false;
+  lastSync = performance.now();
+  const sl = mySlot();
+  try {
+    const res = await cloud.sync(sl.id, request(sharedOf(sl), pid, presence(), { init: sl.pull ? undefined : islandState(), compact: compactNext }));
+    if (mySlot() !== sl || !cloudOn()) return;
+    if (!res) {
+      cloudState = 'offline';
+      if (sl.pull && mode === 'play') hud?.toast('Die gemeinsame Insel lädt noch – ist das Internet an?');
+      return;
+    }
+    cloudState = 'ok';
+    compactNext = !!res.compact;
+    // was inzwischen dazukam (eigene neue Aktionen bleiben erhalten)
+    const got = absorb(island, sharedOf(sl), res, pid, Date.now());
+    if (got.empty) {
+      if (sl.pull && mode === 'play') hud?.toast(`Die Insel ist noch nicht in der Cloud – ${sl.shared?.with ?? 'dein Freund'} muss sie einmal öffnen`);
+    } else {
+      if (sl.pull && got.shared.base) {
+        delete sl.pull;
+        if (mode === 'play') setTimeout(() => hud?.toast(`Willkommen auf „${sl.title}“!`), 300);
+      }
+      sl.base = got.shared.base ?? undefined;
+      sl.rev = got.shared.rev;
+      sl.pending = got.shared.pending;
+      if (got.current) {
+        world.apply(got.current.world);
+        farm.apply(got.current.farm);
+        unstick();
+        syncHud();
+      }
+      for (const o of got.remote) {
+        remoteFx(o.op);
+        // geschlafen: die Uhr der Insel ist für beide weitergesprungen
+        if (o.op.a.kind === 'sleep' && mode === 'play') hud?.toast(`${mates.get(o.by)?.name ?? sl.shared?.with ?? 'Dein Freund'} hat geschlafen – die Zeit ist weitergesprungen`);
+      }
+    }
+    updateMates(res.others);
+    persist();
+  } finally {
+    syncing = false;
+    updateCoopChip();
   }
-  if (role === 'host') hud.setCoop(mate ? `Koop: ${mate.name} ist da` : `Raum ${room.code} · wartet …`);
-  else hud.setCoop(`Zu Besuch bei ${mate?.name ?? '…'}`);
 }
-function coopLink(code: string) {
-  return `${location.origin}${location.pathname}?join=${code}`;
+/** wer gerade da ist: neu dazu, bewegt sich, ist gegangen */
+function updateMates(list: Other[]) {
+  const now = Date.now();
+  const seen = new Set<string>();
+  if (mode === 'play')
+    for (const o of list) {
+      if (!o || typeof o.pid !== 'string' || o.age > 7000 || typeof o.x !== 'number') continue;
+      seen.add(o.pid);
+      let m = mates.get(o.pid);
+      if (!m) {
+        m = { pid: o.pid, name: o.n || 'Freund', look: o.l, x: o.x, y: o.y, tx: o.x, ty: o.y, d: o.d as Dir, in: o.in ?? -1, rh: o.rh ?? -1, movedAt: 0, sw: o.sw, swingAt: 0, tl: '', sp: 1 };
+        mates.set(o.pid, m);
+        hud?.toast(`${m.name} ist auf der Insel!`);
+        // mit wem die Insel geteilt ist, steht jetzt fest
+        const sl = mySlot();
+        if (sl.shared && sl.shared.with === 'Freund' && m.name !== 'Freund') sl.shared.with = m.name;
+      }
+      // Haus betreten/verlassen: nicht durchs Bild gleiten
+      if ((o.in ?? -1) !== m.in) Object.assign(m, { x: o.x, y: o.y });
+      // steigt ab: Pferd läuft von dort zurück
+      if (m.rh >= 0 && m.rh !== (o.rh ?? -1)) released.set(m.rh, { x: m.x, y: m.y, at: now });
+      if (o.m || Math.hypot(o.x - m.tx, o.y - m.ty) > 0.3) m.movedAt = now;
+      if (o.sw && o.sw !== m.sw) {
+        m.swingAt = performance.now();
+        m.tl = o.tl;
+      }
+      Object.assign(m, { name: o.n || m.name, look: o.l ?? m.look, tx: o.x, ty: o.y, d: o.d as Dir, in: o.in ?? -1, rh: o.rh ?? -1, sw: o.sw, sp: o.sp || 1 });
+    }
+  for (const [k, m] of mates)
+    if (!seen.has(k)) {
+      mates.delete(k);
+      if (m.rh >= 0) released.set(m.rh, { x: m.x, y: m.y, at: now });
+      if (mode === 'play') hud?.toast(`${m.name} hat die Insel verlassen`);
+    }
 }
+/** was der Freund gemacht hat: kurz zeigen (nur in der Nähe, mit Ton) */
+function remoteFx(op: Op) {
+  const a = op.a;
+  const cx = (a.c ?? 0) * TILE + 4;
+  const cy = (a.r ?? 0) * TILE + 4;
+  const fx: Fx | null =
+    a.kind === 'axe' && a.fell && island.decor[a.tree ?? -1]
+      ? { k: 'fell', x: island.decor[a.tree!].x, y: island.decor[a.tree!].y }
+      : a.kind === 'hoe'
+        ? { k: 'till', x: cx, y: cy }
+        : a.kind === 'seeds'
+          ? { k: 'seed', x: cx, y: cy }
+          : a.kind === 'water'
+            ? { k: 'water', x: cx, y: cy }
+            : a.kind === 'harvest'
+              ? { k: 'harvest', x: cx, y: cy }
+              : a.kind === 'mow'
+                ? { k: 'mow', x: cx, y: cy }
+                : a.kind === 'build'
+                  ? { k: 'build', x: a.x ?? 0, y: a.y ?? 0 }
+                  : null;
+  if (fx && mode === 'play' && inside < 0 && Math.hypot(fx.x - player.x, fx.y - player.y) < 160) playFx(fx);
+}
+/** steckt die Figur nach dem Abgleich fest (z. B. ein Baum ist nachgewachsen)? → daneben stellen */
+function unstick() {
+  if (inside >= 0 || player.free(player.x, player.y)) return;
+  for (let r = 4; r < 60; r += 4)
+    for (let k = 0; k < 12; k++) {
+      const x = player.x + Math.cos((k / 12) * Math.PI * 2) * r;
+      const y = player.y + Math.sin((k / 12) * Math.PI * 2) * r;
+      if (player.free(x, y)) return Object.assign(player, { x, y });
+    }
+}
+// Takt: zu zweit schnell (man sieht sich laufen), allein ab und zu (Freund kommt dazu?), im Menü selten
+setInterval(() => {
+  if (!cloudOn() || syncing || document.visibilityState !== 'visible') return;
+  const wait = mode !== 'play' ? 8000 : mates.size ? 350 : syncSoon ? 500 : 2500;
+  if (performance.now() - lastSync >= wait) void cloudSync();
+}, 100);
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible') void cloudSync();
+  else if (cloudOn()) {
+    persist();
+    leaveShared();
+  }
+});
+addEventListener('pagehide', () => cloudOn() && cloud.leave(mySlot().id, pid));
 /** fester Link zur eigenen Insel: der Freund spielt jederzeit mit, auch offline */
 async function shareIsland(): Promise<string> {
   const sl = mySlot();
@@ -925,7 +1064,7 @@ async function shareIsland(): Promise<string> {
   try {
     if (navigator.share) {
       await navigator.share({ title: 'Cozy Island', text, url });
-      return 'Link geschickt!';
+      return 'Link geschickt! Sobald dein Freund ihn öffnet, ist die Insel bei euch beiden.';
     }
     await navigator.clipboard.writeText(`${text} ${url}`);
     return 'Link kopiert – schick ihn deinem Freund';
@@ -933,311 +1072,27 @@ async function shareIsland(): Promise<string> {
     return '';
   }
 }
-async function share(code: string) {
-  const url = coopLink(code);
-  const text = `Komm auf meine Insel in Cozy Island! Code: ${code}`;
-  try {
-    if (navigator.share) return await navigator.share({ title: 'Cozy Island', text, url });
-    await navigator.clipboard.writeText(`${text} ${url}`);
-    hud?.toast('Link kopiert');
-  } catch {
-    /* abgebrochen */
-  }
-}
-function openCoop(code = '') {
+function openCoop() {
   hud = null;
   mode = 'custom';
-  showCoop({ host: hostRoom, join: (c) => joinRoom(c), back: openMenu, island: shareIsland }, code, mySlot().title);
-}
-function newRoom(host: boolean) {
-  leaveCoop();
-  const r = new Room(host);
-  room = r;
-  role = host ? 'host' : 'guest';
-  r.onMsg = (m) => room === r && onNet(m);
-  r.onError = (text) => {
-    if (room !== r) return;
-    leaveCoop();
-    mode = 'custom';
-    hud = null;
-    showWait('Hoppla!', `<p>${text}</p>`, { back: openMenu });
-  };
-  r.onClose = () => {
-    if (room !== r) return;
-    if (role === 'host') {
-      if (mate) hud?.toast(`${mate.name} hat deine Insel verlassen`);
-      mate = null;
-      // hängende Verbindung lösen, damit der Freund wieder beitreten kann
-      const c = r.conn;
-      r.conn = null;
-      c?.close();
-      updateCoopChip();
-    } else {
-      leaveCoop();
-      hud?.toast('Die Verbindung zur Insel ist weg');
-      if (mode === 'play') startPlay();
-    }
-  };
-  return r;
-}
-function hostRoom() {
-  if (!save.created) return openCustom(true);
-  void cloudSync();
-  const r = newRoom(true);
-  mode = 'custom';
-  hud = null;
-  showWait('Insel wird geöffnet …', '<div class="code-big"><span>…</span></div>', { back: () => (leaveCoop(), openMenu()) });
-  void r.create().then((code) => {
-    if (room !== r || mode !== 'custom') return;
-    showWait(
-      'Deine Insel ist offen!',
-      `<div class="code-big">${[...code].map((ch) => `<span>${ch}</span>`).join('')}</div>
-       <p>Sag deinem Freund den Code oder schick ihm den Link. Du kannst schon spielen – er kommt dazu, sobald er beitritt.</p>`,
-      { share: () => void share(code), play: startPlay, back: () => (leaveCoop(), openMenu()) },
-    );
-  });
-}
-function joinRoom(code: string) {
-  if (!save.created) {
-    pendingJoin = code;
-    return openCustom(true);
-  }
-  const r = newRoom(false);
-  mode = 'custom';
-  hud = null;
-  showWait('Verbinde …', `<p>mit der Insel <b>${code}</b></p>`, { back: () => (leaveCoop(), openMenu()) });
-  r.onTry = (n) => n > 1 && room === r && mode === 'custom' && showWait('Verbinde …', `<p>Direkt klappt es nicht – verbinde über die Website mit <b>${code}</b> …</p>`, { back: () => (leaveCoop(), openMenu()) });
-  r.onOpen = () => r.send({ t: 'hi', v: PROTOCOL, name: save.name, look: save.look });
-  r.join(code);
-}
-function leaveCoop() {
-  const wasGuest = role === 'guest';
-  room?.close();
-  room = null;
-  mate = null;
-  role = 'solo';
-  if (wasGuest) {
-    // Kopie der gemeinsamen Insel sichern, dann zurück auf die eigene Insel
-    role = 'guest';
-    persist();
-    role = 'solo';
-    // auf der gemeinsamen Insel bleiben (allein weiterspielen, Cloud gleicht ab) –
-    // die eigene Insel ist weiter unter „Spielstände“
-    const copy = hostSlot && save.slots.find((x) => x.id === hostSlot!.id);
-    hostSlot = null;
-    applySlot(copy ?? mySlot());
-    if (copy) {
-      setTimeout(() => hud?.toast(`Du spielst auf „${copy.title}“ weiter – alles bleibt gespeichert`), 600);
-      void cloudSync();
-    }
-  }
-  syncHud();
-  updateCoopChip();
-}
-/** wann zuletzt etwas vom Mitspieler kam – bleibt es aus, ist er weg (App zu, Netz weg) */
-let lastHeard = 0;
-const SILENT_MS = 15_000;
-setInterval(() => {
-  const r = room;
-  if (!r || !mate || document.visibilityState !== 'visible') return;
-  if (Date.now() - lastHeard > SILENT_MS) r.onClose();
-}, 2000);
-// nach dem Zurückholen der App kurz Zeit geben, bis wieder Nachrichten kommen
-document.addEventListener('visibilitychange', () => {
-  if (document.visibilityState === 'visible') lastHeard = Date.now();
-});
-addEventListener('pagehide', () => room?.connected && room.send({ t: 'bye' }));
-function onNet(m: Msg) {
-  const r = room!;
-  lastHeard = Date.now();
-  switch (m.t) {
-    // ----- beim Gastgeber -----
-    case 'hi':
-      if (role !== 'host') return;
-      if (m.v !== PROTOCOL) {
-        const text = 'Ihr habt verschiedene Spiel-Versionen – bitte beide die Seite neu laden.';
-        r.send({ t: 'msg', text });
-        hud?.toast(text);
-        return;
-      }
-      mate = makeMate(m.name, m.look, { x: player.x + 12, y: player.y, d: Dir.Down, f: 0, s: 0, tl: '' });
-      persist();
-      r.send({
-        t: 'welcome',
-        v: PROTOCOL,
-        name: save.name,
-        look: save.look,
-        state: islandState(),
-        p: myState(),
-        slot: { id: mySlot().id, title: mySlot().title, updatedAt: mySlot().updatedAt },
-      });
-      sentVersion = '';
-      hud?.toast(`${mate.name} besucht deine Insel!`);
-      updateCoopChip();
-      if (mode === 'custom') startPlay();
-      break;
-    case 'do':
-      if (role !== 'host' || !mate) return;
-      {
-        const err = perform(m.a, { x: mate.tx, y: mate.ty });
-        if (err) r.send({ t: 'msg', text: err });
-      }
-      break;
-    // ----- beim Gast -----
-    case 'welcome': {
-      if (role !== 'guest') return;
-      if (m.v !== PROTOCOL) {
-        leaveCoop();
-        mode = 'custom';
-        hud = null;
-        showWait('Andere Version', '<p>Dein Freund hat noch eine ältere Version von Cozy Island. Bitte beide die Seite neu laden (oder die App neu öffnen) und nochmal versuchen.</p>', { back: openMenu });
-        return;
-      }
-      // eigenen (neueren) Stand dieser gemeinsamen Insel mitbringen?
-      // (gemeinsame Inseln gleichen sich über die Cloud ab – der Gastgeber hat den neuesten Stand)
-      const mine = save.slots.find((x) => x.id === m.slot.id);
-      hostSlot = m.slot;
-      world.apply(m.state.world);
-      farm.apply(m.state.farm);
-      savedVersion = versionNow();
-      mate = makeMate(m.name, m.look, m.p);
-      {
-        // Kopie anlegen bzw. auf den Stand des Gastgebers bringen
-        role = 'guest';
-        persist();
-        const copy = save.slots.find((x) => x.id === m.slot.id);
-        if (copy) {
-          copy.updatedAt = Math.max(m.slot.updatedAt, mine?.updatedAt ?? 0);
-          // eigene Kopie holt sich beim nächsten Alleinspielen den Cloud-Stand;
-          // noch nicht abgeglichene eigene Aktionen bleiben gemerkt und kommen dann dazu
-          copy.rev = 0;
-        }
-        writeSave(save);
-      }
-      // neben dem Gastgeber auftauchen
-      const spots = [[12, 0], [-12, 0], [0, 10], [0, -10], [18, 6]];
-      const spot = spots.find(([dx, dy]) => player.free(m.p.x + dx, m.p.y + dy)) ?? [0, 0];
-      player.x = m.p.x + spot[0];
-      player.y = m.p.y + spot[1];
-      startPlay();
-      hud?.toast(`Willkommen auf der Insel von ${mate.name}!`);
-      break;
-    }
-    case 'state':
-      if (role !== 'guest') return;
-      world.apply(m.state.world);
-      farm.apply(m.state.farm);
-      syncHud();
-      // Kopie der gemeinsamen Insel ab und zu sichern
-      if (!guestSaveTimer)
-        guestSaveTimer = window.setTimeout(() => {
-          guestSaveTimer = 0;
-          if (role === 'guest') persist();
-        }, 2000);
-      break;
-    case 'newer':
-      if (role !== 'host' || m.updatedAt <= mySlot().updatedAt) return;
-      world.apply(m.state.world);
-      farm.apply(m.state.farm);
-      persist();
-      mySlot().updatedAt = m.updatedAt;
-      writeSave(save);
-      syncHud();
-      hud?.toast(`Neuerer Stand von ${mate?.name ?? 'deinem Freund'} übernommen`);
-      break;
-    case 'fx':
-      playFx(m.fx);
-      break;
-    case 'msg':
-      hud?.toast(m.text);
-      break;
-    // ----- beide -----
-    case 'p':
-      if (!mate) return;
-      // Raumwechsel: nicht durchs Bild gleiten
-      if ((m.p.in ?? -1) !== (mate.in ?? -1)) Object.assign(mate, { x: m.p.x, y: m.p.y });
-      // Freund steigt ab: Pferd läuft von dort zurück
-      if (mate.rh !== undefined && mate.rh !== m.p.rh) released.set(mate.rh, { x: mate.x, y: mate.y, at: Date.now() });
-      if (Math.hypot(m.p.x - mate.tx, m.p.y - mate.ty) > 0.2) mate.movedAt = Date.now();
-      Object.assign(mate, { tx: m.p.x, ty: m.p.y, d: m.p.d, f: m.p.f, s: m.p.s, tl: m.p.tl, in: m.p.in ?? -1, rh: m.p.rh });
-      break;
-    case 'look':
-      if (!mate) return;
-      mate.name = m.name || mate.name;
-      mate.look = m.look;
-      updateCoopChip();
-      break;
-    case 'bye':
-      r.onClose();
-      break;
-  }
-}
-/** jedes Bild: Position schicken, als Gastgeber den Insel-Stand */
-function netTick(now: number) {
-  if (!room?.connected) return;
-  if (now - lastPos > 100) {
-    lastPos = now;
-    room.send({ t: 'p', p: myState() });
-  }
-  if (role === 'host' && mate) {
-    const v = `${world.version}/${farm.version}`;
-    if ((v !== sentVersion && now - lastState > 120) || now - lastState > 4000) {
-      sentVersion = v;
-      lastState = now;
-      room.send({ t: 'state', state: islandState() });
-    }
-  }
-}
-// ---------- Gemeinsame Insel: Abgleich über island.php ----------
-const cloud = httpApi();
-let syncing = false;
-let cloudState: 'ok' | 'offline' | '' = '';
-/** eigene Insel ist gemeinsam und wird von hier aus abgeglichen (nicht als Gast) */
-function cloudOn() {
-  return role !== 'guest' && !!mySlot().shared;
-}
-async function cloudSync() {
-  if (!cloudOn() || syncing) return;
-  syncing = true;
   const sl = mySlot();
-  try {
-    const res = await syncIsland(cloud, sl.id, island, { rev: sl.rev ?? 0, pending: sl.pending ?? [] }, islandState, !!sl.pull);
-    if (mySlot() !== sl || !cloudOn()) return;
-    if (!res) {
-      cloudState = 'offline';
-      if (sl.pull && mode === 'play') hud?.toast('Die gemeinsame Insel lädt noch – ist das Internet an?');
-      return;
-    }
-    if (sl.pull) {
-      if (!res.state) {
-        if (mode === 'play') hud?.toast(`Die Insel ist noch nicht in der Cloud – ${sl.shared?.with ?? 'dein Freund'} muss sie einmal öffnen`);
-        return;
-      }
-      delete sl.pull;
-      if (mode === 'play') setTimeout(() => hud?.toast(`Willkommen auf „${sl.title}“!`), 300);
-    }
-    cloudState = 'ok';
-    sl.rev = res.rev;
-    const rest = (sl.pending ?? []).slice(res.consumed);
-    sl.pending = rest;
-    if (res.state) {
-      // was der Freund inzwischen gemacht hat (plus eigene Aktionen von eben)
-      const before = world.wood + farm.turnips + farm.plots.size + world.houses.length + world.felled.size;
-      world.apply(res.state.world);
-      farm.apply(res.state.farm);
-      for (const op of rest) applyOp(world, farm, op);
-      const after = world.wood + farm.turnips + farm.plots.size + world.houses.length + world.felled.size;
-      if (after !== before && mode === 'play') hud?.toast(`Insel aktualisiert – ${sl.shared?.with ?? 'dein Freund'} war fleißig`);
-      syncHud();
-    }
-    persist();
-  } finally {
-    syncing = false;
-    updateCoopChip();
-  }
+  showCoop(
+    {
+      island: shareIsland,
+      back: openMenu,
+      play: (id) => {
+        const other = save.slots.find((x) => x.id === id);
+        if (!other) return;
+        if (other.id !== save.active) {
+          persist();
+          applySlot(other);
+        }
+        startPlay();
+      },
+    },
+    { title: sl.title, sharedWith: sl.shared?.with, shared: save.slots.filter((x) => x.shared).map((x) => ({ id: x.id, title: x.title, with: x.shared!.with })) },
+  );
 }
-setInterval(() => void cloudSync(), 8000);
-document.addEventListener('visibilitychange', () => document.visibilityState === 'visible' && void cloudSync());
 
 // Ton erst nach der ersten Berührung (Browser-Regel); Klick-Geräusch für Knöpfe
 addEventListener('pointerdown', unlockAudio, { capture: true });
@@ -1274,25 +1129,20 @@ let linkNote = '';
     } else linkNote = `Du hast schon ${MAX_SLOTS} Inseln – lösch eine unter „Spielstände“ und öffne den Link nochmal.`;
   }
 }
-// Einladungs-Link ?join=CODE
+// alte Einladung ?join=CODE (vor den gemeinsamen Inseln)
 {
   const q = new URLSearchParams(location.search);
-  const code = cleanCode(q.get('join') ?? '');
-  if (code.length === 4) {
+  if (q.has('join')) {
     q.delete('join');
     history.replaceState(null, '', location.pathname + (q.size ? `?${q}` : ''));
-    pendingJoin = code;
+    linkNote = 'Diese Einladung ist von einer älteren Version. Bitte deinen Freund, dir den Insel-Link zu schicken (Menü → Gemeinsam spielen).';
   }
 }
 addEventListener('pagehide', () => mode === 'play' && persist());
 setInterval(() => mode === 'play' && persist(), 10_000);
 ensureClock();
 savedVersion = versionNow();
-if (pendingJoin) {
-  const code = pendingJoin;
-  pendingJoin = '';
-  joinRoom(code);
-} else openMenu();
+openMenu();
 // Pferde-Modelle und -Fotos nach und nach im Leerlauf vorbereiten (kein Ruckeln später)
 {
   const idle = (fn: () => void) => ('requestIdleCallback' in window ? requestIdleCallback(fn, { timeout: 4000 }) : setTimeout(fn, 800));
@@ -1356,6 +1206,8 @@ function frame(now: number) {
           player.dir = Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? Dir.Right : Dir.Left) : dy > 0 ? Dir.Down : Dir.Up;
         }
         swing = it.kind === 'seeds' || it.kind === 'harvest' || it.kind === 'rake' ? SWING * 0.7 : SWING;
+        swingAt = Date.now();
+        swingTl = it.kind;
       }
     }
     if (swing > 0) {
@@ -1368,22 +1220,17 @@ function frame(now: number) {
       ghost = { ...g, ok: world.canPlace(g.x, g.y, player, placeKind) && !farmUnder(g.x, g.y) };
       hud?.setPlacing(true, ghost.ok && world.wood >= BUILDS[placeKind].cost);
     }
-    if (role !== 'guest' && Math.floor(now / 1000) !== Math.floor((now - dt * 1000) / 1000)) {
+    if (Math.floor(now / 1000) !== Math.floor((now - dt * 1000) / 1000)) {
       world.grow(Date.now(), player);
-      farm.update(Date.now(), tod?.rain);
+      farm.update(Date.now(), rainSince(world.clock, Date.now()));
     }
   }
-  netTick(now);
   if (mode === 'play') horseLife(dt, now);
-  if (mate) {
-    const k = 1 - Math.exp(-dt * 12);
-    mate.x += (mate.tx - mate.x) * k;
-    mate.y += (mate.ty - mate.y) * k;
-  }
-  // Gastgeber im Menü: Insel läuft weiter (Bäume wachsen, Freund spielt)
-  if (role === 'host' && mode !== 'play' && Math.floor(now / 1000) !== Math.floor((now - dt * 1000) / 1000)) {
-    world.grow(Date.now(), player);
-    farm.update(Date.now());
+  // Mitspieler gleiten weich zur gemeldeten Stelle
+  for (const m of mates.values()) {
+    const k = 1 - Math.exp(-dt * 9);
+    m.x += (m.tx - m.x) * k;
+    m.y += (m.ty - m.y) * k;
   }
 
   tod = world.clock ? timeOf(world.clock, Date.now()) : null;
@@ -1421,10 +1268,12 @@ function frame(now: number) {
           speed: player.speedMul,
         }
       : null,
-    mate:
-      play && mate
-        ? { x: mate.x, y: mate.y, dir: mate.d, moving: nowMs - mate.movedAt < 220, swing: mate.s, tool: mate.tl, rides: mate.rh ?? -1, in: mate.in ?? -1, look: mate.look }
-        : null,
+    mates: play
+      ? [...mates.values()].map((m) => {
+          const k = (now - m.swingAt) / (SWING * 1000);
+          return { key: m.pid, x: m.x, y: m.y, dir: m.d, moving: nowMs - m.movedAt < 450, swing: k > 0 && k < 1 ? k : 0, tool: k > 0 && k < 1 ? m.tl : '', rides: m.rh, in: m.in, look: m.look, speed: m.sp };
+        })
+      : [],
     canTool: farm.hasCan,
     horseAt: (i) => horseAt(i, nowMs),
     petting: petting && nowMs < petting.until ? petting.i : -1,
@@ -1464,12 +1313,14 @@ function drawOverlay(t: number, dt: number, nowMs: number) {
   const dpr = screen.width / innerWidth;
   ctx.setTransform(1, 0, 0, 1, 0, 0);
   ctx.clearRect(0, 0, screen.width, screen.height);
-  // Name über dem Mitspieler
-  if (mode === 'play' && mate && (mate.in ?? -1) === inside) {
-    const rides = mate.rh !== undefined && (mate.in ?? -1) < 0 && world.horses[mate.rh];
-    const p = view.project(mate.x, mate.y, rides ? horseTop(rides.breed, false) + 1.3 : 2.2, tmpP);
-    if (p) pill(mate.name, p.x, p.y, 14, 'rgba(20,40,60,0.65)');
-  }
+  // Namen über den Mitspielern
+  if (mode === 'play')
+    for (const m of mates.values()) {
+      if (m.in !== inside) continue;
+      const rides = m.rh >= 0 && m.in < 0 && world.horses[m.rh];
+      const p = view.project(m.x, m.y, rides ? horseTop(rides.breed, false) + 1.3 : 2.2, tmpP);
+      if (p) pill(m.name, p.x, p.y, 14, 'rgba(20,40,60,0.65)');
+    }
   // Pferdenamen in der Nähe, nachts „z z z“
   if (mode === 'play' && inside < 0 && world.horses.length) {
     world.horses.forEach((h, i) => {
@@ -1763,5 +1614,6 @@ function roomAction(kind: Intent, slot: number) {
   enterHouse,
   leaveHouse,
   /** Mitspieler vortäuschen (Tests) */
-  fakeMate: (look: Look, x: number, y: number) => (mate = makeMate('Lena', look, { x, y, d: Dir.Down, f: 0, s: 0, tl: '' })),
-  swingNow: (tl: typeof swingTool) => ((swingTool = tl), (swing = SWING * 0.5)), get mode() { return mode; }, get mate() { return mate; }, get room() { return room; }, horsePos: (i: number) => horseAt(i), get riding() { return riding; } };
+  fakeMate: (look: Look, x: number, y: number) => updateMates([{ pid: 'ptest', n: 'Lena', l: look, x, y, d: 0, m: 0, sw: 0, tl: '', rh: -1, in: -1, sp: 1, age: 0 }]),
+  swingNow: (tl: typeof swingTool) => ((swingTool = tl), (swing = SWING * 0.5)),
+  doAction, get mode() { return mode; }, get mates() { return mates; }, cloudSync, pid, horsePos: (i: number) => horseAt(i), get riding() { return riding; } };

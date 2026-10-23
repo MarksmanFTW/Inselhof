@@ -40,6 +40,8 @@ export interface Plot {
   /** gegossen seit (0 = trocken) */
   wetAt: number;
   crop?: { stage: number };
+  /** seit wann trocken (für Regen – damit alle Geräte gleich rechnen) */
+  dry?: number;
 }
 
 export interface FarmSave {
@@ -80,7 +82,7 @@ export class Farm {
     if (!save) return;
     for (const [k, p] of Object.entries(save.plots ?? {}))
       if (/^\d+,\d+$/.test(k) && p && typeof p.wetAt === 'number')
-        this.plots.set(k, { wetAt: p.wetAt, crop: p.crop ? { stage: Math.max(0, Math.min(RIPE, Math.floor(p.crop.stage))) } : undefined });
+        this.plots.set(k, { wetAt: p.wetAt, crop: p.crop ? { stage: Math.max(0, Math.min(RIPE, Math.floor(p.crop.stage))) } : undefined, ...(typeof p.dry === 'number' ? { dry: p.dry } : {}) });
     this.seeds = Math.max(0, Math.floor(save.seeds ?? START_SEEDS));
     this.turnips = Math.max(0, Math.floor(save.turnips ?? 0));
     this.meals = Math.max(0, Math.floor(save.meals ?? 0));
@@ -116,7 +118,7 @@ export class Farm {
 
   toSave(): FarmSave {
     return {
-      plots: Object.fromEntries([...this.plots].map(([k, p]) => [k, { wetAt: p.wetAt, ...(p.crop ? { crop: { ...p.crop } } : {}) }])),
+      plots: Object.fromEntries([...this.plots].map(([k, p]) => [k, { wetAt: p.wetAt, ...(p.crop ? { crop: { ...p.crop } } : {}), ...(p.dry !== undefined ? { dry: p.dry } : {}) }])),
       seeds: this.seeds,
       turnips: this.turnips,
       meals: this.meals,
@@ -169,28 +171,40 @@ export class Farm {
     return HAY_PER_TILE;
   }
 
-  /** Wachsen und Austrocknen nachholen; Regen gießt alle Felder */
-  update(now: number, raining = false) {
+  /**
+   * Wachsen und Austrocknen nachholen; Regen gießt alle Felder. rainSince = seit wann
+   * es regnet (fehlt = kein Regen). Alles hängt nur von Zeitpunkten ab, nicht davon,
+   * wie oft hier gerechnet wird – so kommen beide Spieler einer Insel aufs Gleiche.
+   */
+  update(now: number, rainSince?: number) {
     for (const [k, m] of this.meadow)
       if (m.got !== undefined && now - m.got >= MEADOW_REGROW_MS) {
         this.meadow.delete(k);
         this.version++;
       }
     for (const p of this.plots.values()) {
-      if (raining && !p.wetAt && !(p.crop && p.crop.stage >= RIPE)) {
-        p.wetAt = now;
-        this.version++;
-      }
-      if (!p.wetAt) continue;
-      if (p.crop && p.crop.stage < RIPE) {
-        if (now - p.wetAt >= GROW_MS * this.perks().growMul) {
-          p.crop.stage++;
-          p.wetAt = 0;
+      for (let step = 0; step < 6; step++) {
+        if (rainSince !== undefined && !p.wetAt && !(p.crop && p.crop.stage >= RIPE)) {
+          const at = Math.max(rainSince, p.dry ?? 0);
+          if (at > now) break;
+          p.wetAt = at || 1;
           this.version++;
         }
-      } else if (now - p.wetAt >= DRY_MS) {
-        p.wetAt = 0;
-        this.version++;
+        if (!p.wetAt) break;
+        if (p.crop && p.crop.stage < RIPE) {
+          const at = p.wetAt + GROW_MS * this.perks().growMul;
+          if (now < at) break;
+          p.crop.stage++;
+          p.wetAt = 0;
+          p.dry = at;
+          this.version++;
+        } else {
+          const at = p.wetAt + DRY_MS;
+          if (now < at) break;
+          p.wetAt = 0;
+          p.dry = at;
+          this.version++;
+        }
       }
     }
   }

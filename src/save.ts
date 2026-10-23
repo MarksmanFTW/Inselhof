@@ -2,10 +2,11 @@
  * Spielstände im Browser. Die Figur (Aussehen, Name) gilt für alle Inseln;
  * jede Insel ist ein eigener Spielstand mit Holz, Feldern, Häusern und Position.
  * Gemeinsame Inseln (Koop) haben bei beiden Spielern dieselbe id und werden über
- * island.php abgeglichen (siehe cloud.ts) – auch wenn jeder allein weiterspielt.
+ * island.php abgeglichen (Aktions-Protokoll, siehe cloud.ts) – allein, nacheinander oder gleichzeitig.
  */
 import { DEFAULT_LOOK, PARTS, type Look } from './character';
 import type { FarmSave } from './farm';
+import type { IslandState } from './net/types';
 import type { Op } from './ops';
 import type { WorldSave } from './world';
 
@@ -19,10 +20,11 @@ export interface Slot {
   pos?: { x: number; y: number };
   world?: Partial<WorldSave>;
   farm?: Partial<FarmSave>;
-  /** gemeinsame Insel: Stand in der Cloud, auf dem diese Kopie beruht */
+  /** gemeinsame Insel: letzter bestätigter Stand aus der Cloud und seine Nummer */
+  base?: IslandState;
   rev?: number;
-  /** Aktionen seit dem letzten Abgleich */
-  pending?: Op[];
+  /** eigene Aktionen, die der Server noch nicht bestätigt hat (mit Kennung; ältere ohne) */
+  pending?: (Op & { id?: string })[];
   /** über einen Insel-Link dazugekommen: erst den Stand aus der Cloud holen, nie leer hochladen */
   pull?: boolean;
   /** Lieblingspferd (nur auf diesem Handy) */

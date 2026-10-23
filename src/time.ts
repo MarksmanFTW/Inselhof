@@ -69,6 +69,17 @@ export function rainAt(dayIdx: number, hour: number) {
   return hour >= start && hour < start + len;
 }
 
+/** Seit wann (echte Zeit, ms) regnet es gerade? undefined = kein Regen */
+export function rainSince(clock: Clock | null, now: number): number | undefined {
+  if (!clock) return undefined;
+  const t = now + clock.offset;
+  const dayIdx = Math.floor(t / DAY_MS);
+  const hour = ((((t % DAY_MS) + DAY_MS) % DAY_MS) / DAY_MS) * 24;
+  if (!rainAt(dayIdx, hour)) return undefined;
+  const start = 8 + hash(dayIdx, 3, 17) * 9;
+  return dayIdx * DAY_MS + start * HOUR_MS - clock.offset;
+}
+
 /** Schlafen: neuer Versatz, damit es danach 6 Uhr morgens ist */
 export function sleepOffset(clock: Clock, now: number): number {
   const t = now + clock.offset;

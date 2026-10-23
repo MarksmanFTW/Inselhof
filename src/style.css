@@ -1658,3 +1658,19 @@ img[src$='#foto'] {
 .foot {
   text-shadow: 0 2px 6px rgba(8, 30, 48, 0.7);
 }
+
+/* ---------- Gemeinsam spielen ---------- */
+.coop-panel .steps {
+  margin: 4px 0 10px;
+  padding: 0 0 0 22px;
+  text-align: left;
+  font-size: calc(15px * var(--fs));
+  line-height: 1.35;
+}
+.coop-panel .steps li {
+  margin: 0 0 5px;
+}
+.coop-panel .steps li::marker {
+  color: #3e8a3a;
+  font-weight: 700;
+}

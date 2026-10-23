@@ -11,7 +11,7 @@ import { islandDay } from './horses';
 import { gain, type Gain, type Stat } from './progress';
 import { napOffset, newClock, sleepOffset, sleepyHour, timeOf } from './time';
 import { TILE } from './island';
-import type { Action } from './net/room';
+import type { Action } from './net/types';
 import { BUILDS, type BuildKind, type World } from './world';
 
 /**
@@ -108,13 +108,19 @@ function run(world: World, farm: Farm, op: Op): OpResult {
     const res = world.chop(a.tree!, t);
     return { err: null, done: true, felled: res.felled, wood: res.wood };
   }
-  if (a.kind === 'hoe') err = farm.till(c, r, tileFree(world, c, r, actor));
+  if (a.kind === 'hoe') {
+    err = farm.till(c, r, tileFree(world, c, r, actor));
+    const p = farm.plot(c, r);
+    if (!err && p) p.dry = t;
+  }
   else if (a.kind === 'seeds') err = farm.plant(c, r);
   else if (a.kind === 'refill') farm.refill();
   else if (a.kind === 'water') err = farm.pour(c, r, t);
   else if (a.kind === 'harvest') {
     // Samen-Zufall aus der Zeit → beim Abgleich auf jedem Gerät gleich
     const res = farm.harvest(c, r, () => ((t * 9301 + 49297) % 233280) / 233280);
+    const p = farm.plot(c, r);
+    if (res && p) p.dry = t;
     return { err: null, done: !!res, harvest: res ?? undefined };
   } else if (a.kind === 'sell' || a.kind === 'buy') {
     if (!merchantHere(world.clock, t)) return { err: 'Das Händler-Boot ist gerade nicht da', done: false };

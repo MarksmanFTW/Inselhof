@@ -125,8 +125,6 @@ export function showMenu(
     slots: () => void;
     look: () => void;
     coop: () => void;
-    leave?: () => void;
-    coopText?: string;
     shared?: { id: string; title: string }[];
     playSlot?: (id: string) => void;
     note?: string;
@@ -150,8 +148,7 @@ export function showMenu(
         <button class="pbtn small" data-act="slots">Spielstände</button>
         <button class="pbtn small" data-act="look">Aussehen</button>
       </div>
-      ${on.leave ? `<button class="pbtn blue" data-act="leave">Koop beenden</button>` : `<button class="pbtn blue" data-act="coop">Mit Freund spielen</button>`}
-      ${on.coopText ? `<p class="coop-note">${esc(on.coopText)}</p>` : ''}
+      <button class="pbtn blue" data-act="coop">Gemeinsam spielen</button>
       <button class="pbtn small ghost" data-act="settings">Einstellungen</button>
     </div>
     <p class="foot">Bauen, farmen, Pferde lieben – allein oder zu zweit</p>
@@ -174,7 +171,6 @@ export function showMenu(
   ui.querySelector('[data-act=settings]')!.addEventListener('click', on.settings);
   ui.querySelector('[data-act=coop]')?.addEventListener('click', on.coop);
   for (const b of ui.querySelectorAll<HTMLElement>('[data-slot]')) b.addEventListener('click', () => on.playSlot?.(b.dataset.slot!));
-  if (on.leave) ui.querySelector('[data-act=leave]')!.addEventListener('click', on.leave);
 }
 
 /** Kurzer Überblick über eine Insel */
@@ -204,7 +200,6 @@ export function showSlots(
   ui.innerHTML = `
     <div class="panel coop-panel slots-panel">
       <h2>Spielstände</h2>
-      ${locked ? '<p class="need">Während eines Koop-Spiels kannst du die Insel nicht wechseln.</p>' : ''}
       <div class="slots">
         ${list
           .map(
@@ -261,53 +256,39 @@ export function showSlots(
     });
 }
 
-/** Koop: Raum öffnen oder mit Code beitreten */
-export function showCoop(on: { host: () => void; join: (code: string) => void; back: () => void; island: () => Promise<string> }, code = '', islandTitle = '') {
+/** Gemeinsam spielen: Insel-Link schicken, gemeinsame Inseln öffnen */
+export function showCoop(
+  on: { island: () => Promise<string>; back: () => void; play: (id: string) => void },
+  info: { title: string; sharedWith?: string; shared: { id: string; title: string; with: string }[] },
+) {
   clear();
   ui.className = 'ui-custom';
   ui.innerHTML = `
     <div class="panel coop-panel">
-      <h2>Mit Freund spielen</h2>
-      <p>Dein Freund besucht deine Insel. Ihr teilt Holz, Samen und Rüben und könnt zusammen fällen, farmen und bauen.</p>
-      <button class="pbtn green" data-act="host">Meine Insel öffnen${islandTitle ? `<small class="sub">${esc(islandTitle)}</small>` : ''}</button>
-      <p class="tip">Die Insel wird ein gemeinsamer Spielstand – auch dein Freund kann sie später öffnen.</p>
-      <button class="pbtn blue small" data-act="island">Insel-Link schicken</button>
-      <p class="tip island-tip">Mit dem Insel-Link spielt dein Freund <b>jederzeit</b> auf deiner Insel weiter – auch wenn du offline bist. Alles wird abgeglichen.</p>
-      <div class="or">oder</div>
-      <label class="name-row">Code <input class="name code" maxlength="4" placeholder="ABCD" value="${esc(code)}" autocomplete="off" autocapitalize="characters" /></label>
-      <button class="pbtn" data-act="join">Freund besuchen</button>
+      <h2>Gemeinsam spielen</h2>
+      <ol class="steps">
+        <li>Schick deinem Freund den <b>Insel-Link</b>.</li>
+        <li>Öffnet er ihn, steht die Insel bei euch beiden unter „Spielstände“ – mit <b>Koop</b>.</li>
+        <li>Jeder kann <b>jederzeit</b> darauf weiterspielen, auch wenn der andere offline ist. Alles gleicht sich von selbst an.</li>
+        <li>Seid ihr gleichzeitig auf der Insel, <b>seht ihr euch</b> und macht zusammen weiter.</li>
+      </ol>
+      <button class="pbtn green" data-act="island">Insel-Link schicken<small class="sub">${esc(info.title)}</small></button>
+      <p class="tip island-tip">${info.sharedWith ? `„${esc(info.title)}“ ist schon eine gemeinsame Insel (mit ${esc(info.sharedWith)}).` : 'Ihr teilt Holz, Samen, Rüben, Häuser und Pferde.'}</p>
+      ${
+        info.shared.length
+          ? `<h3 class="sub">Eure gemeinsamen Inseln</h3>${info.shared.map((x) => `<button class="pbtn blue small" data-slot="${esc(x.id)}">${esc(x.title)}<small class="sub">mit ${esc(x.with)}</small></button>`).join('')}`
+          : ''
+      }
       <button class="pbtn small ghost" data-act="back">Zurück</button>
     </div>`;
-  const input = ui.querySelector<HTMLInputElement>('.code')!;
-  input.addEventListener('input', () => (input.value = input.value.toUpperCase().replace(/[^A-Z]/g, '').slice(0, 4)));
   const ib = ui.querySelector<HTMLButtonElement>('[data-act=island]')!;
   ib.addEventListener('click', () =>
     void on.island().then((t) => {
       if (t) ui.querySelector('.island-tip')!.textContent = t;
     }),
   );
-  ui.querySelector('[data-act=host]')!.addEventListener('click', on.host);
+  for (const b of ui.querySelectorAll<HTMLElement>('[data-slot]')) b.addEventListener('click', () => on.play(b.dataset.slot!));
   ui.querySelector('[data-act=back]')!.addEventListener('click', on.back);
-  const join = () => (input.value.length === 4 ? on.join(input.value) : input.focus());
-  ui.querySelector('[data-act=join]')!.addEventListener('click', join);
-  input.addEventListener('keydown', (e) => e.key === 'Enter' && join());
-}
-
-/** Wartefenster (Raum öffnet / verbinde …) */
-export function showWait(title: string, html: string, on: { back: () => void; share?: () => void; play?: () => void }) {
-  clear();
-  ui.className = 'ui-custom';
-  ui.innerHTML = `
-    <div class="panel coop-panel">
-      <h2>${esc(title)}</h2>
-      <div class="wait-body">${html}</div>
-      ${on.share ? `<button class="pbtn blue" data-act="share">Link schicken</button>` : ''}
-      ${on.play ? `<button class="pbtn green" data-act="play">Schon mal spielen</button>` : ''}
-      <button class="pbtn small ghost" data-act="back">Abbrechen</button>
-    </div>`;
-  ui.querySelector('[data-act=back]')!.addEventListener('click', on.back);
-  if (on.share) ui.querySelector('[data-act=share]')!.addEventListener('click', on.share);
-  if (on.play) ui.querySelector('[data-act=play]')!.addEventListener('click', on.play);
 }
 
 /** Aussehen anpassen; done wird mit dem fertigen Stand aufgerufen */
@@ -582,6 +563,8 @@ export function showHud(on: HudActions, icons: HudIcons, costs: { house: number;
   let goalTimer = 0;
   const drawGoal = () => {
     const g = $('.goal');
+    // Zeitgeber kann noch laufen, wenn die Anzeige schon weg ist (Menü)
+    if (!g) return;
     const t = goalOpen ? goalText : goalHead.replace(/^Aufgabe: /, '');
     if (g.textContent !== t) g.textContent = t;
     g.classList.toggle('open', goalOpen);
