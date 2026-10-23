@@ -266,6 +266,47 @@ export function pebble(variant: number) {
   );
 }
 
+/** Fisch (für Album, Symbole und den Fang an der Angel); schaut nach +x */
+export function fishModel(id: string, colors: readonly [string, string, string], size: number) {
+  return meshOf(
+    cached(`fish:${id}`, () => {
+      const [back, belly, fin] = colors;
+      const b = new Build();
+      if (id === 'stiefel') {
+        // alter Stiefel mit Algen
+        b.add(rbox(0.32, 0.7, 0.34, 0.1), back, { p: [-0.12, 0.25, 0] });
+        b.add(rbox(0.62, 0.28, 0.34, 0.12), back, { p: [0.08, -0.14, 0] });
+        b.add(rbox(0.66, 0.06, 0.36, 0.03), fin, { p: [0.08, -0.29, 0] });
+        b.add(cyl(0.18, 0.18, 0.05, 14), belly, { p: [-0.12, 0.6, 0] });
+        b.add(strand([[-0.2, 0.6, 0.1], [-0.3, 0.3, 0.22], [-0.25, 0.0, 0.2]], 0.03, 0.5, 6, 5), '#4f9a44');
+        return b.geometry();
+      }
+      const round = id === 'kugelfisch';
+      const L = size * (round ? 0.55 : 0.75);
+      const H = size * (round ? 0.55 : 0.32);
+      b.add(sphere(1, 18), back, { s: [L, H, H * (round ? 1 : 0.62)] });
+      b.add(sphere(1, 16), belly, { p: [0.02, -H * 0.28, 0], s: [L * 0.92, H * 0.72, H * (round ? 0.95 : 0.6)] });
+      // Schwanz
+      const tail = id === 'goldfisch' ? 1.6 : 1;
+      b.add(cone(H * 0.75 * tail, L * 0.55, 4), fin, { p: [-L - L * 0.2, 0, 0], r: [0, 0, Math.PI / 2], s: [1, 1, 0.25] });
+      // Rückenflosse
+      b.add(cone(L * 0.28, H * 0.8, 4), fin, { p: [-L * 0.1, H * 0.95, 0], s: [1, 1, 0.2] });
+      // Auge
+      b.add(sphere(H * 0.2, 10), '#ffffff', { p: [L * 0.6, H * 0.18, H * 0.42] });
+      b.add(sphere(H * 0.11, 8), '#1a1a22', { p: [L * 0.66, H * 0.18, H * 0.5] });
+      if (round) for (let k = 0; k < 10; k++) {
+        const a = (k / 10) * Math.PI * 2;
+        b.add(cone(0.04, 0.14, 5), fin, { p: [Math.cos(a) * L * 0.95, Math.sin(a) * H * 0.95, 0.12], r: [0, 0, a - Math.PI / 2] });
+      }
+      if (id === 'schwertfisch') b.add(cone(H * 0.18, L * 0.9, 8), fin, { p: [L + L * 0.4, H * 0.05, 0], r: [0, 0, -Math.PI / 2] });
+      if (id === 'makrele') for (let k = 0; k < 4; k++) b.add(rbox(0.03, H * 0.7, H * 0.66, 0.01), '#2a5a4a', { p: [-L * 0.5 + k * L * 0.3, H * 0.35, 0] });
+      if (id === 'dorade') b.add(rbox(0.05, H * 0.5, H * 0.64, 0.02), '#f0c050', { p: [L * 0.42, H * 0.38, 0] });
+      return b.geometry();
+    }),
+    0.45,
+  );
+}
+
 /** Pfeil, der im Tutorial auf das Ziel zeigt (Spitze unten am Ursprung, flach zur Kamera) */
 export function guideArrow() {
   const sh = new THREE.Shape();

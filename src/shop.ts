@@ -4,6 +4,7 @@
  * seltenen Pferden dabeihat, hängt vom Tag ab (auf jedem Gerät gleich).
  */
 import { RARE_BREEDS, STABLE_BREEDS } from './horses';
+import { FISH } from './fish';
 import { timeOf, type Clock } from './time';
 
 /** Verkaufspreise in Münzen pro Stück */
@@ -64,8 +65,10 @@ export function horseOffers(day: number, albumHorses: number): string[] {
 export interface Album {
   horses: string[];
   deco: string[];
+  /** gefangene Fischarten (seit dem Angeln) */
+  fish?: string[];
 }
-export const ALBUM_TOTAL = STABLE_BREEDS.length + RARE_BREEDS.length + DECO.length;
+export const ALBUM_TOTAL = STABLE_BREEDS.length + RARE_BREEDS.length + DECO.length + FISH.length;
 /** Belohnungen: ab so vielen Einträgen gibt es Münzen */
 export const ALBUM_REWARDS = [
   { at: 5, coins: 20 },
@@ -74,8 +77,9 @@ export const ALBUM_REWARDS = [
   { at: 20, coins: 100 },
   { at: ALBUM_TOTAL, coins: 250 },
 ];
-export const albumCount = (a: Album) => a.horses.length + a.deco.length;
+export const albumCount = (a: Album) => a.horses.length + a.deco.length + (a.fish?.length ?? 0);
 export function cleanAlbum(a: Partial<Album> | undefined): Album {
   const ok = (l: unknown) => (Array.isArray(l) ? [...new Set(l.filter((x): x is string => typeof x === 'string'))] : []);
-  return { horses: ok(a?.horses), deco: ok(a?.deco) };
+  const fish = ok(a?.fish).filter((id) => FISH.some((f) => f.id === id));
+  return { horses: ok(a?.horses), deco: ok(a?.deco), ...(fish.length ? { fish } : {}) };
 }

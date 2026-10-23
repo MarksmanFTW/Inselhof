@@ -383,7 +383,7 @@ export interface HudActions {
   /** Lieblingspferd rufen */
   call: () => void;
   /** essen: Rübe (roh), Ofenrübe, Apfel, Beeren */
-  eat: (what: 'raw' | 'cooked' | 'apple' | 'berry') => void;
+  eat: (what: 'raw' | 'cooked' | 'apple' | 'berry' | 'grilled') => void;
   /** Basteln-Fenster öffnen */
   craft: () => void;
   confirm: () => void;
@@ -413,6 +413,8 @@ export interface HudIcons {
   craft: string;
   apple: string;
   berry: string;
+  rod: string;
+  grilled: string;
 }
 
 /** Basteln-Fenster */
@@ -423,8 +425,8 @@ export interface CraftData {
 
 export interface TradeData {
   coins: number;
-  have: Record<'turnip' | 'meal' | 'wood' | 'hay' | 'apple' | 'berry', number>;
-  sell: { id: 'turnip' | 'meal' | 'wood' | 'hay' | 'apple' | 'berry'; name: string; price: number; img: string }[];
+  have: Record<string, number>;
+  sell: { id: string; name: string; price: number; img: string }[];
   seeds: { n: number; price: number; img: string };
   deco: { id: string; name: string; price: number; img: string; owned: boolean }[];
   horses: { id: string; name: string; text: string; price: number; img: string }[];
@@ -474,7 +476,9 @@ export interface HorseCard {
 }
 
 export interface Hud {
-  setInv(wood: number, turnips: number, meals: number, apples: number, berries: number): void;
+  setInv(wood: number, turnips: number, meals: number, apples: number, berries: number, grilled: number): void;
+  /** Angeln: es hat angebissen → grüner Knopf pulsiert */
+  setBite(on: boolean): void;
   /** Energie 0..100 */
   setEnergy(v: number): void;
   setTool(t: ToolId): void;
@@ -541,6 +545,7 @@ export function showHud(on: HudActions, icons: HudIcons, costs: { house: number;
       <button class="r eat" data-eat="cooked" aria-label="Ofenrübe essen"><img class="meal" src="${icons.meal}" alt="" /><b class="n-meal">0</b></button>
       <button class="r eat" data-eat="apple" aria-label="Apfel essen" hidden><img src="${icons.apple}" alt="" /><b class="n-apple">0</b></button>
       <button class="r eat" data-eat="berry" aria-label="Beeren essen" hidden><img src="${icons.berry}" alt="" /><b class="n-berry">0</b></button>
+      <button class="r eat" data-eat="grilled" aria-label="Bratfisch essen" hidden><img src="${icons.grilled}" alt="" /><b class="n-grilled">0</b></button>
       <span class="r" title="Münzen"><img class="coin" src="${icons.coin}" alt="" /><b class="n-coins">0</b></span>
     </div>
     <button class="goal" hidden aria-label="Aufgabe"></button>
@@ -567,7 +572,7 @@ export function showHud(on: HudActions, icons: HudIcons, costs: { house: number;
     <div class="toast" hidden></div>`;
   const $ = <T extends HTMLElement>(q: string) => ui.querySelector<T>(q)!;
   $('[data-act=menu]').addEventListener('click', on.menu);
-  for (const b of ui.querySelectorAll<HTMLElement>('[data-eat]')) b.addEventListener('click', () => on.eat(b.dataset.eat as 'raw' | 'cooked' | 'apple' | 'berry'));
+  for (const b of ui.querySelectorAll<HTMLElement>('[data-eat]')) b.addEventListener('click', () => on.eat(b.dataset.eat as 'raw' | 'cooked' | 'apple' | 'berry' | 'grilled'));
   const use = $('[data-act=use]');
   use.addEventListener('pointerdown', (e) => {
     e.preventDefault();
@@ -615,7 +620,7 @@ export function showHud(on: HudActions, icons: HudIcons, costs: { house: number;
   let toastTimer = 0;
   let actionIcon = '';
   const hud: Hud = {
-    setInv(w, turnips, meals, apples, berries) {
+    setInv(w, turnips, meals, apples, berries, grilled) {
       wood = w;
       bump($('.n-wood'), String(w));
       bump($('.n-turnip'), String(turnips));
@@ -623,8 +628,13 @@ export function showHud(on: HudActions, icons: HudIcons, costs: { house: number;
       // Obst nur zeigen, wenn man welches hat
       $('[data-eat=apple]').hidden = apples <= 0;
       $('[data-eat=berry]').hidden = berries <= 0;
+      $('[data-eat=grilled]').hidden = grilled <= 0;
       bump($('.n-apple'), String(apples));
       bump($('.n-berry'), String(berries));
+      bump($('.n-grilled'), String(grilled));
+    },
+    setBite(onB) {
+      use.classList.toggle('bite', onB);
     },
     setEnergy(v) {
       const bar = $('.enbar i');

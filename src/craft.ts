@@ -4,9 +4,11 @@
  * Werkzeuge gehören der Insel (bei gemeinsamen Inseln teilt man sie).
  */
 
-/** Werkzeuge, die man besitzen kann ('water' = Kübel zum Gießen) */
-export type ToolKind = 'axe' | 'hoe' | 'water' | 'scythe';
-export const ALL_TOOLS: ToolKind[] = ['axe', 'hoe', 'water', 'scythe'];
+/** Werkzeuge, die man besitzen kann ('water' = Kübel zum Gießen, 'rod' = Angel) */
+export type ToolKind = 'axe' | 'hoe' | 'water' | 'scythe' | 'rod';
+export const ALL_TOOLS: ToolKind[] = ['axe', 'hoe', 'water', 'scythe', 'rod'];
+/** so viele hatte man schon vor dem Tutorial (die Angel kam danach) */
+const OLD_TOOLS: ToolKind[] = ['axe', 'hoe', 'water', 'scythe'];
 export const isTool = (x: unknown): x is ToolKind => ALL_TOOLS.includes(x as ToolKind);
 
 export interface Recipe {
@@ -22,11 +24,12 @@ export const RECIPES: Recipe[] = [
   { id: 'hoe', name: 'Hacke', text: 'Felder anlegen', sticks: 2, stones: 1, wood: 0 },
   { id: 'water', name: 'Holzkübel', text: 'Wasser schöpfen und gießen', sticks: 0, stones: 0, wood: 4 },
   { id: 'scythe', name: 'Sense', text: 'Wiese mähen für Heu', sticks: 2, stones: 2, wood: 2 },
+  { id: 'rod', name: 'Angel', text: 'Am Wasser Fische fangen', sticks: 3, stones: 1, wood: 0 },
 ];
 export const recipeOf = (id: string) => RECIPES.find((r) => r.id === id);
 
 /** was beim Aktions-Knopf fehlt, wenn das Werkzeug noch nicht gebastelt ist */
-export const TOOL_NAME: Record<ToolKind, string> = { axe: 'Axt', hoe: 'Hacke', water: 'Holzkübel', scythe: 'Sense' };
+export const TOOL_NAME: Record<ToolKind, string> = { axe: 'Axt', hoe: 'Hacke', water: 'Holzkübel', scythe: 'Sense', rod: 'Angel' };
 
 /** aufgesammelte Stöcke/Steine liegen nach so langer Zeit wieder da (ms) */
 export const PICK_REGROW_MS = 150_000;
@@ -47,7 +50,7 @@ export interface Bag {
 }
 export const newBag = (): Bag => ({ sticks: 0, stones: 0, tools: [], got: { sticks: 0, stones: 0 }, tut: 0 });
 /** Spieler, die schon vor dem Tutorial gespielt haben: alles da, Tutorial erledigt */
-export const fullBag = (): Bag => ({ ...newBag(), tools: [...ALL_TOOLS], tut: TUTORIAL.length, paid: true });
+export const fullBag = (): Bag => ({ ...newBag(), tools: [...OLD_TOOLS], tut: TUTORIAL.length, paid: true });
 
 const num = (v: unknown) => (typeof v === 'number' && v >= 0 ? Math.floor(v) : 0);
 export function cleanBag(raw: Partial<Bag> | undefined): Bag {

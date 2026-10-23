@@ -14,6 +14,7 @@ import { TILE } from './island';
 import type { Action } from './net/types';
 import { BUILDS, type BuildKind, type World } from './world';
 import { TUT_SEEDS, recipeOf, type ToolKind } from './craft';
+import { fishById } from './fish';
 import type { PickKind } from './island';
 
 /**
@@ -48,6 +49,8 @@ export interface OpResult {
   picked?: PickKind;
   crafted?: ToolKind;
   fruit?: { apples: number; berries: number };
+  /** gefangener Fisch; first = neue Art fürs Album */
+  caught?: { id: string; first: boolean };
 }
 
 /** Ackerbau kennt die Fähigkeiten der Insel-Stufe */
@@ -78,10 +81,15 @@ export function applyOp(world: World, farm: Farm, op: Op): OpResult {
     const a = op.a;
     if (a.kind === 'pick' && res.picked) merge(gain(world.prog, res.picked === 'stick' ? 'sticks' : 'stones', 1, give));
     else if (a.kind === 'shake' && res.fruit) merge(gain(world.prog, 'fruit', res.fruit.apples + res.fruit.berries, give));
+    else if (a.kind === 'fish' && res.caught) {
+      merge(gain(world.prog, 'fish', 1, give));
+      if (res.caught.first) merge(gain(world.prog, 'species', 1, give));
+    }
     else if (a.kind === 'craft' && res.crafted) {
       merge(gain(world.prog, 'crafted', 1, give));
       if (res.crafted === 'water') merge(gain(world.prog, 'bucket', 1, give));
       if (res.crafted === 'scythe') merge(gain(world.prog, 'scythe', 1, give));
+      if (res.crafted === 'rod') merge(gain(world.prog, 'rod', 1, give));
     } else if (a.kind === 'rake') merge(gain(world.prog, 'hay', res.hay ?? 0, give));
     else {
       // „gebaut“ zählt nur Häuser; Lagerfeuer und Stall haben eigene Aufgaben
@@ -137,6 +145,11 @@ function run(world: World, farm: Farm, op: Op): OpResult {
     const got = world.shake(a.tree ?? -1, t);
     return { err: got ? null : 'Hier hängt gerade nichts', done: !!got, fruit: got ?? undefined };
   }
+  if (a.kind === 'fish') {
+    // was gebissen hat, steht in der Aktion (gewürfelt auf dem Gerät, das geangelt hat)
+    const first = world.catchFish(a.item ?? '');
+    return { err: first === null ? 'Unbekannter Fisch' : null, done: first !== null, caught: first === null ? undefined : { id: a.item!, first } };
+  }
   if (a.kind === 'tut') {
     // Tutorial geschafft: Rübensamen für die Insel
     farm.seeds += TUT_SEEDS;
@@ -171,6 +184,16 @@ function run(world: World, farm: Farm, op: Op): OpResult {
     if (a.kind === 'sell') {
       const item = a.item as SellItem;
       const n = Math.max(1, Math.floor(a.n ?? 1));
+      if (item.startsWith('fish:')) {
+        // Fische: Preis je Art
+        const f = fishById(item.slice(5));
+        if (!f || !f.price) return { err: 'Das kauft der Händler nicht', done: false };
+        if ((world.fish[f.id] ?? 0) < n) return { err: 'So viel hast du nicht', done: false };
+        if ((world.fish[f.id] -= n) <= 0) delete world.fish[f.id];
+        world.coins += f.price * n;
+        world.version++;
+        return { err: null, done: true, coins: f.price * n };
+      }
       const price = SELL[item];
       if (!price) return { err: 'Das kauft der Händler nicht', done: false };
       const have = item === 'wood' ? world.wood : item === 'turnip' ? farm.turnips : item === 'meal' ? farm.meals : item === 'apple' ? world.apples : item === 'berry' ? world.berries : farm.hay;
@@ -219,6 +242,12 @@ function run(world: World, farm: Farm, op: Op): OpResult {
     world.clock.offset = night ? sleepOffset(world.clock, t) : napOffset(world.clock);
     world.version++;
     return { err: null, done: true, slept: night ? 'night' : 'nap' };
+  } else if (a.kind === 'eat' && a.item === 'grilled') {
+    if (world.grilled <= 0) err = 'Kein Bratfisch mehr';
+    else {
+      world.grilled--;
+      world.version++;
+    }
   } else if (a.kind === 'eat' && (a.item === 'apple' || a.item === 'berry')) {
     // Obst aus dem Insel-Vorrat
     if (a.item === 'apple' ? world.apples <= 0 : world.berries <= 0) err = a.item === 'apple' ? 'Keine Äpfel mehr' : 'Keine Beeren mehr';
@@ -231,7 +260,9 @@ function run(world: World, farm: Farm, op: Op): OpResult {
     if (!farm.eat(!!a.cooked)) err = a.cooked ? 'Keine Ofenrüben mehr' : 'Keine Rüben mehr';
   } else if (a.kind === 'cook') {
     if (world.fireNear(actor.x, actor.y, 22) < 0) err = 'Kochen geht nur am Lagerfeuer';
-    else if (!farm.cook()) err = 'Keine Rüben zum Kochen';
+    else if (a.item === 'fish') {
+      if (!world.takeCookable()) err = 'Kein Fisch zum Braten';
+    } else if (!farm.cook()) err = 'Keine Rüben zum Kochen';
   } else if (a.kind === 'adopt') {
     err = world.adopt(a.house ?? -1, a.item ?? '', a.name ?? '', t, (cost) => {
       if (farm.turnips < cost) return false;

@@ -16,6 +16,7 @@ import { absorb, httpApi, newPid, opId, request, type Other, type PendingOp, typ
 import { CAN_GOAL, Farm, RIPE, key as plotKey } from './farm';
 import { applyOp, farmUnder as farmUnderOf, link, tileFree as tileFreeOf, type Op } from './ops';
 import { PERKS, levelProgress, questAt } from './progress';
+import { BITE_WINDOW, FISH, GRILLED_ENERGY, biteDelay, rollFish, type Fish } from './fish';
 import { RECIPES, TOOL_NAME, TUTORIAL, TUT_SEEDS, bagCraft, bagPick, craftBlock, newBag, recipeOf, tutAdvance, type ToolKind } from './craft';
 import { newClock, rainSince, timeOf, type TimeOfDay } from './time';
 import { MAX_SLOTS, activeSlot, addSlot, loadSave, removeSlot, writeSave, type Save, type Slot } from './save';
@@ -24,7 +25,7 @@ import { showCoop, showCustomize, showHud, showMenu, showSettings, showSlots, te
 import { BUILDS, FIRE_COST, HOUSE_COST, World, type BuildKind } from './world';
 import { View } from './three/view';
 import { horsePhoto } from './three/portrait';
-import { decoPhoto, furniturePhoto, heartUrl, lazyIcons } from './three/icons';
+import { decoPhoto, fishPhoto, furniturePhoto, heartUrl, lazyIcons } from './three/icons';
 import { warmHorse } from './three/horse';
 
 const screen = document.querySelector<HTMLCanvasElement>('#screen')!;
@@ -145,6 +146,7 @@ const FX_SOUND: Partial<Record<Fx['k'], Parameters<typeof sfx>[0]>> = {
   pick: 'seed',
   craft: 'build',
   fruit: 'harvest',
+  fish: 'water',
 };
 /** wie hoch der Text über dem Boden schwebt (Einheiten) */
 const FX_H: Partial<Record<Fx['k'], number>> = { fell: 3.6, build: 3, horse: 2.8, feed: 2.8, brush: 2.8, foal: 2.6, trade: 2.4, can: 2.6, cook: 2.2, pick: 1.2, craft: 2.6, fruit: 3.2 };
@@ -170,6 +172,7 @@ function playFx(fx: Fx) {
   else if (fx.k === 'feed' || fx.k === 'horse' || fx.k === 'foal') burst(fx.x, fx.y, 14, 8, ['#e0485a', '#ff9aa8', '#ffffff'], 16);
   else if (fx.k === 'cook') burst(fx.x, fx.y, 6, 8, ['#ffd23f', '#ff9a2a', '#ffffff'], 18);
   else if (fx.k === 'pick') burst(fx.x, fx.y, 1, 6, ['#fff3a0', '#ffffff', '#c8925a'], 16);
+  else if (fx.k === 'fish') burst(fx.x, fx.y, 1, 10, ['#ffffff', '#9fd8f0', '#4a8ad0'], 22);
   else if (fx.k === 'fruit') {
     // Baum/Busch wackelt, Obst purzelt herunter
     if (fx.tree !== undefined) shake.set(fx.tree, 1);
@@ -231,7 +234,7 @@ function perform(a: Action, actor: { x: number; y: number }): string | null {
       emit({ k: 'trade', x: actor.x, y: actor.y, text });
       if (it.startsWith('horse:')) emit({ k: 'horse', x: actor.x, y: actor.y });
     }
-    else if (a.kind === 'cook') emit({ k: 'cook', x: actor.x, y: actor.y, text: '+1 Ofenrübe' });
+    else if (a.kind === 'cook') emit({ k: 'cook', x: actor.x, y: actor.y, text: a.item === 'fish' ? '+1 Bratfisch' : '+1 Ofenrübe' });
     else if (a.kind === 'pick' && res.picked) {
       const p = island.pickups[a.tree ?? -1];
       if (p) emit({ k: 'pick', x: p.x, y: p.y, text: res.picked === 'stick' ? '+1 Stock' : '+1 Stein' });
@@ -310,7 +313,7 @@ function facingWater() {
   }
   return false;
 }
-type Intent = ToolId | 'harvest' | 'refill' | 'cook' | 'rake' | 'pick' | 'shake' | 'trade' | 'enter' | 'exit' | 'sleep' | 'chest' | 'furnish' | 'stable' | 'horse' | 'dismount' | null;
+type Intent = ToolId | 'harvest' | 'refill' | 'cook' | 'rake' | 'pick' | 'shake' | 'fish' | 'trade' | 'enter' | 'exit' | 'sleep' | 'chest' | 'furnish' | 'stable' | 'horse' | 'dismount' | null;
 /** Stock/Stein direkt bei der Figur (Nummer in island.pickups) */
 function pickNear() {
   let best = -1;
@@ -341,8 +344,12 @@ function tradeData(): TradeData {
   const offers = horseOffers(islandDay(world.clock, now), world.album.horses.length);
   return {
     coins: world.coins,
-    have: { turnip: farm.turnips, meal: farm.meals, wood: world.wood, hay: farm.hay, apple: world.apples, berry: world.berries },
-    sell: (Object.keys(SELL) as SellItem[]).map((id) => ({ id, name: SELL_NAMES[id], price: SELL[id], img: id === 'wood' ? icons.log : id === 'meal' ? icons.meal : id === 'hay' ? icons.hay : id === 'apple' ? icons.apple : id === 'berry' ? icons.berry : icons.turnip })),
+    have: { turnip: farm.turnips, meal: farm.meals, wood: world.wood, hay: farm.hay, apple: world.apples, berry: world.berries, ...Object.fromEntries(FISH.map((f) => [`fish:${f.id}`, world.fish[f.id] ?? 0])) },
+    sell: [
+      ...(Object.keys(SELL) as SellItem[]).map((id) => ({ id, name: SELL_NAMES[id], price: SELL[id], img: id === 'wood' ? icons.log : id === 'meal' ? icons.meal : id === 'hay' ? icons.hay : id === 'apple' ? icons.apple : id === 'berry' ? icons.berry : icons.turnip })),
+      // Fische nur, wenn man welche hat
+      ...FISH.filter((f) => f.price && world.fish[f.id]).map((f) => ({ id: `fish:${f.id}`, name: f.name, price: f.price, img: fishPhoto(f.id) })),
+    ],
     seeds: { n: SEED_PACK.n, price: SEED_PACK.price, img: icons.seeds },
     deco: DECO.map((d) => ({ id: d.id, name: d.name, price: d.price, img: decoIcon(d.id), owned: world.album.deco.includes(d.id) })),
     horses: offers.map((id) => {
@@ -379,6 +386,7 @@ function openAlbum() {
       { title: 'Pferderassen', items: STABLE_BREEDS.map((b) => ({ name: b.name, img: pic(b.id), has: world.album.horses.includes(b.id) })) },
       { title: 'Seltene Pferde', items: RARE_BREEDS.map((b) => ({ name: b.name, img: pic(b.id), has: world.album.horses.includes(b.id), rare: true })) },
       { title: 'Deko', items: DECO.map((d) => ({ name: d.name, img: decoIcon(d.id), has: world.album.deco.includes(d.id) })) },
+      { title: 'Fische', items: FISH.map((f) => ({ name: f.name, img: fishPhoto(f.id), has: (world.album.fish ?? []).includes(f.id), rare: !f.cook && f.price > 0 })) },
     ],
     count: albumCount(world.album),
     total: ALBUM_TOTAL,
@@ -424,14 +432,16 @@ function intent(): { kind: Intent; tree: number; tile: [number, number] } {
   if (p?.crop && p.crop.stage >= RIPE) return { kind: 'harvest', tree: -1, tile };
   // trockenes Heu liegt vor einem: einsammeln
   if (farm.mown(...tile, Date.now()) === 'dry') return { kind: 'rake', tree: -1, tile };
-  // am Lagerfeuer mit Rüben im Gepäck: braten
-  if (farm.turnips > 0 && world.fireNear(player.x, player.y, 20) >= 0) return { kind: 'cook', tree: -1, tile };
+  // am Lagerfeuer mit Rüben oder Fisch im Gepäck: braten
+  if ((farm.turnips > 0 || cookableFish()) && world.fireNear(player.x, player.y, 20) >= 0) return { kind: 'cook', tree: -1, tile };
   // Stock oder Stein vor den Füßen: aufheben
   const pk = pickNear();
   if (pk >= 0) return { kind: 'pick', tree: pk, tile };
   // Obstbaum oder Beerenbusch mit Früchten: schütteln/pflücken (auch ohne Werkzeug)
   const ft = world.fruitTarget(player.x, player.y);
   if (ft >= 0) return { kind: 'shake', tree: ft, tile };
+  // mit der Angel am Wasser (Kübel auffüllen geht vor, wenn er in der Hand und nicht voll ist)
+  if (hasTool('rod') && !(tool === 'water' && hasTool('water') && farm.water < farm.capacity) && bobberSpot()) return { kind: 'fish', tree: -1, tile };
   if (!hasTool(tool)) return { kind: null, tree: -1, tile };
   if (tool === 'axe') {
     const tr = world.target(player.x, player.y);
@@ -456,12 +466,12 @@ const toolHint: Record<ToolId, string> = {
 };
 // ---------- Energie ----------
 /** Energie kostet jede Arbeit; Ausruhen, Essen und Schlafen füllen sie auf (Bauen kostet nur Holz) */
-const COST: Partial<Record<Action['kind'], number>> = { axe: 1, hoe: 2, seeds: 1, water: 1, mow: 1 };
+const COST: Partial<Record<Action['kind'], number>> = { axe: 1, hoe: 2, seeds: 1, water: 1, mow: 1, fish: 1 };
 /** so viele Sekunden ausruhen (stehen bleiben) für +1 Energie; beim Laufen langsamer */
 const REST_STEP = 2;
 let restT = 0;
 let workAt = 0;
-const FOOD = { raw: 12, cooked: 40, apple: 8, berry: 4 };
+const FOOD = { raw: 12, cooked: 40, apple: 8, berry: 4, grilled: GRILLED_ENERGY };
 type Food = keyof typeof FOOD;
 /** Energie gehört zur Insel: neue oder gelöschte Insel = wieder ausgeruht */
 const energy = () => mySlot().energy ?? 100;
@@ -485,16 +495,17 @@ function spend(kind: Action['kind']) {
   return true;
 }
 function eat(what: Food) {
-  const have = { raw: farm.turnips, cooked: farm.meals, apple: world.apples, berry: world.berries }[what];
+  const have = { raw: farm.turnips, cooked: farm.meals, apple: world.apples, berry: world.berries, grilled: world.grilled }[what];
   const none = {
     raw: 'Keine Rüben – ernte erst welche',
     cooked: 'Keine Ofenrüben – brat Rüben am Lagerfeuer',
     apple: 'Keine Äpfel – rüttel an einem Obstbaum',
     berry: 'Keine Beeren – pflück welche vom Beerenbusch',
+    grilled: 'Kein Bratfisch – brat einen Fisch am Lagerfeuer',
   };
   if (have <= 0) return hud?.toast(none[what]);
   if (energy() >= 100) return hud?.toast('Du bist satt');
-  const err = doAction(what === 'apple' || what === 'berry' ? { kind: 'eat', item: what } : { kind: 'eat', cooked: what === 'cooked' });
+  const err = doAction(what === 'apple' || what === 'berry' || what === 'grilled' ? { kind: 'eat', item: what } : { kind: 'eat', cooked: what === 'cooked' });
   if (err) return hud?.toast(err);
   setEnergy(energy() + FOOD[what]);
   sfx('eat');
@@ -508,8 +519,96 @@ function useTool() {
   if (!spend(kind)) return;
   // nach Ernten/Auffüllen nicht gleich weitermachen – erst loslassen
   if (swingTool === 'harvest' || swingTool === 'refill' || swingTool === 'cook' || swingTool === 'rake' || swingTool === 'shake') actHeld = false;
-  const err = doAction({ kind, c, r, tree: chopTarget });
+  const err = doAction({ kind, c, r, tree: chopTarget, ...(kind === 'cook' && cookableFish() ? { item: 'fish' } : {}) });
   if (err) hud?.toast(err);
+}
+
+// ---------- Angeln ----------
+/** Pose im Wasser; bite = wann es zuckt; fish = was beißt (beim Auswerfen gewürfelt) */
+let fishing: { x: number; y: number; bite: number; bit: boolean; fish: Fish } | null = null;
+const cookableFish = () => FISH.some((f) => f.cook && (world.fish[f.id] ?? 0) > 0);
+function onDock() {
+  const d = island.dock;
+  return player.x > d.x - 2 && player.x < d.x + d.w + 2 && player.y > d.y - 4;
+}
+/** wohin die Pose fliegt (vor der Figur ins Wasser), null = kein Wasser */
+function bobberSpot() {
+  if (inside >= 0 || riding >= 0) return null;
+  const off: Record<Dir, [number, number]> = { [Dir.Down]: [0, 1], [Dir.Up]: [0, -1], [Dir.Right]: [1, 0], [Dir.Left]: [-1, 0] };
+  const [dx, dy] = off[player.dir];
+  for (const d of [26, 20, 15]) {
+    const x = Math.round(player.x + dx * d);
+    const y = Math.round(player.y + dy * d - (dy ? 0 : 2));
+    const water = x < 0 || y < 0 || x >= W || y >= H || island.ground[y * W + x] === Ground.Water;
+    // auf dem Steg selbst nicht
+    const dk = island.dock;
+    const onPlanks = x > dk.x && x < dk.x + dk.w && y > dk.y && y < dk.y + dk.h;
+    if (water && !onPlanks) return { x, y };
+  }
+  return null;
+}
+function cast() {
+  const spot = bobberSpot();
+  if (!spot) return hud?.toast('Stell dich direkt ans Wasser');
+  if (!spend('fish')) return;
+  const night = !!tod && tod.dark > 0.5;
+  fishing = { ...spot, bite: Date.now() + biteDelay(Math.random, !!tod?.rain), bit: false, fish: rollFish(Math.random, { night, dock: onDock() }) };
+  workAt = performance.now();
+  sfx('water');
+  burst(spot.x, spot.y, 0, 6, ['#ffffff', '#9fd8f0'], 12);
+}
+function stopFishing(msg?: string) {
+  fishing = null;
+  hud?.setBite(false);
+  if (msg) hud?.toast(msg);
+}
+function reel() {
+  const f = fishing!;
+  if (Date.now() < f.bite) {
+    sfx('nope');
+    return stopFishing('Zu früh – es hat noch nichts gebissen');
+  }
+  stopFishing();
+  const first = !(world.album.fish ?? []).includes(f.fish.id);
+  const err = doAction({ kind: 'fish', item: f.fish.id });
+  if (err) return hud?.toast(err);
+  burst(f.x, f.y, 2, 16, ['#ffffff', '#9fd8f0', f.fish.colors[0]], 30);
+  floats.push({ x: player.x, y: player.y, h: 2.6, text: f.fish.id === 'stiefel' ? 'Ein alter Stiefel …' : `${f.fish.name}!`, life: 1.8 });
+  sfx(first ? 'quest' : 'harvest');
+  if (first)
+    hud?.intro(
+      {
+        title: f.fish.id === 'stiefel' ? 'Oh, ein Stiefel!' : `Neuer Fisch: ${f.fish.name}!`,
+        text: f.fish.text,
+        steps: [{ img: fishPhoto(f.fish.id), text: f.fish.cook ? 'Steht jetzt im Sammelalbum. Am Lagerfeuer kannst du Fische braten.' : 'Steht jetzt im Sammelalbum. Der Händler zahlt gut dafür!' }],
+        ok: 'Super',
+      },
+      () => sfx('click'),
+    );
+}
+/** Tippen auf den grünen Knopf: auswerfen bzw. einholen (true = erledigt) */
+function fishTap() {
+  if (fishing) {
+    reel();
+    return true;
+  }
+  if (mode === 'play' && !placing && swing <= 0 && intent().kind === 'fish') {
+    cast();
+    return true;
+  }
+  return false;
+}
+function updateFishing(now: number) {
+  if (!fishing) return;
+  if (Math.hypot(moveIn[0], moveIn[1]) > 0.3 || inside >= 0 || riding >= 0 || mode !== 'play') return stopFishing();
+  if (!fishing.bit && now >= fishing.bite) {
+    fishing.bit = true;
+    hud?.setBite(true);
+    sfx('water');
+    navigator.vibrate?.(80);
+    burst(fishing.x, fishing.y, 0, 8, ['#ffffff', '#9fd8f0'], 18);
+  }
+  if (fishing.bit && now > fishing.bite + BITE_WINDOW) stopFishing('Weggeschwommen … wirf nochmal aus!');
 }
 // ---------- Basteln ----------
 let craftUI: { update(d: CraftData): void } | null = null;
@@ -526,8 +625,9 @@ function openCraft() {
     if (block) return hud?.toast(block);
     const err = doAction({ kind: 'craft', item: id });
     if (err) return hud?.toast(err);
-    // gleich in die Hand nehmen
-    tool = id as ToolKind;
+    // gleich in die Hand nehmen (die Angel braucht man nicht auszuwählen)
+    if (id === 'rod') return hud?.toast('Stell dich ans Wasser und tipp auf den grünen Knopf');
+    tool = id as ToolId;
     hud?.setTool(tool);
   }) ?? null;
 }
@@ -557,7 +657,7 @@ function guideTarget(): { x: number; y: number } | null {
 
 function syncHud() {
   if (!hud) return;
-  hud.setInv(world.wood, farm.turnips, farm.meals, world.apples, world.berries);
+  hud.setInv(world.wood, farm.turnips, farm.meals, world.apples, world.berries, world.grilled);
   hud.setEnergy(energy());
   hud.setSlots(farm.seeds, farm.water, farm.capacity, farm.hasCan, farm.hay);
   hud.setCoins(world.coins);
@@ -755,6 +855,8 @@ addEventListener('keydown', (e) => {
   if (e.key === 'Enter' && placing) confirmBuild();
   if ((e.key === ' ' || e.key.toLowerCase() === 'e') && !placing) {
     e.preventDefault();
+    if (e.repeat) return;
+    if (fishTap()) return;
     actHeld = true;
   }
   if (e.key.toLowerCase() === 'b' && !placing) hud?.openBuild(world.wood);
@@ -933,6 +1035,7 @@ function startPlay() {
     {
       menu: openMenu,
       act: (down) => {
+        if (down && fishTap()) return void (actHeld = false);
         actHeld = down;
         if (down && !intent().kind)
           hud?.toast(
@@ -1223,7 +1326,9 @@ function remoteFx(op: Op) {
                     ? { k: 'pick', x: island.pickups[a.tree!].x, y: island.pickups[a.tree!].y }
                     : a.kind === 'craft'
                       ? { k: 'craft', x: op.x, y: op.y }
-                      : a.kind === 'shake' && island.decor[a.tree ?? -1]
+                      : a.kind === 'fish'
+                        ? { k: 'fish', x: op.x, y: op.y + 14 }
+                        : a.kind === 'shake' && island.decor[a.tree ?? -1]
                         ? { k: 'fruit', x: island.decor[a.tree!].x, y: island.decor[a.tree!].y, tree: a.tree }
                         : null;
   if (fx && mode === 'play' && inside < 0 && Math.hypot(fx.x - player.x, fx.y - player.y) < 160) playFx(fx);
@@ -1378,8 +1483,9 @@ function frame(now: number) {
     const rb = riding >= 0 ? breedById(world.horses[riding].breed) : undefined;
     // je mehr Vertrauen, desto flotter (bis +20 %)
     player.speedMul = rb ? rb.speed * (1 + world.horses[riding].love * 0.02) : energy() < 15 ? 0.6 : 1;
-    // beim Schlagen bleibt man stehen
-    if (swing > 0) player.update(0, 0, dt);
+    updateFishing(Date.now());
+    // beim Schlagen und Angeln bleibt man stehen
+    if (swing > 0 || fishing) player.update(0, 0, dt);
     else player.update(mx, my, dt);
     if (player.moving) {
       stepT -= dt;
@@ -1391,7 +1497,7 @@ function frame(now: number) {
     // Werkzeug benutzen
     if (!placing) {
       const it = intent();
-      hud?.setAction(!!it.kind, it.kind === 'trade' ? icons.coin : it.kind === 'stable' ? icons.stable : it.kind === 'horse' || it.kind === 'dismount' ? horseIcon(world.horses[it.tree]?.breed ?? '', !!world.horses[it.tree] && isFoal(world.horses[it.tree], Date.now())) : it.kind && ROOM_ACTS.has(it.kind) ? icons.house : it.kind === 'cook' ? icons.meal : it.kind === 'harvest' ? icons.turnip : it.kind === 'rake' ? icons.hay : it.kind === 'pick' ? (island.pickups[it.tree]?.kind === 'stone' ? icons.stone : icons.stick) : it.kind === 'shake' ? (island.decor[it.tree]?.kind === 'bush' ? icons.berry : icons.apple) : it.kind === 'refill' ? (farm.hasCan ? icons.can : icons.bucket) : icons[tool === 'water' ? (farm.hasCan ? 'can' : 'bucket') : tool]);
+      hud?.setAction(!!it.kind || !!fishing, fishing ? icons.rod : it.kind === 'trade' ? icons.coin : it.kind === 'stable' ? icons.stable : it.kind === 'horse' || it.kind === 'dismount' ? horseIcon(world.horses[it.tree]?.breed ?? '', !!world.horses[it.tree] && isFoal(world.horses[it.tree], Date.now())) : it.kind && ROOM_ACTS.has(it.kind) ? icons.house : it.kind === 'cook' ? (cookableFish() ? icons.grilled : icons.meal) : it.kind === 'harvest' ? icons.turnip : it.kind === 'rake' ? icons.hay : it.kind === 'pick' ? (island.pickups[it.tree]?.kind === 'stone' ? icons.stone : icons.stick) : it.kind === 'shake' ? (island.decor[it.tree]?.kind === 'bush' ? icons.berry : icons.apple) : it.kind === 'fish' || fishing ? icons.rod : it.kind === 'refill' ? (farm.hasCan ? icons.can : icons.bucket) : icons[tool === 'water' ? (farm.hasCan ? 'can' : 'bucket') : tool]);
       if (actHeld && swing <= 0 && it.kind && ROOM_ACTS.has(it.kind)) {
         actHeld = false;
         roomAction(it.kind, it.tree);
@@ -1468,8 +1574,9 @@ function frame(now: number) {
           y: player.y,
           dir: player.dir,
           moving: player.moving,
-          swing: swing > 0 ? 1 - swing / SWING : 0,
-          tool: swing > 0 ? swingTool : '',
+          // beim Angeln hält die Figur die Angel (Wert 0.5 = ruhig, bei Biss zuckt sie)
+          swing: fishing ? (fishing.bit ? 0.5 + Math.sin(t * 40) * 0.08 : 0.5) : swing > 0 ? 1 - swing / SWING : 0,
+          tool: fishing ? 'rod' : swing > 0 ? swingTool : '',
           rides: riding,
           in: inside,
           look: save.look,
@@ -1491,8 +1598,9 @@ function frame(now: number) {
     boatOut: boatOut(world.clock, nowMs),
     boat: BOAT,
     ghost: play && placing ? { kind: placeKind, deco: placeDeco, x: ghost.x, y: ghost.y, ok: ghost.ok && world.wood >= BUILDS[placeKind].cost } : null,
-    marker: play && !placing && tool !== 'axe' && hasTool(tool) && riding < 0 ? frontTile() : null,
+    marker: play && !placing && tool !== 'axe' && hasTool(tool) && riding < 0 && !fishing ? frontTile() : null,
     guide: play && !placing ? guideTarget() : null,
+    fishing: play && fishing ? { x: fishing.x, y: fishing.y, bite: fishing.bit } : null,
     inside,
   });
   drawOverlay(t, dt, nowMs);
@@ -1836,6 +1944,8 @@ function roomAction(kind: Intent, slot: number) {
       ['Ofenrüben', farm.meals],
       ['Äpfel', world.apples],
       ['Beeren', world.berries],
+      ['Bratfisch', world.grilled],
+      ...FISH.filter((f) => world.fish[f.id]).map((f) => [f.name, world.fish[f.id]] as [string, number]),
     ]);
   if (kind === 'furnish')
     return hud?.openFurnish(
@@ -1872,4 +1982,5 @@ function roomAction(kind: Intent, slot: number) {
   /** Mitspieler vortäuschen (Tests) */
   fakeMate: (look: Look, x: number, y: number) => updateMates([{ pid: 'ptest', n: 'Lena', l: look, x, y, d: 0, m: 0, sw: 0, tl: '', rh: -1, in: -1, sp: 1, age: 0 }]),
   swingNow: (tl: typeof swingTool) => ((swingTool = tl), (swing = SWING * 0.5)),
+  fishing: () => fishing,
   doAction, get mode() { return mode; }, get mates() { return mates; }, cloudSync, pid, horsePos: (i: number) => horseAt(i), get riding() { return riding; } };

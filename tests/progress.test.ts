@@ -124,7 +124,7 @@ describe('Fortschritt', () => {
       expect([before[0] - bag.sticks, before[1] - bag.stones, before[2] - w.wood]).toEqual([r.sticks, r.stones, r.wood]);
     }
     expect(bag.tools.length).toBe(RECIPES.length);
-    expect(fullBag().tools.length).toBe(RECIPES.length);
+    expect(fullBag().tools).not.toContain('rod'); // die Angel gab es vorher nicht
   });
 
   it('Stufe 2 macht das Fällen schneller', () => {

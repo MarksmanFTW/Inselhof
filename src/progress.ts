@@ -26,7 +26,11 @@ export type Stat =
   | 'hay'
   | 'stable'
   // Obst gesammelt (Stück)
-  | 'fruit';
+  | 'fruit'
+  // Angeln: Angel gebastelt, Fische gefangen, verschiedene Arten
+  | 'rod'
+  | 'fish'
+  | 'species';
 
 export interface Progress {
   xp: number;
@@ -35,12 +39,13 @@ export interface Progress {
   quests: number;
   /**
    * Version der Aufgabenliste: fehlt = ursprüngliche Liste, 2 = mit Tutorial am
-   * Anfang (kurz im Oktober 2026), 3 = ausgebaut, Tutorial gehört jedem Spieler selbst
+   * Anfang (kurz im Oktober 2026), 3 = ausgebaut, Tutorial gehört jedem Spieler selbst,
+   * 4 = mit Angeln
    */
   v?: number;
 }
 
-export const QUEST_V = 3;
+export const QUEST_V = 4;
 export const newProgress = (): Progress => ({ xp: 0, stats: {}, quests: 0, v: QUEST_V });
 
 /**
@@ -51,18 +56,22 @@ export function cleanProgress(p: Partial<Progress> | undefined, legacy?: { fires
   const stats: Partial<Record<Stat, number>> = {};
   for (const [k, v] of Object.entries(p?.stats ?? {})) if (typeof v === 'number' && v >= 0) stats[k as Stat] = Math.floor(v);
   const out: Progress = { xp: Math.max(0, Math.floor(p?.xp ?? 0)), stats, quests: Math.max(0, Math.floor(p?.quests ?? 0)), v: QUEST_V };
-  const n = out.quests;
-  if (p?.v === 2) out.quests = Math.max(0, n - V2_TUTORIAL);
-  else if (p?.v === undefined && legacy) {
-    out.quests = n < OLD_TO_NEW.length ? OLD_TO_NEW[n] : n - OLD_TO_NEW.length + QUESTS.length;
+  const v = p?.v ?? (legacy ? 1 : QUEST_V);
+  let n = out.quests;
+  if (v === 2) n = Math.max(0, n - V2_TUTORIAL);
+  if (v === 1) {
+    n = n < OLD_TO_V3.length ? OLD_TO_V3[n] : n - OLD_TO_V3.length + V3_LEN;
     // was man damals schon hatte, zählt als erledigt
     const atLeast = (k: Stat, v: number) => (stats[k] = Math.max(stats[k] ?? 0, v));
     atLeast('crafted', 4);
     atLeast('bucket', 1);
     atLeast('scythe', 1);
-    atLeast('fire', legacy.fires);
-    atLeast('stable', legacy.stables);
+    atLeast('fire', legacy?.fires ?? 0);
+    atLeast('stable', legacy?.stables ?? 0);
   }
+  // v3 → v4: zwei Angel-Aufgaben nach dem ersten Haus, eine vor dem zweiten Haus
+  if (v <= 3) n = n < 10 ? n : n < 20 ? n + 2 : n + 3;
+  out.quests = n;
   return out;
 }
 
@@ -87,6 +96,9 @@ export const XP: Record<Exclude<Stat, 'wood'>, number> = {
   hay: 0,
   stable: 20,
   fruit: 0,
+  rod: 0,
+  fish: 2,
+  species: 5,
 };
 
 /** XP bis Stufe L: 30 · L(L-1)/2 → 30, 90, 180, 300 … */
@@ -147,6 +159,8 @@ const QUESTS: Quest[] = [
   { text: 'Brate 2 Ofenrüben', stat: 'cooked', goal: 2, xp: 15, hint: 'Stell dich mit Rüben ans Lagerfeuer. Ofenrüben geben viel mehr Kraft.' },
   { text: 'Sammle 10 Holz', stat: 'wood', goal: 10, xp: 25 },
   { text: 'Bau dein erstes Haus', stat: 'built', goal: 1, xp: 50, seeds: 3, coins: 10, hint: 'Unter „Bauen“ – kostet 10 Holz. Im Bett schläfst du dich wieder fit.' },
+  { text: 'Bastle eine Angel', stat: 'rod', goal: 1, xp: 15, hint: 'Unter „Basteln“: 3 Stöcke und 1 Stein.' },
+  { text: 'Fang 3 Fische', stat: 'fish', goal: 3, xp: 25, coins: 5, hint: 'Stell dich mit der Angel ans Wasser und tipp. Wenn die Pose zuckt: schnell nochmal tippen! Am Steg beißen seltene Fische besser.' },
   { text: 'Bastle eine Sense', stat: 'scythe', goal: 1, xp: 15, hint: 'Unter „Basteln“: 2 Stöcke, 2 Steine und 2 Holz.' },
   { text: 'Mähe 6 Stück Wiese', stat: 'mowed', goal: 6, xp: 15, hint: 'Gemähtes Gras trocknet zu Heu.' },
   { text: 'Sammle 6 Heu', stat: 'hay', goal: 6, xp: 20, coins: 5, hint: 'Wenn das gemähte Gras gelb ist, sammelst du es ein. Pferde lieben Heu.' },
@@ -157,10 +171,12 @@ const QUESTS: Quest[] = [
   { text: 'Hacke 12 Felder', stat: 'tilled', goal: 12, xp: 50 },
   { text: 'Kümmere dich 5-mal um deine Pferde', stat: 'cared', goal: 5, xp: 40, coins: 10, hint: 'Füttern, Leckerli geben oder bürsten – jedes einmal am Tag.' },
   { text: 'Ernte 25 Rüben', stat: 'harvested', goal: 25, xp: 80, seeds: 5, coins: 15 },
+  { text: 'Fang 5 verschiedene Fischarten', stat: 'species', goal: 5, xp: 60, coins: 15, hint: 'Manche Fische gibt es nur nachts, andere nur draußen am Steg.' },
   { text: 'Bau ein zweites Haus', stat: 'built', goal: 2, xp: 100, wood: 5 },
 ];
-/** ursprüngliche Liste: Aufgabe Nr. n → Nummer in der neuen Liste */
-const OLD_TO_NEW = [0, 1, 2, 4, 6, 8, 9, 13, 14, 17, 19, 20];
+/** ursprüngliche Liste: Aufgabe Nr. n → Nummer in Liste v3 (danach weiter auf v4) */
+const OLD_TO_V3 = [0, 1, 2, 4, 6, 8, 9, 13, 14, 17, 19, 20];
+const V3_LEN = 21;
 /** Liste v2 hatte vorne drei Tutorial-Aufgaben */
 const V2_TUTORIAL = 3;
 /** n-te Aufgabe; nach der Liste geht es mit immer größeren Ernte-/Holz-Zielen weiter */

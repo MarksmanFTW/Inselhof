@@ -1836,3 +1836,19 @@ img[src$='#foto'] {
   object-fit: contain;
   flex: none;
 }
+
+/* Angeln: es hat angebissen – grüner Knopf hüpft */
+.pbtn.use.bite {
+  animation: bite 0.28s ease-in-out infinite alternate;
+  box-shadow:
+    0 0 0 6px #ffd23f,
+    0 6px 0 #3e8a3a;
+}
+@keyframes bite {
+  from {
+    transform: scale(1) rotate(-4deg);
+  }
+  to {
+    transform: scale(1.12) rotate(4deg);
+  }
+}

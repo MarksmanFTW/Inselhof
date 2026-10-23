@@ -133,6 +133,11 @@ export function toolGeo(id: string) {
     b.add(sphere(0.12, 10), '#f6f0f2', { p: [0, -0.06, 0.1] });
     b.add(sphere(0.115, 10), '#b05a9a', { p: [0, -0.02, 0.1], s: [1, 0.5, 1] });
     for (const a of [-0.5, 0, 0.5]) b.add(sphere(0.06, 6), '#5fae4e', { p: [Math.sin(a) * 0.06, 0.1, 0.1], s: [0.6, 2, 0.4], r: [0, 0, a] });
+  } else if (id === 'rod') {
+    // Angel: langer dünner Stock mit Rolle und Schnur-Ring vorne
+    b.add(cyl(0.02, 0.034, 1.7, 7), '#a8743f', { p: [0, 0, 0.8], r: [Math.PI / 2, 0, 0] });
+    b.add(cyl(0.06, 0.06, 0.05, 10), '#5a5a64', { p: [0.05, -0.02, 0.18], r: [0, 0, Math.PI / 2] });
+    b.add(new THREE.TorusGeometry(0.025, 0.008, 4, 8), '#e8e8e8', { p: [0, 0.02, 1.63] });
   } else if (id === 'hay') {
     b.add(sphere(0.16, 8), '#ecc860', { p: [0, -0.05, 0.12], s: [1.2, 0.8, 1] });
   }
@@ -252,6 +257,12 @@ export function makeKid(look: Look): Kid {
           armL.rotation.set(a * 0.7, 0, -0.1);
           rig.rotation.x = k < 0.45 ? -0.08 * ease(k / 0.45) : 0.18 * ease((k - 0.45) / 0.55);
           if (toolId === 'scythe') rig.rotation.y = (k - 0.5) * 0.8;
+        } else if (toolId === 'rod') {
+          // Angel mit beiden Händen vor sich halten, Spitze schräg nach oben übers Wasser
+          const jig = (k - 0.5) * 3;
+          armR.rotation.set(-1.05 + jig, 0, 0.15);
+          armL.rotation.set(-0.95 + jig, 0, -0.25);
+          hand.rotation.x = 0.35;
         } else if (toolId === 'can' || toolId === 'bucket') {
           armR.rotation.set(-1.15, 0, 0.1);
           hand.rotation.x = 1.15 + ease(Math.min(1, k * 1.6)) * 0.8;

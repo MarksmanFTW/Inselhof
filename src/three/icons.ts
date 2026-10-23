@@ -9,6 +9,7 @@ import { furniture } from './interior3d';
 import { toolGeo } from './kid';
 import * as M from './models';
 import { photo } from './portrait';
+import { fishById } from '../fish';
 
 const meshOf = (g: THREE.BufferGeometry) => new THREE.Mesh(g, vcMat(0.6));
 
@@ -16,7 +17,7 @@ function tool(id: string) {
   const g = new THREE.Group();
   const m = meshOf(toolGeo(id));
   // Stiel schräg nach oben rechts, Kopf oben
-  if (id === 'axe' || id === 'hoe' || id === 'scythe') {
+  if (id === 'axe' || id === 'hoe' || id === 'scythe' || id === 'rod') {
     // erst Stiel quer (nach +x), dann schräg hochkippen
     m.rotation.order = 'ZYX';
     m.rotation.set(0, Math.PI / 2, 0.85);
@@ -102,6 +103,22 @@ function berries() {
   return meshOf(b.geometry());
 }
 
+/** Bratfisch auf dem Teller */
+function grilled() {
+  const g = new THREE.Group();
+  const b = new Build();
+  b.add(cyl(0.66, 0.54, 0.1, 24), '#f4f0e6', { p: [0, -0.32, 0] });
+  b.add(cyl(0.54, 0.54, 0.02, 24), '#e4dccc', { p: [0, -0.26, 0] });
+  b.add(sphere(0.1, 8), '#f4d04a', { p: [0.42, -0.2, 0.18], s: [1, 0.5, 1] });
+  b.add(sphere(0.07, 8), '#5fae4e', { p: [-0.4, -0.22, 0.22], s: [1.4, 0.4, 0.8] });
+  g.add(meshOf(b.geometry()));
+  const f = M.fishModel('grill', ['#c8843a', '#e8b060', '#a8642a'], 0.85);
+  f.position.y = -0.1;
+  f.rotation.x = -Math.PI / 2 + 0.15;
+  g.add(f);
+  return g;
+}
+
 /** Basteln: Steinhammer mit Schnur */
 function craftTool() {
   const b = new Build();
@@ -134,6 +151,8 @@ const MAKERS = {
   stone: () => photo('i:stone', () => M.pebble(0), { yaw: 0.3, tilt: 0.45 }),
   craft: () => photo('i:craft', craftTool, { yaw: 0, tilt: 0.2 }),
   apple: () => photo('i:apple', apple, { yaw: 0.3, tilt: 0.25 }),
+  rod: () => photo('i:rod', () => tool('rod'), { yaw: 0, tilt: 0.25, fill: 0.5 }),
+  grilled: () => photo('i:grilled', grilled, { yaw: 0, tilt: 0.55 }),
   berry: () => photo('i:berry', berries, { yaw: 0, tilt: 0.2 }),
 } satisfies Record<string, () => string>;
 
@@ -183,4 +202,10 @@ export function heartUrl(full: boolean) {
     x.stroke();
   }
   return `${c.toDataURL('image/png')}#foto`;
+}
+
+/** Fisch fürs Album und den Händler */
+export function fishPhoto(id: string) {
+  const f = fishById(id);
+  return photo(`fish:${id}`, () => M.fishModel(id, f?.colors ?? ['#888', '#ccc', '#666'], f?.size ?? 0.8), { yaw: id === 'stiefel' ? 0.5 : 0.15, tilt: 0.2, fill: 0.8 });
 }

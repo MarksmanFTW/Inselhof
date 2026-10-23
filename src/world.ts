@@ -7,6 +7,7 @@ import { accById, FOAL_HAY, FOAL_PAUSE_DAYS, GATE, MAX_LOVE, PADDOCK_COST, PADDO
 import { ALBUM_REWARDS, DECO_FOOT, albumCount, cleanAlbum, decoById, type Album, type Deco } from './shop';
 import { cleanProgress, levelOf, newProgress, perks, type Progress } from './progress';
 import { PICK_REGROW_MS, type ToolKind } from './craft';
+import { FISH, fishById } from './fish';
 import type { PickKind } from './island';
 import type { Clock } from './time';
 
@@ -84,6 +85,9 @@ export interface WorldSave {
   apples?: number;
   berries?: number;
   shaken?: Record<number, number>;
+  /** gefangene Fische (Art → Anzahl) und gebratene */
+  fish?: Record<string, number>;
+  grilled?: number;
 }
 
 export type TreeStage = 'tree' | 'stump' | 'sapling';
@@ -118,6 +122,8 @@ export class World {
   apples = 0;
   berries = 0;
   shaken = new Map<number, number>();
+  fish: Record<string, number> = {};
+  grilled = 0;
   /** Treffer am aktuellen Baum (nicht gespeichert) */
   private hits = new Map<number, number>();
   /** wird bei jeder Änderung hochgezählt (Schatten neu malen, speichern) */
@@ -143,6 +149,8 @@ export class World {
         const i = Number(k);
         if (isl.pickups[i] && typeof v === 'number') this.picked.set(i, v);
       }
+      for (const [k, v] of Object.entries(save.fish ?? {})) if (fishById(k) && typeof v === 'number' && v > 0) this.fish[k] = Math.floor(v);
+      this.grilled = Math.max(0, Math.floor(save.grilled ?? 0));
       this.apples = Math.max(0, Math.floor(save.apples ?? 0));
       this.berries = Math.max(0, Math.floor(save.berries ?? 0));
       for (const [k, v] of Object.entries(save.shaken ?? {})) {
@@ -184,6 +192,8 @@ export class World {
     this.apples = w.apples;
     this.berries = w.berries;
     this.shaken = w.shaken;
+    this.fish = w.fish;
+    this.grilled = w.grilled;
     this.version++;
   }
 
@@ -196,12 +206,13 @@ export class World {
       ...(this.stables.length ? { stables: this.stables.map((f) => ({ ...f })), horses: this.horses.map((h) => ({ ...h })) } : {}),
       ...(this.paddocks.length ? { paddocks: this.paddocks.map((f) => ({ ...f })) } : {}),
       ...(this.coins || this.decos.length || albumCount(this.album) || Object.keys(this.decoInv).length
-        ? { coins: this.coins, decos: this.decos.map((d) => ({ ...d })), decoInv: { ...this.decoInv }, album: { horses: [...this.album.horses], deco: [...this.album.deco] }, albumClaimed: this.albumClaimed }
+        ? { coins: this.coins, decos: this.decos.map((d) => ({ ...d })), decoInv: { ...this.decoInv }, album: { horses: [...this.album.horses], deco: [...this.album.deco], ...(this.album.fish ? { fish: [...this.album.fish] } : {}) }, albumClaimed: this.albumClaimed }
         : {}),
       ...(this.clock ? { clock: { ...this.clock } } : {}),
       prog: { xp: this.prog.xp, stats: { ...this.prog.stats }, quests: this.prog.quests, v: this.prog.v },
       ...(this.picked.size ? { picked: Object.fromEntries(this.picked) } : {}),
       ...(this.apples || this.berries || this.shaken.size ? { apples: this.apples, berries: this.berries, shaken: Object.fromEntries(this.shaken) } : {}),
+      ...(Object.keys(this.fish).length || this.grilled ? { fish: { ...this.fish }, grilled: this.grilled } : {}),
     };
   }
 
@@ -501,7 +512,29 @@ export class World {
   }
 
   albumAdd(kind: keyof Album, id: string) {
-    if (!this.album[kind].includes(id)) this.album[kind].push(id);
+    const list = (this.album[kind] ??= []);
+    if (list.includes(id)) return false;
+    list.push(id);
+    return true;
+  }
+
+  /** Fisch gefangen: in den Vorrat und ins Album; true = zum ersten Mal */
+  catchFish(id: string) {
+    if (!fishById(id)) return null;
+    this.fish[id] = (this.fish[id] ?? 0) + 1;
+    const first = this.albumAdd('fish', id);
+    this.version++;
+    return first;
+  }
+
+  /** einen Fisch zum Braten nehmen (der häufigste zuerst; seltene nicht) */
+  takeCookable() {
+    const f = FISH.find((x) => x.cook && (this.fish[x.id] ?? 0) > 0);
+    if (!f) return false;
+    if (--this.fish[f.id] <= 0) delete this.fish[f.id];
+    this.grilled++;
+    this.version++;
+    return true;
   }
 
   /** neu erreichte Album-Belohnungen auszahlen */

@@ -60,6 +60,8 @@ export interface Frame {
   marker: [number, number] | null;
   /** Tutorial: Pfeil über diesem Ziel (Welt-Pixel) */
   guide: { x: number; y: number } | null;
+  /** Angeln: Pose im Wasser (Welt-Pixel), bite = es zuckt */
+  fishing: { x: number; y: number; bite: boolean } | null;
   inside: number;
 }
 
@@ -139,6 +141,10 @@ export class View {
   /** Stöcke und Steine zum Aufheben */
   private pickups: THREE.Object3D[] = [];
   private guide = M.guideArrow();
+  /** Angeln: Pose und Schnur */
+  private bobber: THREE.Group;
+  private line: THREE.Line;
+  private linePos = new Float32Array(10 * 3);
   private bits: { m: THREE.InstancedMesh; list: { p: THREE.Vector3; v: THREE.Vector3; life: number; c: THREE.Color }[] };
   private hearts: { s: THREE.Sprite; v: number; life: number; delay: number }[] = [];
   private heartTex: THREE.Texture;
@@ -197,6 +203,22 @@ export class View {
     }
     this.guide.visible = false;
     s.add(this.guide);
+    {
+      const b = new Build();
+      b.add(sphere(0.13, 12), '#ffffff', { p: [0, 0, 0] });
+      b.add(sphere(0.135, 12), '#e0483e', { p: [0, 0.04, 0], s: [1, 0.6, 1] });
+      b.add(rbox(0.03, 0.16, 0.03, 0.01), '#e0483e', { p: [0, 0.18, 0] });
+      this.bobber = new THREE.Group();
+      this.bobber.add(new THREE.Mesh(b.geometry(), curve(new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.4 }))));
+      this.bobber.visible = false;
+      s.add(this.bobber);
+      const g = new THREE.BufferGeometry();
+      g.setAttribute('position', new THREE.BufferAttribute(this.linePos, 3));
+      this.line = new THREE.Line(g, new THREE.LineBasicMaterial({ color: '#f4f4f4', transparent: true, opacity: 0.85 }));
+      this.line.frustumCulled = false;
+      this.line.visible = false;
+      s.add(this.line);
+    }
 
     // Acker (instanziert)
     this.soil = this.inst(M.soilGeo(), 300, 0.95);
@@ -379,6 +401,43 @@ export class View {
       o.stump.visible = st === 'stump';
       o.sapling!.visible = st === 'sapling';
     });
+  }
+
+  /** Angeln: Pose schaukelt auf dem Wasser (taucht bei Biss), Schnur von der Angelspitze */
+  private syncFishing(fr: Frame) {
+    const f = fr.fishing;
+    const me = fr.me;
+    if (!f || !me || fr.inside >= 0) {
+      this.bobber.visible = this.line.visible = false;
+      return;
+    }
+    // gekrümmte Welt: hinten liegt alles etwas tiefer
+    const bend = (z: number) => {
+      const cz = Math.min(0, z - FOCUS.value);
+      return cz * cz * CURVE.value;
+    };
+    const bx = f.x * U;
+    const bz = f.y * U;
+    const dip = f.bite ? -0.1 - Math.abs(Math.sin(fr.t * 18)) * 0.08 : Math.sin(fr.t * 2.4) * 0.03;
+    const by = WATER_Y + 0.05 + dip;
+    this.bobber.visible = true;
+    this.bobber.position.set(bx, by, bz);
+    this.bobber.rotation.z = f.bite ? Math.sin(fr.t * 25) * 0.4 : Math.sin(fr.t * 1.7) * 0.15;
+    // Angelspitze: vor der Figur, hoch oben
+    const yaw = DIR_YAW[me.dir] ?? 0;
+    const tx = me.x * U + Math.sin(yaw) * 1.5;
+    const tz = me.y * U + Math.cos(yaw) * 1.5;
+    const ty = this.groundY(me.x, me.y) + 1.95 - bend(tz);
+    const by2 = by + 0.08 - bend(bz);
+    const n = this.linePos.length / 3;
+    for (let k = 0; k < n; k++) {
+      const a = k / (n - 1);
+      // leicht durchhängend (straff beim Biss)
+      const sag = (f.bite ? 0.05 : 0.35) * Math.sin(a * Math.PI);
+      this.linePos.set([tx + (bx - tx) * a, ty + (by2 - ty) * a - sag, tz + (bz - tz) * a], k * 3);
+    }
+    this.line.geometry.attributes.position.needsUpdate = true;
+    this.line.visible = true;
   }
 
   /** Stöcke/Steine: aufgehoben, überbaut oder unter einem Feld → weg */
@@ -957,6 +1016,7 @@ export class View {
       this.guide.position.set(x * U, this.groundY(x, y) + 0.45 + Math.abs(Math.sin(fr.t * 3.2)) * 0.35, y * U);
       this.guide.rotation.y = Math.sin(fr.t * 1.6) * 0.5;
     } else this.guide.visible = false;
+    this.syncFishing(fr);
     this.stepEffects(fr);
     this.light(fr);
 
