@@ -7,19 +7,16 @@
   --wood: #6b4428;
   --paper: #f6e7c1;
   --paper-dark: #e2c993;
-  --green: #5fae4e;
-  --green-dark: #3a7d32;
-  --green-hi: #8fd070;
-  --orange: #d98a3b;
-  --orange-dark: #a85a22;
-  --orange-hi: #f2b066;
-  /* Pixel-Ecken: 4 px abgeschrägt in Stufen */
-  --px-corner: polygon(
-    0 8px, 4px 8px, 4px 4px, 8px 4px, 8px 0,
-    calc(100% - 8px) 0, calc(100% - 8px) 4px, calc(100% - 4px) 4px, calc(100% - 4px) 8px, 100% 8px,
-    100% calc(100% - 8px), calc(100% - 4px) calc(100% - 8px), calc(100% - 4px) calc(100% - 4px), calc(100% - 8px) calc(100% - 4px), calc(100% - 8px) 100%,
-    8px 100%, 8px calc(100% - 4px), 4px calc(100% - 4px), 4px calc(100% - 8px), 0 calc(100% - 8px)
-  );
+  --green: #6cc46a;
+  --green-dark: #3e8a3a;
+  --green-hi: #9ae08a;
+  --orange: #f0a050;
+  --orange-dark: #c4762c;
+  --orange-hi: #ffc890;
+  --card: #fff6e4;
+  --card-line: #ecd8b0;
+  /* weiche Ecken (früher Pixel-Treppchen) */
+  --px-corner: none;
 }
 html,
 body {
@@ -33,7 +30,7 @@ body {
   -webkit-tap-highlight-color: transparent;
 }
 body {
-  font-family: 'Pixelify Sans', system-ui, sans-serif;
+  font-family: 'Fredoka', 'Trebuchet MS', system-ui, sans-serif;
   color: var(--ink);
 }
 [hidden] {
@@ -59,10 +56,10 @@ body {
   transform: translateX(-50%);
   margin: 0;
   padding: 8px 14px;
-  background: rgba(20, 40, 60, 0.6);
-  clip-path: var(--px-corner);
+  background: rgba(20, 40, 60, 0.55);
+  border-radius: 999px;
   color: #fff;
-  font: 500 calc(15px * var(--fs))/1.2 'Pixelify Sans', system-ui, sans-serif;
+  font: 500 calc(15px * var(--fs))/1.2 'Fredoka', system-ui, sans-serif;
   width: max-content;
   max-width: 88vw;
   text-align: center;
@@ -73,7 +70,7 @@ body {
   opacity: 0;
 }
 
-/* ---------- Bausteine: Pixel-Holzschild & Knöpfe ---------- */
+/* ---------- Bausteine: weiches Schild & Knöpfe ---------- */
 #ui {
   position: fixed;
   inset: 0;
@@ -85,43 +82,38 @@ body {
 }
 .panel {
   position: relative;
-  background: var(--paper);
-  border: 4px solid var(--ink);
+  background: #fffaf0;
+  border-radius: 24px;
   box-shadow:
-    inset 0 0 0 4px #fff4d6,
-    inset 0 -10px 0 4px var(--paper-dark);
-  clip-path: var(--px-corner);
+    0 5px 0 #e6cf9e,
+    0 14px 34px rgba(20, 40, 60, 0.28);
   padding: 18px 20px 22px;
 }
 .pbtn {
+  --dark: var(--orange-dark);
   display: block;
   width: 100%;
   margin: 10px 0 0;
-  padding: 12px 18px 15px;
-  border: 4px solid var(--ink);
+  padding: 12px 18px 14px;
+  border: 0;
+  border-radius: 999px;
   background: var(--orange);
   box-shadow:
-    inset 0 -6px 0 var(--orange-dark),
-    inset 0 4px 0 var(--orange-hi);
-  clip-path: var(--px-corner);
+    0 5px 0 var(--dark),
+    0 8px 16px rgba(20, 40, 60, 0.22);
   color: #fff;
-  font: 700 calc(24px * var(--fs))/1 'Pixelify Sans', system-ui, sans-serif;
-  letter-spacing: 0.02em;
-  text-shadow: 2px 2px 0 rgba(60, 25, 5, 0.7);
+  font: 600 calc(22px * var(--fs))/1.05 'Fredoka', system-ui, sans-serif;
+  letter-spacing: 0.01em;
+  text-shadow: 0 2px 0 rgba(0, 0, 0, 0.16);
   cursor: pointer;
 }
 .pbtn.green {
+  --dark: var(--green-dark);
   background: var(--green);
-  box-shadow:
-    inset 0 -6px 0 var(--green-dark),
-    inset 0 4px 0 var(--green-hi);
 }
 .pbtn:active {
   transform: translateY(3px);
-  box-shadow: inset 0 -2px 0 var(--orange-dark);
-}
-.pbtn.green:active {
-  box-shadow: inset 0 -2px 0 var(--green-dark);
+  box-shadow: 0 2px 0 var(--dark);
 }
 .pbtn.small {
   font-size: calc(20px * var(--fs));
@@ -130,18 +122,18 @@ body {
 .arrow {
   width: 40px;
   height: 40px;
-  padding: 0 0 4px;
-  border: 3px solid var(--ink);
-  background: var(--paper-dark);
-  box-shadow: inset 0 -4px 0 #c4a46a, inset 0 3px 0 #fff2cc;
-  clip-path: polygon(0 4px, 4px 4px, 4px 0, calc(100% - 4px) 0, calc(100% - 4px) 4px, 100% 4px, 100% calc(100% - 4px), calc(100% - 4px) calc(100% - 4px), calc(100% - 4px) 100%, 4px 100%, 4px calc(100% - 4px), 0 calc(100% - 4px));
-  color: var(--ink);
-  font: 700 calc(22px * var(--fs))/1 'Pixelify Sans', system-ui, sans-serif;
+  padding: 0 0 3px;
+  border: 0;
+  border-radius: 50%;
+  background: #f2e2c0;
+  box-shadow: 0 4px 0 #d4b886;
+  color: #6b4428;
+  font: 700 calc(20px * var(--fs))/1 'Fredoka', system-ui, sans-serif;
   cursor: pointer;
 }
 .arrow:active {
   transform: translateY(2px);
-  box-shadow: inset 0 -1px 0 #c4a46a;
+  box-shadow: 0 1px 0 #d4b886;
 }
 .stage-canvas {
   display: block;
@@ -178,11 +170,10 @@ body {
   animation: bob 3.2s ease-in-out infinite;
 }
 .logo span {
-  /* dicke Pixel-Umrandung + Schlagschatten */
-  text-shadow:
-    4px 0 0 var(--ink), -4px 0 0 var(--ink), 0 4px 0 var(--ink), 0 -4px 0 var(--ink),
-    4px 4px 0 var(--ink), -4px 4px 0 var(--ink), 4px -4px 0 var(--ink), -4px -4px 0 var(--ink),
-    0 10px 0 var(--ink), 4px 10px 0 var(--ink), -4px 10px 0 var(--ink);
+  /* weiche, dicke Umrandung + Schatten */
+  -webkit-text-stroke: 9px #7a4422;
+  paint-order: stroke fill;
+  text-shadow: 0 7px 0 #7a4422, 0 12px 22px rgba(10, 30, 50, 0.35);
 }
 .logo .l1 {
   font-size: clamp(44px, 13vw, 72px);
@@ -291,7 +282,7 @@ body {
   border: 3px solid var(--ink);
   background: #fffaf0;
   box-shadow: inset 0 3px 0 #e8d8b0;
-  font: 500 calc(18px * var(--fs)) 'Pixelify Sans', system-ui, sans-serif;
+  font: 500 calc(18px * var(--fs)) 'Fredoka', system-ui, sans-serif;
   color: var(--ink);
   outline: none;
   user-select: text;
@@ -437,7 +428,7 @@ body {
   position: absolute;
   right: 2px;
   bottom: 0;
-  font: 700 calc(13px * var(--fs))/1 'Pixelify Sans', system-ui, sans-serif;
+  font: 700 calc(13px * var(--fs))/1 'Fredoka', system-ui, sans-serif;
   color: var(--ink);
   text-shadow: 1px 1px 0 #fff, -1px -1px 0 #fff, 1px -1px 0 #fff, -1px 1px 0 #fff;
 }
@@ -598,19 +589,14 @@ body {
 
 /* ---------- Koop ---------- */
 .pbtn.blue {
-  background: #4a8ad0;
-  box-shadow:
-    inset 0 -6px 0 #2e5f98,
-    inset 0 4px 0 #7ab2ec;
-}
-.pbtn.blue:active {
-  box-shadow: inset 0 -2px 0 #2e5f98;
+  --dark: #3a6ab0;
+  background: #5a9ae0;
 }
 .pbtn.ghost {
-  background: var(--paper-dark);
-  color: var(--ink);
+  --dark: #d4b886;
+  background: #f2e2c0;
+  color: #6b4428;
   text-shadow: none;
-  box-shadow: inset 0 -4px 0 #c4a46a;
 }
 .coop-note {
   margin: 8px 0 0;
@@ -722,7 +708,7 @@ body {
   border: 0;
   border-bottom: 2px dashed transparent;
   background: none;
-  font: 700 calc(19px * var(--fs)) 'Pixelify Sans', system-ui, sans-serif;
+  font: 700 calc(19px * var(--fs)) 'Fredoka', system-ui, sans-serif;
   color: var(--ink);
   outline: none;
   user-select: text;
@@ -1229,7 +1215,7 @@ img.c,
   max-width: min(230px, calc(100vw - 200px));
   padding: 4px 9px 5px 22px;
   border: 0;
-  font: 500 calc(13px * var(--fs))/1.25 'Pixelify Sans', system-ui, sans-serif;
+  font: 500 calc(13px * var(--fs))/1.25 'Fredoka', system-ui, sans-serif;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1328,7 +1314,7 @@ img.c,
   align-items: center;
   gap: 3px;
   padding: 2px 5px;
-  font: 700 calc(16px * var(--fs))/1 'Pixelify Sans', system-ui, sans-serif;
+  font: 700 calc(16px * var(--fs))/1 'Fredoka', system-ui, sans-serif;
   color: var(--ink);
   background: none;
   border: 0;
@@ -1433,8 +1419,8 @@ img.c,
   margin-bottom: 8px;
 }
 .pbtn.pink {
+  --dark: #c8508e;
   background: #f08ac0;
-  box-shadow: inset 0 -5px 0 #c8508e;
   color: #fff;
 }
 .pbtn.fav-on {
@@ -1552,4 +1538,123 @@ img.c,
 /* Fotos der 3D-Modelle weich skalieren (nicht wie Pixelbilder) */
 img[src$='#foto'] {
   image-rendering: auto !important;
+  object-fit: contain;
+}
+
+/* ---------- weicher Stil (passend zur 3D-Insel): Karten, Leisten, Felder ---------- */
+.name,
+.slot,
+.build-card,
+.slot-card,
+.chest-list div,
+.furn,
+.trade-row,
+.acc,
+.rewards span,
+.code-big span,
+.place-bar {
+  border: 0 !important;
+  border-radius: 16px;
+  background: var(--card);
+  box-shadow: inset 0 0 0 2px var(--card-line);
+}
+.name {
+  border-radius: 999px;
+  padding: 8px 14px;
+  background: #fff;
+  box-shadow: inset 0 0 0 2px var(--card-line), inset 0 3px 0 #f0e4c8;
+}
+.place-bar {
+  border-radius: 24px;
+  background: #fffaf0;
+  box-shadow:
+    0 5px 0 #e6cf9e,
+    0 12px 28px rgba(20, 40, 60, 0.28);
+}
+.slot {
+  border-radius: 14px;
+}
+.slot.on {
+  background: #ffe8a0;
+  box-shadow: inset 0 0 0 3px #e8a83a, 0 3px 0 #e8b84a;
+}
+.slot-card.on,
+.slot-card.koop.on {
+  box-shadow: inset 0 0 0 3px #6cc46a;
+}
+.slot-card.koop {
+  background: #eef4ff;
+  box-shadow: inset 0 0 0 2px #a8c4e8;
+}
+.acc.on {
+  background: #ffe4f2;
+  box-shadow: inset 0 0 0 3px #f08ac0;
+}
+.album-grid .furn.rare {
+  background: #fff3c8;
+  box-shadow: inset 0 0 0 2px #e8c860;
+}
+.rewards span {
+  border-radius: 999px;
+}
+.rewards span.got {
+  background: #d8f4c0;
+  box-shadow: inset 0 0 0 2px #8ad070;
+}
+.code-big span {
+  border-radius: 14px;
+  background: #fff;
+  box-shadow: inset 0 0 0 3px var(--card-line), 0 3px 0 #e6cf9e;
+}
+.xpbar,
+.enbar {
+  border: 0 !important;
+  border-radius: 999px;
+  overflow: hidden;
+  background: #ecdcb8;
+}
+.xpbar i,
+.enbar i {
+  border-radius: 999px;
+}
+.sw {
+  border: 0 !important;
+  border-radius: 50%;
+  box-shadow: inset 0 0 0 2px rgba(0, 0, 0, 0.12), 0 2px 0 rgba(0, 0, 0, 0.12);
+}
+.toast,
+.coop-chip,
+.tag {
+  border-radius: 999px;
+}
+.goal {
+  border-radius: 16px;
+}
+.badge {
+  border-radius: 999px;
+  padding: 2px 8px;
+}
+.pbtn.icon {
+  border-radius: 18px;
+  padding: 13px 13px 15px;
+}
+.pbtn.icon i {
+  border-radius: 3px;
+  box-shadow: none;
+}
+.pbtn.use {
+  border-radius: 50%;
+}
+.pbtn.album,
+.act-row .pbtn {
+  border-radius: 18px;
+}
+.res .r + .r {
+  border-left: 2px solid #f0e2c4;
+}
+.levelup b {
+  text-shadow: 0 4px 0 #b86a2a;
+}
+.foot {
+  text-shadow: 0 2px 6px rgba(8, 30, 48, 0.7);
 }

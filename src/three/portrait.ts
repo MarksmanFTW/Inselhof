@@ -27,6 +27,47 @@ function studio() {
 }
 
 const shots = new Map<string, string>();
+
+/**
+ * Foto eines beliebigen Modells (Symbole für Knöpfe): Blick leicht von oben vorn,
+ * Modell füllt das Bild. yaw dreht das Modell, w×h = Bildgröße.
+ */
+export function photo(key: string, make: () => THREE.Object3D, o: { yaw?: number; tilt?: number; fill?: number; w?: number; h?: number } = {}) {
+  const hit = shots.get(key);
+  if (hit) return hit;
+  const s = studio();
+  const w = o.w ?? 128;
+  const h = o.h ?? 128;
+  s.r.setSize(w, h, false);
+  s.cam.aspect = w / h;
+  s.cam.updateProjectionMatrix();
+  const obj = make();
+  const holder = new THREE.Group();
+  holder.add(obj);
+  obj.rotation.y += o.yaw ?? -0.45;
+  s.scene.add(holder);
+  holder.updateMatrixWorld(true);
+  const box = new THREE.Box3().setFromObject(holder, true);
+  const c = box.getCenter(new THREE.Vector3());
+  const size = box.getSize(new THREE.Vector3());
+  const tilt = o.tilt ?? 0.5;
+  const r = (Math.max(size.x, size.y, size.z) * (o.fill ?? 0.56)) / Math.min(1, s.cam.aspect);
+  const dist = r / Math.tan((s.cam.fov * Math.PI) / 360) + size.z * 0.5;
+  s.cam.position.set(c.x, c.y + Math.sin(tilt) * dist, c.z + Math.cos(tilt) * dist);
+  s.cam.lookAt(c);
+  const cv = CURVE.value;
+  CURVE.value = 0;
+  s.r.render(s.scene, s.cam);
+  CURVE.value = cv;
+  const url = `${s.r.domElement.toDataURL('image/png')}#foto`;
+  s.scene.remove(holder);
+  // Pferde-Fotos haben ihr eigenes Format
+  s.r.setSize(200, 168, false);
+  s.cam.aspect = 200 / 168;
+  s.cam.updateProjectionMatrix();
+  shots.set(key, url);
+  return url;
+}
 /** Foto eines Pferdes (Seitenansicht, leicht von vorn), als data-URL */
 export function horsePhoto(b: Breed, acc = '', foal = false) {
   const key = `${b.id}|${acc}|${foal}`;

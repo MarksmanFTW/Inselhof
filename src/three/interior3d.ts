@@ -13,7 +13,7 @@ const WALL_Z = 22 * U;
 const RW = ROOM_W * U;
 const RD = ROOM_H * U;
 
-function furniture(id: string) {
+export function furniture(id: string) {
   const b = new Build();
   if (id === 'table') {
     b.add(rbox(2.6, 0.14, 1.3, 0.05), '#c8925a', { p: [0, 0.82, -0.6] });
@@ -40,6 +40,7 @@ function furniture(id: string) {
   } else if (id === 'lamp') {
     b.add(cyl(0.25, 0.3, 0.08, 14), '#5a3a20', { p: [0, 0.04, -0.25] });
     b.add(cyl(0.04, 0.04, 1.7, 8), '#5a3a20', { p: [0, 0.9, -0.25] });
+    b.add(cone(0.45, 0.55, 16), '#f2dca0', { p: [0, 1.9, -0.25] });
   } else if (id === 'shelf') {
     b.add(rbox(2.4, 2.6, 0.6, 0.06), '#8a5a32', { p: [0, 1.3, -0.35] });
     b.add(rbox(2.2, 2.4, 0.5, 0.04), '#6a4228', { p: [0, 1.3, -0.3] });
@@ -172,6 +173,7 @@ export class Interior {
         if (id === 'lamp') {
           const shade = new THREE.Mesh(cone(0.45, 0.55, 16), glowMats.lamp);
           shade.position.set(sl.x * U, 1.9, sl.y * U - 0.25);
+          shade.scale.setScalar(1.03);
           this.furn.add(shade);
         }
       }

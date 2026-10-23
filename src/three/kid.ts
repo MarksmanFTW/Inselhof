@@ -101,7 +101,7 @@ function headGeo(look: Look) {
 
 // ---------- Werkzeuge (in der rechten Hand, Stiel nach vorn) ----------
 const tools = new Map<string, THREE.BufferGeometry>();
-function toolGeo(id: string) {
+export function toolGeo(id: string) {
   let g = tools.get(id);
   if (g) return g;
   const b = new Build();

@@ -1,29 +1,29 @@
-import '@fontsource/pixelify-sans/latin-500.css';
-import '@fontsource/pixelify-sans/latin-700.css';
+import '@fontsource/fredoka/latin-400.css';
+import '@fontsource/fredoka/latin-500.css';
+import '@fontsource/fredoka/latin-600.css';
+import '@fontsource/fredoka/latin-700.css';
 import './style.css';
 import { Dir, type Look } from './character';
 import { ACCESSORIES } from './horses';
 import { ALBUM_REWARDS, ALBUM_TOTAL, DECO, SEED_PACK, SELL, SELL_NAMES, albumCount, boatOut, decoById, horseOffers, merchantHere, type SellItem } from './shop';
-import { bookIcon, coinIcon, decoArt } from './decoart';
 import { BREEDS, RARE_BREEDS, islandDay, STABLE_BREEDS, FOAL_GROW_MS, MAX_LOVE, PADDOCK_COST, STABLE_COST, STABLE_SPACE, TRUST, breedById, horsePose, isFoal, pasture, type HorsePose } from './horses';
-import { hayIcon, heartIcon, paddockIcon, scythe, stable as stableArt } from './horseart';
 import { Ground, H, TILE, W, generate } from './island';
 import { setScene, sfx, unlockAudio } from './audio';
 import { FURNITURE } from './furniture';
-import { DOOR, ROOM_H, furnitureIcon, nearSpot, roomFree } from './interior';
+import { DOOR, ROOM_H, nearSpot, roomFree } from './interior';
 import { Player } from './player';
 import { httpApi, syncIsland } from './cloud';
 import { CAN_GOAL, Farm, RIPE, key as plotKey } from './farm';
 import { applyOp, farmUnder as farmUnderOf, link, tileFree as tileFreeOf, type Op } from './ops';
 import { PERKS, levelProgress, questAt } from './progress';
 import { newClock, timeOf, type TimeOfDay } from './time';
-import { campfire, mealIcon, axe, bucket, hoe, house, logIcon, seedBag, toUrl, turnipIcon, wateringCan } from './props';
 import { MAX_SLOTS, activeSlot, addSlot, loadSave, removeSlot, writeSave, type Save, type Slot } from './save';
 import { PROTOCOL, Room, cleanCode, type Action, type Fx, type Msg, type PlayerState } from './net/room';
 import { showCoop, showCustomize, showHud, showMenu, showSettings, showSlots, showWait, textScale, type Hud, type ToolId, type TradeData } from './ui';
 import { BUILDS, FIRE_COST, HOUSE_COST, World, type BuildKind } from './world';
 import { View } from './three/view';
 import { horsePhoto } from './three/portrait';
+import { decoPhoto, furniturePhoto, heartUrl, lazyIcons } from './three/icons';
 import { warmHorse } from './three/horse';
 
 const screen = document.querySelector<HTMLCanvasElement>('#screen')!;
@@ -91,42 +91,14 @@ function horseAt(i: number, now = Date.now()): HorsePose | null {
 type Mode = 'menu' | 'custom' | 'play';
 let mode: Mode = 'menu';
 
-// Bilder für Knöpfe und Fenster
-const houseImg = house();
-const axeImg = axe();
-const logImg = logIcon();
-const hoeImg = hoe();
-const bucketImg = bucket();
-const canImg = wateringCan();
-const turnipImg = turnipIcon();
-const stableImg = stableArt();
-const decoImgs = new Map(DECO.map((d) => [d.id as string, decoArt(d.id)]));
-const scytheImg = scythe();
-/** Pferd fürs Fenster und den Knopf: Foto vom 3D-Modell */
+// Bilder für Knöpfe und Fenster: Fotos der 3D-Modelle (entstehen beim ersten Gebrauch)
+/** Pferd fürs Fenster und den Knopf */
 function horseIcon(id: string, foal = false, acc = '') {
   return horsePhoto(breedById(id) ?? BREEDS[0], acc, foal);
 }
-const hearts: [string, string] = [toUrl(heartIcon(true)), toUrl(heartIcon(false))];
-const icons = {
-  log: toUrl(logImg),
-  axe: toUrl(axeImg),
-  house: toUrl(houseImg.img),
-  hoe: toUrl(hoeImg),
-  seeds: toUrl(seedBag()),
-  bucket: toUrl(bucketImg),
-  can: toUrl(canImg),
-  turnip: toUrl(turnipImg),
-  fire: toUrl(campfire(0).img),
-  meal: toUrl(mealIcon()),
-  stable: toUrl(stableImg.img),
-  horse: horseIcon('haflinger'),
-  scythe: toUrl(scytheImg),
-  hay: toUrl(hayIcon()),
-  paddock: toUrl(paddockIcon()),
-  coin: toUrl(coinIcon()),
-  book: toUrl(bookIcon()),
-};
-const decoIcon = (id: string) => toUrl(decoImgs.get(id)!.img);
+const hearts: [string, string] = [heartUrl(true), heartUrl(false)];
+const icons = lazyIcons({ horse: () => horseIcon('haflinger') });
+const decoIcon = (id: string) => decoPhoto(id);
 
 // ---------- Holzfällen ----------
 let hud: Hud | null = null;
@@ -1471,7 +1443,7 @@ requestAnimationFrame(frame);
 const tmpP = { x: 0, y: 0 };
 function pill(text: string, x: number, y: number, size: number, bg: string) {
   const dpr = screen.width / innerWidth;
-  ctx.font = `700 ${Math.round(size * dpr * textScale)}px 'Pixelify Sans', sans-serif`;
+  ctx.font = `700 ${Math.round(size * dpr * textScale)}px 'Fredoka', sans-serif`;
   ctx.textAlign = 'center';
   const w = ctx.measureText(text).width + 12 * dpr;
   const hh = (size + 7) * dpr * textScale;
@@ -1511,7 +1483,7 @@ function drawOverlay(t: number, dt: number, nowMs: number) {
       if (tod?.night && !p.moving) {
         const q = view.project(p.x, p.y, top, tmpP);
         if (!q) return;
-        ctx.font = `700 ${Math.round(13 * dpr * textScale)}px 'Pixelify Sans', sans-serif`;
+        ctx.font = `700 ${Math.round(13 * dpr * textScale)}px 'Fredoka', sans-serif`;
         ctx.textAlign = 'center';
         ctx.fillStyle = 'rgba(230,240,255,0.9)';
         for (let k = 0; k < 3; k++) {
@@ -1525,7 +1497,7 @@ function drawOverlay(t: number, dt: number, nowMs: number) {
   }
   // „+4 Holz“
   if (floats.length) {
-    ctx.font = `700 ${Math.round(20 * dpr * textScale)}px 'Pixelify Sans', sans-serif`;
+    ctx.font = `700 ${Math.round(20 * dpr * textScale)}px 'Fredoka', sans-serif`;
     ctx.textAlign = 'center';
     for (let k = floats.length - 1; k >= 0; k--) {
       const f = floats[k];
@@ -1701,7 +1673,7 @@ function roomAction(kind: Intent, slot: number) {
         name: h.name,
         breed: foal ? `${b.name}-Fohlen` : b.name,
         text: b.text + grows,
-        img: horseIcon(b.id, foal),
+        img: horseIcon(b.id, foal, h.acc),
         love: h.love,
         maxLove: MAX_LOVE,
         canRide: !foal && h.love >= TRUST,
@@ -1760,7 +1732,7 @@ function roomAction(kind: Intent, slot: number) {
     ]);
   if (kind === 'furnish')
     return hud?.openFurnish(
-      FURNITURE.map((f) => ({ id: f.id, name: f.name, cost: f.cost, img: toUrl(furnitureIcon(f.id)!) })),
+      FURNITURE.map((f) => ({ id: f.id, name: f.name, cost: f.cost, img: furniturePhoto(f.id) })),
       world.wood,
       (item) => {
         const err = doAction({ kind: 'furnish', house: inside, slot, item });
