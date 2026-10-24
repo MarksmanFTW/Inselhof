@@ -23,7 +23,7 @@ body {
   margin: 0;
   height: 100%;
   overflow: hidden;
-  background: #2a7fbd;
+  background: #6fae62;
   touch-action: none;
   user-select: none;
   -webkit-user-select: none;
@@ -1851,4 +1851,118 @@ img[src$='#foto'] {
   to {
     transform: scale(1.12) rotate(4deg);
   }
+}
+
+/* ---------- Rucksack ---------- */
+.res .bagbtn {
+  margin-left: 4px;
+  padding: 2px 6px;
+  border-radius: 12px;
+  background: #ffe8a0 !important;
+  box-shadow: inset 0 0 0 2px #e8b84a;
+}
+.res .bagbtn img {
+  width: 24px;
+  height: 24px;
+  object-fit: contain;
+}
+.inv-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: min(360px, 94vw);
+  max-height: calc(100dvh - 32px);
+}
+.inv-wrap .inv-panel {
+  width: 100%;
+  flex: 1 1 auto;
+  min-height: 0;
+  max-height: none;
+  overflow-y: auto;
+}
+.inv-panel .sub {
+  margin: 10px 0 6px;
+  text-align: left;
+  font-size: calc(16px * var(--fs));
+}
+.inv-note {
+  margin-top: -4px !important;
+}
+.inv-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(58px, 1fr));
+  gap: 6px;
+}
+.inv-slot {
+  position: relative;
+  aspect-ratio: 1;
+  padding: 4px;
+  border: 0;
+  border-radius: 14px;
+  background: #fff6dc;
+  box-shadow: inset 0 0 0 2px #ecd8b0;
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+}
+.inv-slot img {
+  width: 80%;
+  height: 80%;
+  object-fit: contain;
+}
+.inv-slot b {
+  position: absolute;
+  right: 5px;
+  bottom: 3px;
+  font: 700 calc(14px * var(--fs))/1 'Fredoka', system-ui, sans-serif;
+  color: var(--ink);
+  text-shadow: 1px 1px 0 #fff, -1px -1px 0 #fff, 1px -1px 0 #fff, -1px 1px 0 #fff;
+}
+.inv-slot.on {
+  background: #e6f6dc;
+  box-shadow: inset 0 0 0 2px #6cc46a;
+}
+.inv-slot.sel {
+  background: #ffe8a0;
+  box-shadow: inset 0 0 0 3px #e8a83a;
+}
+.inv-detail {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+}
+.inv-detail > img {
+  width: 56px;
+  height: 56px;
+  object-fit: contain;
+  flex: none;
+}
+.inv-detail .what {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  text-align: left;
+  min-width: 0;
+}
+.inv-detail .what b {
+  font-size: calc(17px * var(--fs));
+}
+.inv-detail .what small {
+  font-size: calc(14px * var(--fs));
+  color: #7a5a3a;
+  line-height: 1.3;
+}
+.inv-detail .btns {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 6px;
+}
+.inv-detail .pbtn {
+  width: auto;
+  margin: 0;
+  padding-left: 14px;
+  padding-right: 14px;
 }

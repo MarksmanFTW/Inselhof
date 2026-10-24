@@ -119,6 +119,18 @@ function grilled() {
   return g;
 }
 
+/** Rucksack: Leinensack mit Klappe, Riemen und Schnalle */
+function backpack() {
+  const b = new Build();
+  b.add(rbox(0.85, 1.0, 0.5, 0.2, 3), '#c8945a', { p: [0, -0.05, 0] });
+  b.add(rbox(0.88, 0.42, 0.54, 0.18, 3), '#a8743f', { p: [0, 0.32, 0.02] });
+  b.add(rbox(0.5, 0.36, 0.12, 0.08, 2), '#b8844a', { p: [0, -0.22, 0.28] });
+  for (const x of [-0.22, 0.22]) b.add(rbox(0.09, 0.62, 0.04, 0.02), '#6a4428', { p: [x, 0.12, 0.29] });
+  b.add(rbox(0.13, 0.11, 0.05, 0.02), '#e8c860', { p: [0, 0.14, 0.31] });
+  b.add(new THREE.TorusGeometry(0.16, 0.04, 6, 14, Math.PI), '#6a4428', { p: [0, 0.55, 0] });
+  return meshOf(b.geometry());
+}
+
 /** Basteln: Steinhammer mit Schnur */
 function craftTool() {
   const b = new Build();
@@ -150,6 +162,7 @@ const MAKERS = {
   stick: () => photo('i:stick', () => M.stick(0), { yaw: 0.5, tilt: 0.7 }),
   stone: () => photo('i:stone', () => M.pebble(0), { yaw: 0.3, tilt: 0.45 }),
   craft: () => photo('i:craft', craftTool, { yaw: 0, tilt: 0.2 }),
+  bag: () => photo('i:bag', backpack, { yaw: 0.35, tilt: 0.2 }),
   apple: () => photo('i:apple', apple, { yaw: 0.3, tilt: 0.25 }),
   rod: () => photo('i:rod', () => tool('rod'), { yaw: 0, tilt: 0.25, fill: 0.5 }),
   grilled: () => photo('i:grilled', grilled, { yaw: 0, tilt: 0.55 }),

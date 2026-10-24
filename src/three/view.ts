@@ -1050,6 +1050,32 @@ export class View {
       this.renderer.render(this.scene, this.camera);
     }
     this.firstFrame = false;
+    // ab und zu die Farbe am unteren Bildrand messen (gleich nach dem Zeichnen)
+    const real = performance.now();
+    if (real - this.edgeAt > 1000) {
+      this.edgeAt = real;
+      this.measureEdge();
+    }
+  }
+
+  /** Farbe am unteren Bildrand (für Browser-Leisten und Hintergrund, damit kein farbiger Streifen auffällt) */
+  edgeColor = '';
+  private edgeAt = 0;
+  private edgePx = new Uint8Array(4);
+  private measureEdge() {
+    const gl = this.renderer.getContext();
+    const w = gl.drawingBufferWidth;
+    let r = 0;
+    let g = 0;
+    let b = 0;
+    for (const f of [0.12, 0.5, 0.88]) {
+      gl.readPixels(Math.round(w * f), 1, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, this.edgePx);
+      r += this.edgePx[0];
+      g += this.edgePx[1];
+      b += this.edgePx[2];
+    }
+    const hex = (v: number) => Math.round(v / 3).toString(16).padStart(2, '0');
+    this.edgeColor = `#${hex(r)}${hex(g)}${hex(b)}`;
   }
 
   /** Bäume und Häuser zwischen Kamera und Figur werden durchsichtig */

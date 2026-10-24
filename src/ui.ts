@@ -386,6 +386,8 @@ export interface HudActions {
   eat: (what: 'raw' | 'cooked' | 'apple' | 'berry' | 'grilled') => void;
   /** Basteln-Fenster öffnen */
   craft: () => void;
+  /** Rucksack öffnen */
+  bag: () => void;
   confirm: () => void;
   cancel: () => void;
 }
@@ -411,10 +413,29 @@ export interface HudIcons {
   stick: string;
   stone: string;
   craft: string;
+  bag: string;
   apple: string;
   berry: string;
   rod: string;
   grilled: string;
+}
+
+/** Rucksack-Fenster: Abschnitte mit Gegenständen; Antippen zeigt Infos und Knöpfe */
+export interface InvItem {
+  id: string;
+  name: string;
+  img: string;
+  /** Anzahl (fehlt = Werkzeug, ohne Zahl) */
+  n?: number;
+  text: string;
+  acts: { id: string; label: string }[];
+  /** gerade in der Hand */
+  on?: boolean;
+}
+export interface InvData {
+  head: string;
+  note?: string;
+  sections: { title: string; empty?: string; items: InvItem[] }[];
 }
 
 /** Basteln-Fenster */
@@ -476,7 +497,7 @@ export interface HorseCard {
 }
 
 export interface Hud {
-  setInv(wood: number, turnips: number, meals: number, apples: number, berries: number, grilled: number): void;
+  setInv(wood: number, turnips: number, meals: number): void;
   /** Angeln: es hat angebissen → grüner Knopf pulsiert */
   setBite(on: boolean): void;
   /** Energie 0..100 */
@@ -515,6 +536,8 @@ export interface Hud {
   /** Händler-Boot; update() zeichnet neu, solange offen */
   openTrade(d: TradeData, act: { sell: (id: string, n: number) => void; buy: (id: string) => void }, onClose: () => void): { update(d: TradeData): void };
   openAlbum(d: AlbumData): void;
+  /** Rucksack; update() zeichnet neu, solange offen */
+  openInventory(d: InvData, act: (item: string, action: string) => void): { update(d: InvData): void; close(): void };
   /** Basteln; update() zeichnet neu, solange offen */
   openCraft(d: CraftData, make: (id: string) => void): { update(d: CraftData): void };
   /** welche Werkzeuge schon gebastelt sind (die anderen sind gesperrt) */
@@ -543,10 +566,8 @@ export function showHud(on: HudActions, icons: HudIcons, costs: { house: number;
       <span class="r" title="Holz"><img src="${icons.log}" alt="" /><b class="n-wood">0</b></span>
       <button class="r eat" data-eat="raw" aria-label="Rübe essen"><img class="turnip" src="${icons.turnip}" alt="" /><b class="n-turnip">0</b></button>
       <button class="r eat" data-eat="cooked" aria-label="Ofenrübe essen"><img class="meal" src="${icons.meal}" alt="" /><b class="n-meal">0</b></button>
-      <button class="r eat" data-eat="apple" aria-label="Apfel essen" hidden><img src="${icons.apple}" alt="" /><b class="n-apple">0</b></button>
-      <button class="r eat" data-eat="berry" aria-label="Beeren essen" hidden><img src="${icons.berry}" alt="" /><b class="n-berry">0</b></button>
-      <button class="r eat" data-eat="grilled" aria-label="Bratfisch essen" hidden><img src="${icons.grilled}" alt="" /><b class="n-grilled">0</b></button>
       <span class="r" title="Münzen"><img class="coin" src="${icons.coin}" alt="" /><b class="n-coins">0</b></span>
+      <button class="r bagbtn" data-act="bag" aria-label="Rucksack"><img src="${icons.bag}" alt="" /></button>
     </div>
     <button class="goal" hidden aria-label="Aufgabe"></button>
     <p class="coop-chip" hidden></p>
@@ -606,6 +627,7 @@ export function showHud(on: HudActions, icons: HudIcons, costs: { house: number;
   $('[data-act=build]').addEventListener('click', () => hud.openBuild(wood));
   $('[data-act=album]').addEventListener('click', on.album);
   $('[data-act=craft]').addEventListener('click', on.craft);
+  $('[data-act=bag]').addEventListener('click', on.bag);
   $('[data-act=call]').addEventListener('click', on.call);
   $('[data-act=cancel]').addEventListener('click', on.cancel);
   $('[data-act=confirm]').addEventListener('click', on.confirm);
@@ -620,18 +642,11 @@ export function showHud(on: HudActions, icons: HudIcons, costs: { house: number;
   let toastTimer = 0;
   let actionIcon = '';
   const hud: Hud = {
-    setInv(w, turnips, meals, apples, berries, grilled) {
+    setInv(w, turnips, meals) {
       wood = w;
       bump($('.n-wood'), String(w));
       bump($('.n-turnip'), String(turnips));
       bump($('.n-meal'), String(meals));
-      // Obst nur zeigen, wenn man welches hat
-      $('[data-eat=apple]').hidden = apples <= 0;
-      $('[data-eat=berry]').hidden = berries <= 0;
-      $('[data-eat=grilled]').hidden = grilled <= 0;
-      bump($('.n-apple'), String(apples));
-      bump($('.n-berry'), String(berries));
-      bump($('.n-grilled'), String(grilled));
     },
     setBite(onB) {
       use.classList.toggle('bite', onB);
@@ -722,6 +737,75 @@ export function showHud(on: HudActions, icons: HudIcons, costs: { house: number;
     },
     nudge(what) {
       $('[data-act=craft]').classList.toggle('nudge', what === 'craft');
+    },
+    openInventory(d, act) {
+      const modal = document.createElement('div');
+      modal.className = 'modal';
+      let sel = '';
+      const draw = (c: InvData) => {
+        const all = c.sections.flatMap((x) => x.items);
+        if (!all.some((i) => i.id === sel)) sel = all[0]?.id ?? '';
+        const it = all.find((i) => i.id === sel);
+        modal.innerHTML = `<div class="inv-wrap"><div class="panel build-panel inv-panel">
+          <h2>Rucksack</h2>
+          <p class="have">${esc(c.head)}</p>
+          ${c.note ? `<p class="mine small inv-note">${esc(c.note)}</p>` : ''}
+          ${c.sections
+            .map(
+              (sec) => `<h3 class="sub">${esc(sec.title)}</h3>
+            ${
+              sec.items.length
+                ? `<div class="inv-grid">${sec.items
+                    .map(
+                      (i) => `<button class="inv-slot${i.id === sel ? ' sel' : ''}${i.on ? ' on' : ''}" data-i="${esc(i.id)}" aria-label="${esc(i.name)}${i.n !== undefined ? ` (${i.n})` : ''}">
+                <img src="${i.img}" alt="" />${i.n !== undefined ? `<b>${i.n}</b>` : ''}</button>`,
+                    )
+                    .join('')}</div>`
+                : `<p class="mine small">${esc(sec.empty ?? 'Noch nichts')}</p>`
+            }`,
+            )
+            .join('')}
+          <button class="pbtn small ghost" data-m="close">Zurück</button>
+        </div>
+        ${
+          it
+            ? `<div class="panel inv-detail">
+          <img src="${it.img}" alt="" />
+          <div class="what"><b>${esc(it.name)}${it.n !== undefined ? ` · ${it.n}` : ''}</b><small>${esc(it.text)}</small>
+            ${it.acts.length ? `<div class="btns">${it.acts.map((a) => `<button class="pbtn small green" data-a="${esc(a.id)}">${esc(a.label)}</button>`).join('')}</div>` : ''}
+          </div>
+        </div>`
+            : ''
+        }</div>`;
+      };
+      let cur = d;
+      draw(cur);
+      ui.appendChild(modal);
+      modal.addEventListener('click', (e) => {
+        const t = e.target as HTMLElement;
+        if (e.target === modal || t.closest('[data-m=close]')) return modal.remove();
+        const slot = t.closest<HTMLElement>('[data-i]');
+        if (slot) {
+          sel = slot.dataset.i!;
+          const scroll = modal.querySelector('.inv-panel')!.scrollTop;
+          draw(cur);
+          modal.querySelector('.inv-panel')!.scrollTop = scroll;
+          return;
+        }
+        const a = t.closest<HTMLElement>('[data-a]');
+        if (a && sel) act(sel, a.dataset.a!);
+      });
+      return {
+        update: (c: InvData) => {
+          if (!modal.isConnected) return;
+          cur = c;
+          const scroll = modal.querySelector('.inv-panel')?.scrollTop ?? 0;
+          draw(c);
+          const p = modal.querySelector('.inv-panel');
+          if (p) p.scrollTop = scroll;
+        },
+        close: () => modal.remove(),
+      };
     },
     openCraft(d, make) {
       const modal = document.createElement('div');

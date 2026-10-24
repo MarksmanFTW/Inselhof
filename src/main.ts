@@ -21,7 +21,7 @@ import { RECIPES, TOOL_NAME, TUTORIAL, TUT_SEEDS, bagCraft, bagPick, craftBlock,
 import { newClock, rainSince, timeOf, type TimeOfDay } from './time';
 import { MAX_SLOTS, activeSlot, addSlot, loadSave, removeSlot, writeSave, type Save, type Slot } from './save';
 import type { Action, Fx } from './net/types';
-import { showCoop, showCustomize, showHud, showMenu, showSettings, showSlots, textScale, type CraftData, type Hud, type ToolId, type TradeData } from './ui';
+import { showCoop, showCustomize, showHud, showMenu, showSettings, showSlots, textScale, type CraftData, type Hud, type InvData, type ToolId, type TradeData } from './ui';
 import { BUILDS, FIRE_COST, HOUSE_COST, World, type BuildKind } from './world';
 import { View } from './three/view';
 import { horsePhoto } from './three/portrait';
@@ -610,6 +610,83 @@ function updateFishing(now: number) {
   }
   if (fishing.bit && now > fishing.bite + BITE_WINDOW) stopFishing('Weggeschwommen … wirf nochmal aus!');
 }
+// ---------- Rucksack (Inventar) ----------
+let invUI: { update(d: InvData): void; close(): void } | null = null;
+const TOOL_TEXT: Record<ToolKind, string> = {
+  axe: 'Bäume fällen – das gibt Holz.',
+  hoe: 'Aus Wiese Felder hacken.',
+  water: 'Felder gießen; am Wasser auffüllen.',
+  scythe: 'Wiese mähen – trocknet zu Heu.',
+  rod: 'Am Wasser auswerfen, beim Zucken schnell tippen.',
+};
+function invData(): InvData {
+  const b = bag();
+  const food = (id: Food, name: string, img: string, n: number, text: string) => ({ id: `food:${id}`, name, img, n, text: `${text} +${FOOD[id]} Kraft.`, acts: [{ id: 'eat', label: 'Essen' }] });
+  const tools = RECIPES.filter((r) => b.tools.includes(r.id)).map((r) => ({
+    id: `tool:${r.id}`,
+    name: r.id === 'water' && farm.hasCan ? 'Eisen-Gießkanne' : r.name,
+    img: r.id === 'water' ? (farm.hasCan ? icons.can : icons.bucket) : icons[r.id],
+    text: TOOL_TEXT[r.id] + (r.id === 'water' ? ` Gerade ${farm.water}/${farm.capacity} voll.` : ''),
+    acts: r.id === 'rod' ? [] : [{ id: 'hold', label: tool === r.id ? 'In der Hand' : 'In die Hand' }],
+    on: tool === r.id,
+  }));
+  const mat = [
+    { id: 'mat:wood', name: 'Holz', img: icons.log, n: world.wood, text: 'Zum Bauen und Basteln.', acts: [] },
+    { id: 'mat:sticks', name: 'Stöcke', img: icons.stick, n: b.sticks, text: 'Zum Basteln. Liegen auf der Wiese.', acts: [] },
+    { id: 'mat:stones', name: 'Steine', img: icons.stone, n: b.stones, text: 'Zum Basteln. Liegen am Strand.', acts: [] },
+    { id: 'mat:seeds', name: 'Rübensamen', img: icons.seeds, n: farm.seeds, text: 'Auf gehackte Felder säen.', acts: [{ id: 'hold', label: 'In die Hand' }], on: tool === 'seeds' },
+    { id: 'mat:hay', name: 'Heu', img: icons.hay, n: farm.hay, text: 'Pferdefutter – von gemähter, getrockneter Wiese.', acts: [] },
+  ].filter((i) => i.n > 0);
+  const foods = [
+    food('raw', 'Rübe', icons.turnip, farm.turnips, 'Roh essen oder am Lagerfeuer braten.'),
+    food('cooked', 'Ofenrübe', icons.meal, farm.meals, 'Am Lagerfeuer gebraten.'),
+    food('apple', 'Apfel', icons.apple, world.apples, 'Frisch vom Baum – Pferde lieben Äpfel.'),
+    food('berry', 'Beeren', icons.berry, world.berries, 'Süß und klein.'),
+    food('grilled', 'Bratfisch', icons.grilled, world.grilled, 'Am Lagerfeuer gebraten.'),
+  ].filter((i) => i.n > 0);
+  const fish = FISH.filter((f) => world.fish[f.id]).map((f) => ({
+    id: `fish:${f.id}`,
+    name: f.name,
+    img: fishPhoto(f.id),
+    n: world.fish[f.id],
+    text: `${f.text}${f.cook ? ' Am Lagerfeuer braten.' : ''}${f.price ? ` Händler zahlt ${f.price} Münzen.` : ''}`,
+    acts: [],
+  }));
+  const decos = Object.entries(world.decoInv)
+    .filter(([, n]) => n > 0)
+    .map(([id, n]) => ({ id: `deco:${id}`, name: decoById(id)?.name ?? id, img: decoIcon(id), n, text: 'Gekauft beim Händler – stell es auf deiner Insel auf.', acts: [{ id: 'place', label: 'Aufstellen' }] }));
+  const sl = mySlot();
+  return {
+    head: `Kraft ${Math.round(energy())}/100 · ${world.coins} Münzen`,
+    note: sl.shared ? 'Werkzeug, Stöcke und Steine gehören dir – alles andere teilt ihr euch auf der Insel.' : undefined,
+    sections: [
+      { title: 'Werkzeug', empty: 'Noch keins – tipp auf „Basteln“.', items: tools },
+      { title: 'Essen', empty: 'Nichts zu essen – rüttel an Obstbäumen oder pflück Beeren.', items: foods },
+      { title: 'Material', empty: 'Noch nichts gesammelt.', items: mat },
+      ...(fish.length ? [{ title: 'Fische', items: fish }] : []),
+      ...(decos.length ? [{ title: 'Deko', items: decos }] : []),
+    ],
+  };
+}
+function openInventory() {
+  sfx('click');
+  invUI = hud?.openInventory(invData(), (item, action) => {
+    const [kind, id] = item.split(':');
+    if (action === 'eat') eat(id as Food);
+    else if (action === 'hold') {
+      const t = (kind === 'mat' ? 'seeds' : id) as ToolId;
+      tool = t;
+      hud?.setTool(t);
+      sfx('click');
+      invUI?.close();
+    } else if (action === 'place') {
+      invUI?.close();
+      startPlacing('deco', id);
+    }
+    invUI?.update(invData());
+  }) ?? null;
+}
+
 // ---------- Basteln ----------
 let craftUI: { update(d: CraftData): void } | null = null;
 function craftData(): CraftData {
@@ -657,7 +734,8 @@ function guideTarget(): { x: number; y: number } | null {
 
 function syncHud() {
   if (!hud) return;
-  hud.setInv(world.wood, farm.turnips, farm.meals, world.apples, world.berries, world.grilled);
+  hud.setInv(world.wood, farm.turnips, farm.meals);
+  invUI?.update(invData());
   hud.setEnergy(energy());
   hud.setSlots(farm.seeds, farm.water, farm.capacity, farm.hasCan, farm.hay);
   hud.setCoins(world.coins);
@@ -777,6 +855,18 @@ function resize() {
   screen.style.height = `${view.h}px`;
 }
 addEventListener('resize', resize);
+// Browser-Leisten (z. B. Samsung Internet, Safari) und Hintergrund in der Farbe des
+// unteren Bildrands – sonst taucht dort manchmal ein farbiger (früher blauer) Streifen auf
+const themeMeta = document.querySelector<HTMLMetaElement>('meta[name=theme-color]');
+let edgeShown = '';
+setInterval(() => {
+  const c = view.edgeColor;
+  if (!c || c === edgeShown) return;
+  edgeShown = c;
+  themeMeta?.setAttribute('content', c);
+  document.documentElement.style.background = c;
+  document.body.style.background = c;
+}, 700);
 // langes Drücken öffnet kein Menü (Bild speichern …), außer in Eingabefeldern
 addEventListener('contextmenu', (e) => {
   if (!(e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement)) e.preventDefault();
@@ -1059,12 +1149,8 @@ function startPlay() {
         hud?.setTool(t);
       },
       craft: openCraft,
-      place: (what, item) => {
-        placing = true;
-        placeKind = what;
-        placeDeco = item ?? '';
-        hud?.setPlacing(true);
-      },
+      bag: openInventory,
+      place: (what, item) => startPlacing(what, item),
       eat,
       decoList: () =>
         Object.entries(world.decoInv)
@@ -1098,7 +1184,7 @@ function startPlay() {
           { img: icons.stone, text: 'Hol dir 3 Steine aus dem Sand am Strand.' },
           { img: icons.craft, text: 'Tipp auf „Basteln“ und bau dir eine Axt und eine Hacke.' },
           { img: icons.seeds, text: 'Dafür bekommst du 3 Rübensamen – dann geht es mit den Aufgaben weiter.' },
-          { img: icons.apple, text: 'Hunger? Rüttel an Obstbäumen und pflück Beeren – tipp oben drauf zum Essen.' },
+          { img: icons.apple, text: 'Hunger? Rüttel an Obstbäumen und pflück Beeren – gegessen wird im Rucksack (oben).' },
         ],
         ok: "Los geht's!",
       },
@@ -1113,6 +1199,12 @@ function startPlay() {
   }
   hint.classList.remove('gone');
   setTimeout(() => hint.classList.add('gone'), 6000);
+}
+function startPlacing(what: BuildKind, item?: string) {
+  placing = true;
+  placeKind = what;
+  placeDeco = item ?? '';
+  hud?.setPlacing(true);
 }
 /** Liegt ein Feld unter der Haus-Grundfläche? */
 function farmUnder(x: number, y: number) {
