@@ -15,6 +15,7 @@ import type { Action } from './net/types';
 import { BUILDS, type BuildKind, type World } from './world';
 import { TUT_SEEDS, recipeOf, type ToolKind } from './craft';
 import { fishById } from './fish';
+import { FEST_COINS, PROJECTS, PROJ_ITEMS, islandHas, islandTake, pickSite, type ProjItem } from './projects';
 import type { PickKind } from './island';
 
 /**
@@ -51,6 +52,9 @@ export interface OpResult {
   fruit?: { apples: number; berries: number };
   /** gefangener Fisch; first = neue Art fürs Album */
   caught?: { id: string; first: boolean };
+  /** fürs Projekt abgegeben (so viel wurde genommen); finished = Projekt fertig */
+  donated?: { item: ProjItem; n: number };
+  finished?: string;
 }
 
 /** Ackerbau kennt die Fähigkeiten der Insel-Stufe */
@@ -81,6 +85,7 @@ export function applyOp(world: World, farm: Farm, op: Op): OpResult {
     const a = op.a;
     if (a.kind === 'pick' && res.picked) merge(gain(world.prog, res.picked === 'stick' ? 'sticks' : 'stones', 1, give));
     else if (a.kind === 'shake' && res.fruit) merge(gain(world.prog, 'fruit', res.fruit.apples + res.fruit.berries, give));
+    else if (a.kind === 'donate' && res.finished) merge(gain(world.prog, 'projects', 1, give));
     else if (a.kind === 'fish' && res.caught) {
       merge(gain(world.prog, 'fish', 1, give));
       if (res.caught.first) merge(gain(world.prog, 'species', 1, give));
@@ -150,6 +155,7 @@ function run(world: World, farm: Farm, op: Op): OpResult {
     const first = world.catchFish(a.item ?? '');
     return { err: first === null ? 'Unbekannter Fisch' : null, done: first !== null, caught: first === null ? undefined : { id: a.item!, first } };
   }
+  if (a.kind === 'donate') return donate(world, farm, a.item as ProjItem, Math.max(1, Math.floor(a.n ?? 1)));
   if (a.kind === 'tut') {
     // Tutorial geschafft: Rübensamen für die Insel
     farm.seeds += TUT_SEEDS;
@@ -180,7 +186,8 @@ function run(world: World, farm: Farm, op: Op): OpResult {
     if (res && p) p.dry = t;
     return { err: null, done: !!res, harvest: res ?? undefined };
   } else if (a.kind === 'sell' || a.kind === 'buy') {
-    if (!merchantHere(world.clock, t)) return { err: 'Das Händler-Boot ist gerade nicht da', done: false };
+    // Verkaufen geht auch am Marktstand (Projekt 2), Kaufen nur beim Boot
+    if (!merchantHere(world.clock, t) && !(a.kind === 'sell' && world.projDone(1))) return { err: 'Das Händler-Boot ist gerade nicht da', done: false };
     if (a.kind === 'sell') {
       const item = a.item as SellItem;
       const n = Math.max(1, Math.floor(a.n ?? 1));
@@ -304,4 +311,34 @@ function run(world: World, farm: Farm, op: Op): OpResult {
     else err = world.furnish(a.house ?? -1, a.slot!, f.id, f.cost);
   }
   return { err, done: !err };
+}
+
+/**
+ * Für das aktuelle Insel-Projekt abgeben. Stöcke und Steine kommen aus dem Rucksack
+ * (zieht das Gerät selbst ab), alles andere aus dem Vorrat der Insel.
+ */
+function donate(world: World, farm: Farm, item: ProjItem, want: number): OpResult {
+  const k = world.proj.n;
+  const p = PROJECTS[k];
+  if (!p) return { err: 'Alle Projekte sind fertig', done: false };
+  if (!(item in PROJ_ITEMS)) return { err: 'Gibt es nicht', done: false };
+  const left = (p.need[item] ?? 0) - (world.proj.got[item] ?? 0);
+  if (left <= 0) return { err: `${PROJ_ITEMS[item].name} braucht ${p.name} nicht mehr`, done: false };
+  const n = Math.min(left, want);
+  if (!PROJ_ITEMS[item].bag) {
+    if (islandHas(world, farm, item) < n) return { err: `Zu wenig ${PROJ_ITEMS[item].name}`, done: false };
+    islandTake(world, farm, item, n);
+  }
+  // Bauplatz steht ab der ersten Abgabe fest
+  world.proj.sites[k] ??= pickSite(world, farm, k);
+  world.proj.got[item] = (world.proj.got[item] ?? 0) + n;
+  world.version++;
+  const complete = Object.entries(p.need).every(([key, v]) => (world.proj.got[key as ProjItem] ?? 0) >= v);
+  if (!complete) return { err: null, done: true, donated: { item, n } };
+  world.proj.n++;
+  world.proj.got = {};
+  if (p.id === 'pavilion') world.coins += FEST_COINS;
+  // die nächste Baustelle bekommt gleich ihren Platz
+  if (PROJECTS[world.proj.n]) world.proj.sites[world.proj.n] ??= pickSite(world, farm, world.proj.n);
+  return { err: null, done: true, donated: { item, n }, finished: p.id };
 }

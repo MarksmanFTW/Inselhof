@@ -574,6 +574,165 @@ export function deco(id: string) {
   return g;
 }
 
+// ---------- Insel-Projekte ----------
+const glassMat = curve(new THREE.MeshStandardMaterial({ color: '#d4f2ff', transparent: true, opacity: 0.32, roughness: 0.08, depthWrite: false }));
+const beamMat = curve(new THREE.MeshBasicMaterial({ color: '#fff2b0', transparent: true, opacity: 0.22, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide }));
+
+/** fertiges Projekt-Gebäude (Ursprung = Fußpunkt vorne Mitte, wie Häuser) */
+export function projectModel(id: string) {
+  const g = new THREE.Group();
+  const b = new Build();
+  if (id === 'well') {
+    // großer Dorfbrunnen mit Pflaster
+    b.add(cyl(1.25, 1.3, 0.08, 20), '#c8c4cc', { p: [0, 0.04, -0.45] });
+    for (let k = 0; k < 12; k++) {
+      const a = (k / 12) * Math.PI * 2;
+      b.add(rbox(0.32, 0.06, 0.2, 0.03), k % 2 ? '#b4b0bc' : '#d0ccd6', { p: [Math.cos(a) * 1.05, 0.09, -0.45 + Math.sin(a) * 1.05], r: [0, -a, 0] });
+    }
+    const w = deco('well');
+    w.scale.setScalar(1.55);
+    w.position.z = -0.06;
+    g.add(w);
+    b.add(cyl(0.16, 0.13, 0.26, 10), '#a8743f', { p: [0.75, 0.13, 0.15] });
+    b.add(cyl(0.13, 0.13, 0.02, 10), '#6ab4e0', { p: [0.75, 0.26, 0.15] });
+  } else if (id === 'market') {
+    const z = -0.45;
+    b.add(rbox(3.0, 0.9, 1.0, 0.08), '#c8945a', { p: [0, 0.45, z] });
+    b.add(rbox(3.2, 0.1, 1.15, 0.04), '#a8743f', { p: [0, 0.95, z] });
+    for (const x of [-1.45, 1.45]) for (const dz of [-0.45, 0.45]) b.add(cyl(0.07, 0.08, 2.3, 8), '#8a5a32', { p: [x, 1.15, z + dz] });
+    // gestreiftes Sonnendach
+    for (let k = 0; k < 7; k++) b.add(rbox(0.47, 0.07, 1.5, 0.03), k % 2 ? '#fff3dc' : '#e0485a', { p: [-1.41 + k * 0.47, 2.3, z + 0.08], r: [0.22, 0, 0] });
+    for (let k = 0; k < 7; k++) b.add(cone(0.24, 0.22, 3), k % 2 ? '#fff3dc' : '#e0485a', { p: [-1.41 + k * 0.47, 2.06, z + 0.84], r: [Math.PI, 0, 0], s: [1, 1, 0.25] });
+    // Kisten mit Äpfeln, Rüben, Beeren und Fisch
+    const crate = (x: number, fill: string, dots: string[]) => {
+      b.add(rbox(0.62, 0.28, 0.5, 0.04), '#d8a868', { p: [x, 1.14, z + 0.1] });
+      b.add(rbox(0.56, 0.06, 0.44, 0.03), fill, { p: [x, 1.27, z + 0.1] });
+      for (let k = 0; k < 6; k++) b.add(dot(0.08), dots[k % dots.length], { p: [x - 0.18 + (k % 3) * 0.18, 1.33, z - 0.02 + Math.floor(k / 3) * 0.22] });
+    };
+    crate(-0.95, '#8a5a32', ['#e0483e', '#ff9a3a']);
+    crate(-0.3, '#8a5a32', ['#f6f0f2', '#b05a9a']);
+    crate(0.35, '#8a5a32', ['#9a6ad0', '#b884e8']);
+    crate(1.0, '#6ab4e0', ['#7a8aa0', '#5a7a9a']);
+    b.add(rbox(1.2, 0.5, 0.06, 0.03), '#f4e4c0', { p: [0, 2.7, z + 0.62] });
+    b.add(sphere(0.12, 8), '#e0483e', { p: [-0.3, 2.7, z + 0.66] });
+    b.add(sphere(0.1, 8), '#5fae4e', { p: [0.0, 2.7, z + 0.66] });
+    b.add(sphere(0.1, 8), '#9a6ad0', { p: [0.3, 2.7, z + 0.66] });
+  } else if (id === 'greenhouse') {
+    const z = -0.82;
+    b.add(rbox(4.3, 0.26, 3.0, 0.06), '#b4b0bc', { p: [0, 0.13, z] });
+    // Beete mit Pflanzen
+    for (const dz of [-0.75, 0.55]) {
+      b.add(rbox(3.4, 0.3, 0.7, 0.06), '#8a5e3a', { p: [0, 0.4, z + dz] });
+      for (let k = 0; k < 6; k++) {
+        b.add(sphere(0.24, 9), k % 2 ? '#5fb35a' : '#6cc46a', { p: [-1.4 + k * 0.56, 0.75, z + dz] });
+        b.add(dot(0.07), k % 3 ? '#e0483e' : '#ffd23f', { p: [-1.32 + k * 0.56, 0.8, z + dz + 0.18] });
+      }
+    }
+    // weißer Rahmen
+    for (const x of [-2.05, -0.68, 0.68, 2.05]) for (const dz of [-1.4, 1.4]) b.add(rbox(0.09, 1.7, 0.09, 0.02), '#f4f0e6', { p: [x, 1.1, z + dz] });
+    for (const dz of [-1.4, 1.4]) b.add(rbox(4.2, 0.09, 0.09, 0.02), '#f4f0e6', { p: [0, 1.95, z + dz] });
+    b.add(rbox(4.3, 0.09, 0.09, 0.02), '#f4f0e6', { p: [0, 2.85, z] });
+    for (const x of [-2.05, 2.05]) b.add(rbox(0.09, 1.0, 0.09, 0.02), '#f4f0e6', { p: [x, 2.35, z] });
+    b.add(rbox(0.7, 1.4, 0.06, 0.03), '#c8945a', { p: [0, 0.95, z + 1.42] });
+    // Glas
+    const glass = new THREE.Mesh(new THREE.BoxGeometry(4.1, 1.7, 2.8).translate(0, 1.1, z), glassMat);
+    const roof = new THREE.Mesh(roofGeo(4.1, 2.95, 0.95, 0.02).translate(0, 1.95, z), glassMat);
+    g.add(glass, roof);
+  } else if (id === 'lighthouse') {
+    const z = -0.5;
+    b.add(new THREE.DodecahedronGeometry(1.2, 1), '#a9a5b4', { p: [0, 0.1, z], s: [1.1, 0.35, 1] });
+    const segs = 6;
+    for (let k = 0; k < segs; k++) {
+      const r0 = 0.95 - k * 0.055;
+      b.add(cyl(r0 - 0.055, r0, 0.78, 18), k % 2 ? '#fff8ee' : '#e0485a', { p: [0, 0.6 + k * 0.78, z] });
+    }
+    const top = 0.6 + segs * 0.78 - 0.39;
+    b.add(cyl(0.95, 0.95, 0.12, 20), '#4a4a58', { p: [0, top + 0.06, z] });
+    b.add(new THREE.TorusGeometry(0.9, 0.03, 4, 20), '#4a4a58', { p: [0, top + 0.4, z], r: [Math.PI / 2, 0, 0] });
+    for (let k = 0; k < 8; k++) {
+      const a = (k / 8) * Math.PI * 2;
+      b.add(cyl(0.02, 0.02, 0.36, 4), '#4a4a58', { p: [Math.cos(a) * 0.9, top + 0.24, z + Math.sin(a) * 0.9] });
+    }
+    b.add(cone(0.75, 0.65, 18), '#c83a3a', { p: [0, top + 1.05, z] });
+    b.add(sphere(0.1, 8), '#ffd23f', { p: [0, top + 1.42, z] });
+    b.add(rbox(0.5, 0.9, 0.1, 0.05), '#8a5a32', { p: [0, 0.75, z + 0.9] });
+    const lamp = new THREE.Mesh(cyl(0.5, 0.5, 0.6, 16).translate(0, top + 0.42, z), glowMats.lamp);
+    g.add(lamp);
+    // Lichtkegel, dreht sich nachts (sichtbar schaltet die Ansicht)
+    const pivot = new THREE.Group();
+    pivot.position.set(0, top + 0.42, z);
+    const beam = new THREE.Mesh(new THREE.ConeGeometry(1.1, 9, 16, 1, true).translate(0, -4.5, 0).rotateZ(Math.PI / 2), beamMat);
+    beam.renderOrder = 4;
+    pivot.add(beam);
+    pivot.visible = false;
+    g.add(pivot);
+    g.userData.beam = pivot;
+  } else if (id === 'pavilion') {
+    const z = -0.82;
+    b.add(cyl(2.05, 2.15, 0.28, 24), '#c8945a', { p: [0, 0.14, z] });
+    b.add(cyl(1.95, 1.95, 0.04, 24), '#e0b878', { p: [0, 0.3, z] });
+    const posts = 6;
+    for (let k = 0; k < posts; k++) {
+      const a = (k / posts) * Math.PI * 2 + Math.PI / 6;
+      b.add(cyl(0.08, 0.09, 2.2, 8), '#fff3dc', { p: [Math.cos(a) * 1.8, 1.4, z + Math.sin(a) * 1.8] });
+      // Wimpel zwischen den Pfosten
+      const a2 = a + Math.PI / posts;
+      for (let q = 0; q < 3; q++) {
+        const t = (q + 0.5) / 3;
+        const aa = a + (a2 - a) * 2 * t;
+        b.add(cone(0.14, 0.26, 3), ['#e0485a', '#ffd23f', '#6cc46a', '#5aa0e0'][(k + q) % 4], { p: [Math.cos(aa) * 1.86, 2.25 - Math.sin(t * Math.PI) * 0.12, z + Math.sin(aa) * 1.86], r: [Math.PI, -aa, 0], s: [1, 1, 0.3] });
+      }
+    }
+    b.add(cone(2.5, 1.3, 24), '#7a5ac8', { p: [0, 3.15, z] });
+    for (let k = 0; k < 12; k++) {
+      const a = (k / 12) * Math.PI * 2;
+      b.add(cone(0.3, 0.3, 3), k % 2 ? '#ffd23f' : '#fff3dc', { p: [Math.cos(a) * 2.42, 2.45, z + Math.sin(a) * 2.42], r: [Math.PI, -a, 0], s: [1, 1, 0.25] });
+    }
+    b.add(sphere(0.16, 10), '#ffd23f', { p: [0, 3.9, z] });
+    b.add(rbox(0.04, 0.5, 0.04, 0.01), '#8a5a32', { p: [0, 4.15, z] });
+    b.add(rbox(0.36, 0.22, 0.03, 0.01), '#e0485a', { p: [0.18, 4.3, z] });
+    for (let k = 0; k < posts; k++) {
+      const a = (k / posts) * Math.PI * 2 + Math.PI / 6;
+      g.add(new THREE.Mesh(sphere(0.12, 10).translate(Math.cos(a) * 1.6, 2.05, z + Math.sin(a) * 1.6), glowMats.lamp));
+    }
+  }
+  if (!b.empty) g.add(meshOf(b.geometry(), 0.85));
+  return g;
+}
+
+const planMat = curve(new THREE.MeshStandardMaterial({ color: '#ffe8b8', transparent: true, opacity: 0.5, depthWrite: false, roughness: 0.9 }));
+/** Baustelle: das künftige Gebäude durchsichtig, Gerüst, Schild und ein Stapel Bretter */
+export function constructionSite(id: string, foot: { left: number; right: number; top: number }) {
+  const g = new THREE.Group();
+  const plan = projectModel(id);
+  plan.traverse((c) => {
+    if (c instanceof THREE.Mesh) {
+      c.material = planMat;
+      c.castShadow = false;
+    }
+  });
+  plan.userData.beam && ((plan.userData.beam as THREE.Object3D).visible = false);
+  g.add(plan);
+  const b = new Build();
+  const l = foot.left * U;
+  const r = foot.right * U;
+  const t = foot.top * U;
+  for (const x of [l + 0.1, r - 0.1]) for (const z of [t + 0.1, -0.05]) b.add(rbox(0.1, 2.4, 0.1, 0.02), '#c8945a', { p: [x, 1.2, z] });
+  for (const z of [t + 0.1, -0.05]) {
+    b.add(rbox(r - l, 0.08, 0.08, 0.02), '#a8743f', { p: [(l + r) / 2, 1.6, z] });
+    b.add(rbox(Math.hypot(r - l, 1.4), 0.07, 0.07, 0.02), '#a8743f', { p: [(l + r) / 2, 0.9, z], r: [0, 0, Math.atan2(1.4, r - l)] });
+  }
+  // Schild vorne rechts mit Hammer
+  b.add(rbox(0.08, 1.0, 0.08, 0.02), '#8a5a32', { p: [r + 0.35, 0.5, 0.25] });
+  b.add(rbox(0.8, 0.55, 0.07, 0.03), '#f4e4c0', { p: [r + 0.35, 1.1, 0.29] });
+  b.add(rbox(0.06, 0.4, 0.04, 0.01), '#a8743f', { p: [r + 0.32, 1.08, 0.34], r: [0, 0, -0.6] });
+  b.add(rbox(0.22, 0.1, 0.06, 0.02), '#9aa2ae', { p: [r + 0.45, 1.24, 0.34], r: [0, 0, -0.6] });
+  // Bretterstapel vorne links
+  for (let k = 0; k < 3; k++) b.add(rbox(1.0, 0.1, 0.22, 0.03), k % 2 ? '#c8945a' : '#d8a868', { p: [l - 0.2, 0.06 + k * 0.1, 0.3 + (k % 2) * 0.05], r: [0, 0.1 * k, 0] });
+  g.add(meshOf(b.geometry(), 0.9));
+  return g;
+}
+
 /** Händler-Boot (fährt waagrecht, Bug nach Osten) */
 export function boat() {
   const g = new THREE.Group();

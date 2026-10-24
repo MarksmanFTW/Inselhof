@@ -8,6 +8,7 @@ import { ALBUM_REWARDS, DECO_FOOT, albumCount, cleanAlbum, decoById, type Album,
 import { cleanProgress, levelOf, newProgress, perks, type Progress } from './progress';
 import { PICK_REGROW_MS, type ToolKind } from './craft';
 import { FISH, fishById } from './fish';
+import { PROJECTS, cleanProj, newProj, type Foot, type ProjState } from './projects';
 import type { PickKind } from './island';
 import type { Clock } from './time';
 
@@ -88,6 +89,8 @@ export interface WorldSave {
   /** gefangene Fische (Art → Anzahl) und gebratene */
   fish?: Record<string, number>;
   grilled?: number;
+  /** Insel-Projekte (Brunnen, Marktstand …) */
+  proj?: ProjState;
 }
 
 export type TreeStage = 'tree' | 'stump' | 'sapling';
@@ -124,6 +127,7 @@ export class World {
   shaken = new Map<number, number>();
   fish: Record<string, number> = {};
   grilled = 0;
+  proj: ProjState = newProj();
   /** Treffer am aktuellen Baum (nicht gespeichert) */
   private hits = new Map<number, number>();
   /** wird bei jeder Änderung hochgezählt (Schatten neu malen, speichern) */
@@ -151,6 +155,7 @@ export class World {
       }
       for (const [k, v] of Object.entries(save.fish ?? {})) if (fishById(k) && typeof v === 'number' && v > 0) this.fish[k] = Math.floor(v);
       this.grilled = Math.max(0, Math.floor(save.grilled ?? 0));
+      this.proj = cleanProj(save.proj);
       this.apples = Math.max(0, Math.floor(save.apples ?? 0));
       this.berries = Math.max(0, Math.floor(save.berries ?? 0));
       for (const [k, v] of Object.entries(save.shaken ?? {})) {
@@ -194,6 +199,7 @@ export class World {
     this.shaken = w.shaken;
     this.fish = w.fish;
     this.grilled = w.grilled;
+    this.proj = w.proj;
     this.version++;
   }
 
@@ -213,6 +219,7 @@ export class World {
       ...(this.picked.size ? { picked: Object.fromEntries(this.picked) } : {}),
       ...(this.apples || this.berries || this.shaken.size ? { apples: this.apples, berries: this.berries, shaken: Object.fromEntries(this.shaken) } : {}),
       ...(Object.keys(this.fish).length || this.grilled ? { fish: { ...this.fish }, grilled: this.grilled } : {}),
+      ...(this.proj.n || this.proj.sites.length || Object.keys(this.proj.got).length ? { proj: { n: this.proj.n, got: { ...this.proj.got }, sites: this.proj.sites.map((s) => (s ? [s[0], s[1]] : null)) as ProjState['sites'] } } : {}),
     };
   }
 
@@ -220,7 +227,23 @@ export class World {
     return levelOf(this.prog.xp);
   }
   get perks() {
-    return perks(this.level);
+    const p = perks(this.level);
+    // Gewächshaus fertig: Rüben wachsen ein Viertel schneller
+    if (this.proj.n >= 3) p.growMul *= 0.75;
+    return p;
+  }
+
+  /** Projekt fertig? (Nummer in PROJECTS) */
+  projDone(k: number) {
+    return this.proj.n > k;
+  }
+  /** Bauplätze, die schon feststehen (fertige Projekte und die Baustelle des aktuellen) */
+  projSites(): { x: number; y: number; foot: Foot; k: number }[] {
+    const out: { x: number; y: number; foot: Foot; k: number }[] = [];
+    this.proj.sites.forEach((s, k) => {
+      if (s && k <= this.proj.n && PROJECTS[k]) out.push({ x: s[0], y: s[1], foot: PROJECTS[k].foot, k });
+    });
+    return out;
   }
 
   stage(i: number, now = Date.now()): TreeStage {
@@ -284,6 +307,7 @@ export class World {
       [this.decos, DECO_FOOT],
     ] as const)
       for (const h of list) if (x + fw > h.x + f.left && x - fw < h.x + f.right && y + fh > h.y + f.top && y - fh < h.y + f.bottom) return true;
+    for (const h of this.projSites()) if (x + fw > h.x + h.foot.left && x - fw < h.x + h.foot.right && y + fh > h.y + h.foot.top && y - fh < h.y + h.foot.bottom) return true;
     return false;
   }
 
@@ -401,7 +425,10 @@ export class World {
 
   /** Darf hier ein Haus stehen? Ganz auf Land, nichts im Weg, nicht auf dem Steg */
   canPlace(x: number, y: number, player?: { x: number; y: number }, kind: BuildKind = 'house') {
-    const f = BUILDS[kind].foot;
+    return this.canPlaceFoot(x, y, BUILDS[kind].foot, player);
+  }
+  /** Darf hier etwas mit dieser Grundfläche stehen? */
+  canPlaceFoot(x: number, y: number, f: Foot, player?: { x: number; y: number }) {
     for (let yy = y + f.top - 6; yy <= y + f.bottom; yy += 2)
       for (let xx = x + f.left; xx <= x + f.right; xx += 2) {
         if (xx < 0 || yy < 0 || xx >= W || yy >= H) return false;
@@ -427,6 +454,10 @@ export class World {
     ] as const)
       for (const h of list)
         if (x + f.right + 4 > h.x + g.left && x + f.left - 4 < h.x + g.right && y + f.bottom + 4 > h.y + g.top - 6 && y + f.top - 8 < h.y + g.bottom) return false;
+    for (const h of this.projSites()) {
+      const g = h.foot;
+      if (x + f.right + 4 > h.x + g.left && x + f.left - 4 < h.x + g.right && y + f.bottom + 4 > h.y + g.top - 6 && y + f.top - 8 < h.y + g.bottom) return false;
+    }
     if (player && player.x + 4 > x + f.left && player.x - 4 < x + f.right && player.y + 2 > y + f.top && player.y - 2 < y + f.bottom) return false;
     return true;
   }

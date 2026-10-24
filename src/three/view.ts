@@ -14,6 +14,7 @@ import { H, TILE, W } from '../island';
 import { DECO_FOOT } from '../shop';
 import type { TimeOfDay } from '../time';
 import { FIRE_FOOT, HOUSE_FOOT, STABLE_FOOT, type BuildKind, type World } from '../world';
+import { PROJECTS, siteOf } from '../projects';
 import { Build, CURVE, FOCUS, U, curve, mat, rbox, sphere, vcMat } from './engine';
 import { makeHorse, type HorseModel } from './horse';
 import { Interior } from './interior3d';
@@ -141,6 +142,11 @@ export class View {
   /** Stöcke und Steine zum Aufheben */
   private pickups: THREE.Object3D[] = [];
   private guide = M.guideArrow();
+  /** Leuchtturm-Licht (dreht sich nachts) und Festpavillon (Feuerwerk) */
+  private beam: THREE.Object3D | null = null;
+  private fest: { x: number; y: number } | null = null;
+  private fireworkIn = 0;
+  private sparks: { m: THREE.InstancedMesh; list: { p: THREE.Vector3; v: THREE.Vector3; life: number; c: THREE.Color }[] } | null = null;
   /** Angeln: Pose und Schnur */
   private bobber: THREE.Group;
   private line: THREE.Line;
@@ -403,6 +409,67 @@ export class View {
     });
   }
 
+  /** nachts: Leuchtturm-Licht dreht sich, über dem Festpavillon gibt es Feuerwerk */
+  private nightShow(fr: Frame) {
+    const dark = fr.tod?.dark ?? 0;
+    const outside = fr.mode !== 'custom' && fr.inside < 0;
+    if (this.beam) {
+      this.beam.visible = outside && dark > 0.25;
+      this.beam.rotation.y += fr.dt * 0.9;
+      (((this.beam.children[0] as THREE.Mesh).material) as THREE.MeshBasicMaterial).opacity = 0.08 + dark * 0.2;
+    }
+    if (this.fest && outside && dark > 0.5) {
+      this.fireworkIn -= fr.dt;
+      if (this.fireworkIn <= 0) {
+        this.fireworkIn = 0.9 + Math.random() * 1.2;
+        this.firework(this.fest.x + (Math.random() - 0.5) * 40, this.fest.y - 10 - Math.random() * 20);
+      }
+    }
+    // Funken fliegen
+    const sp = this.sparks;
+    if (!sp) return;
+    const d = new THREE.Object3D();
+    let n = 0;
+    for (let k = sp.list.length - 1; k >= 0; k--) {
+      const q = sp.list[k];
+      q.life -= fr.dt;
+      if (q.life <= 0) {
+        sp.list.splice(k, 1);
+        continue;
+      }
+      q.v.y -= 2.2 * fr.dt;
+      q.v.multiplyScalar(1 - fr.dt * 0.8);
+      q.p.addScaledVector(q.v, fr.dt);
+    }
+    for (const q of sp.list) {
+      d.position.copy(q.p);
+      d.scale.setScalar(Math.min(1, q.life * 1.6));
+      d.updateMatrix();
+      sp.m.setMatrixAt(n, d.matrix);
+      sp.m.setColorAt(n, q.c);
+      n++;
+    }
+    sp.m.count = n;
+    sp.m.instanceMatrix.needsUpdate = true;
+    if (sp.m.instanceColor) sp.m.instanceColor.needsUpdate = true;
+  }
+  /** eine Feuerwerks-Rakete platzt (Welt-Pixel) */
+  firework(x: number, y: number) {
+    if (!this.sparks) {
+      const m = new THREE.InstancedMesh(sphere(0.12, 6), new THREE.MeshBasicMaterial({ toneMapped: false, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false }), 600);
+      m.count = 0;
+      m.frustumCulled = false;
+      this.scene.add(m);
+      this.sparks = { m, list: [] };
+    }
+    const cols = [['#ff5a7a', '#ffd23f'], ['#6ad0ff', '#ffffff'], ['#b884e8', '#ff9af0'], ['#7cf08a', '#ffd23f']][Math.floor(Math.random() * 4)];
+    const base = new THREE.Vector3(x * U, this.groundY(x, y) + 7 + Math.random() * 2, y * U);
+    for (let i = 0; i < 64 && this.sparks.list.length < 600; i++) {
+      const v = new THREE.Vector3(Math.random() - 0.5, Math.random() - 0.5, Math.random() - 0.5).normalize().multiplyScalar(3.2 + Math.random() * 1.0);
+      this.sparks.list.push({ p: base.clone(), v, life: 1.1 + Math.random() * 0.6, c: new THREE.Color(cols[i % 2]) });
+    }
+  }
+
   /** Angeln: Pose schaukelt auf dem Wasser (taucht bei Biss), Schnur von der Angelspitze */
   private syncFishing(fr: Frame) {
     const f = fr.fishing;
@@ -456,12 +523,25 @@ export class View {
     w.paddocks.forEach((h) => want.set(`paddock:${h.x},${h.y}`, () => this.placeAt(M.paddock(), h.x, h.y, true)));
     w.fires.forEach((h) => want.set(`fire:${h.x},${h.y}`, () => this.placeAt(M.campfire().g, h.x, h.y, false)));
     w.decos.forEach((h) => want.set(`deco:${h.id}:${h.x},${h.y}`, () => this.placeAt(M.deco(h.id), h.x, h.y, false)));
+    // Insel-Projekte: fertige Gebäude und die Baustelle des aktuellen
+    PROJECTS.forEach((p, k) => {
+      if (k > w.proj.n) return;
+      const [x, y] = siteOf(w, this.farm, k);
+      if (k < w.proj.n) want.set(`proj:${p.id}:${x},${y}`, () => this.placeAt(M.projectModel(p.id), x, y, true));
+      else want.set(`site:${p.id}:${x},${y}`, () => this.placeAt(M.constructionSite(p.id, p.foot), x, y, true));
+    });
     for (const [k, o] of this.built)
       if (!want.has(k)) {
         this.scene.remove(o);
         this.built.delete(k);
       }
     for (const [k, make] of want) if (!this.built.has(k)) this.built.set(k, make());
+    this.beam = null;
+    this.fest = null;
+    for (const [k, o] of this.built) {
+      if (k.startsWith('proj:lighthouse')) this.beam = o.userData.beam as THREE.Object3D;
+      if (k.startsWith('proj:pavilion')) this.fest = { x: o.position.x / U, y: o.position.z / U };
+    }
     // Feuer und Rauch neu einsammeln
     this.fires = [];
     this.smoke = [];
@@ -1017,6 +1097,7 @@ export class View {
       this.guide.rotation.y = Math.sin(fr.t * 1.6) * 0.5;
     } else this.guide.visible = false;
     this.syncFishing(fr);
+    this.nightShow(fr);
     this.stepEffects(fr);
     this.light(fr);
 

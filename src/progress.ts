@@ -30,7 +30,9 @@ export type Stat =
   // Angeln: Angel gebastelt, Fische gefangen, verschiedene Arten
   | 'rod'
   | 'fish'
-  | 'species';
+  | 'species'
+  // Insel-Projekte fertig
+  | 'projects';
 
 export interface Progress {
   xp: number;
@@ -99,6 +101,7 @@ export const XP: Record<Exclude<Stat, 'wood'>, number> = {
   rod: 0,
   fish: 2,
   species: 5,
+  projects: 60,
 };
 
 /** XP bis Stufe L: 30 · L(L-1)/2 → 30, 90, 180, 300 … */

@@ -388,6 +388,8 @@ export interface HudActions {
   craft: () => void;
   /** Rucksack öffnen */
   bag: () => void;
+  /** Insel-Projekt öffnen */
+  project: () => void;
   confirm: () => void;
   cancel: () => void;
 }
@@ -436,6 +438,19 @@ export interface InvData {
   head: string;
   note?: string;
   sections: { title: string; empty?: string; items: InvItem[] }[];
+}
+
+/** Insel-Projekt-Fenster */
+export interface ProjData {
+  title: string;
+  /** „Projekt 2 von 5“ */
+  step: string;
+  text: string;
+  reward: string;
+  rows: { id: string; name: string; img: string; got: number; need: number; have: number }[];
+  steps: { name: string; state: 'done' | 'now' | 'next' }[];
+  /** alle fertig */
+  done: boolean;
 }
 
 /** Basteln-Fenster */
@@ -536,6 +551,10 @@ export interface Hud {
   /** Händler-Boot; update() zeichnet neu, solange offen */
   openTrade(d: TradeData, act: { sell: (id: string, n: number) => void; buy: (id: string) => void }, onClose: () => void): { update(d: TradeData): void };
   openAlbum(d: AlbumData): void;
+  /** Insel-Projekt-Anzeige unter der Aufgabe (null = keine) */
+  setProject(text: string | null, progress: number): void;
+  /** Insel-Projekt: abgeben, Baustelle zeigen */
+  openProject(d: ProjData, on: { give: (item: string) => void; show: () => void }): { update(d: ProjData): void };
   /** Rucksack; update() zeichnet neu, solange offen */
   openInventory(d: InvData, act: (item: string, action: string) => void): { update(d: InvData): void; close(): void };
   /** Basteln; update() zeichnet neu, solange offen */
@@ -570,6 +589,7 @@ export function showHud(on: HudActions, icons: HudIcons, costs: { house: number;
       <button class="r bagbtn" data-act="bag" aria-label="Rucksack"><img src="${icons.bag}" alt="" /></button>
     </div>
     <button class="goal" hidden aria-label="Aufgabe"></button>
+    <button class="proj-chip" hidden aria-label="Insel-Projekt"><img src="${icons.craft}" alt="" /><span></span><i><b></b></i></button>
     <p class="coop-chip" hidden></p>
     <div class="hotbar panel">
       ${slot('axe', icons.axe)}${slot('hoe', icons.hoe)}${slot('seeds', icons.seeds)}${slot('water', icons.bucket)}${slot('scythe', icons.scythe)}
@@ -628,6 +648,7 @@ export function showHud(on: HudActions, icons: HudIcons, costs: { house: number;
   $('[data-act=album]').addEventListener('click', on.album);
   $('[data-act=craft]').addEventListener('click', on.craft);
   $('[data-act=bag]').addEventListener('click', on.bag);
+  $('.proj-chip').addEventListener('click', on.project);
   $('[data-act=call]').addEventListener('click', on.call);
   $('[data-act=cancel]').addEventListener('click', on.cancel);
   $('[data-act=confirm]').addEventListener('click', on.confirm);
@@ -737,6 +758,68 @@ export function showHud(on: HudActions, icons: HudIcons, costs: { house: number;
     },
     nudge(what) {
       $('[data-act=craft]').classList.toggle('nudge', what === 'craft');
+    },
+    setProject(text, progress) {
+      const c = $('.proj-chip');
+      c.hidden = !text;
+      if (!text) return;
+      const sp = c.querySelector('span')!;
+      if (sp.textContent !== text) sp.textContent = text;
+      c.querySelector<HTMLElement>('i b')!.style.width = `${Math.round(Math.max(0, Math.min(1, progress)) * 100)}%`;
+    },
+    openProject(d, on2) {
+      const modal = document.createElement('div');
+      modal.className = 'modal';
+      const draw = (c: ProjData) => {
+        modal.innerHTML = `<div class="panel build-panel proj-panel">
+          <h2>${c.done ? 'Alles gebaut!' : 'Insel-Projekt'}</h2>
+          ${c.done ? '' : `<p class="proj-name"><b>${esc(c.title)}</b> · ${esc(c.step)}</p>`}
+          <p class="have">${esc(c.text)}</p>
+          ${
+            c.done
+              ? ''
+              : `<div class="proj-rows">${c.rows
+                  .map((r) => {
+                    const left = r.need - r.got;
+                    const can = Math.min(left, r.have);
+                    return `<div class="proj-row${left <= 0 ? ' full' : ''}">
+                <img src="${r.img}" alt="" />
+                <div class="what"><b>${esc(r.name)}</b><div class="xpbar"><i style="width:${Math.round((r.got / r.need) * 100)}%"></i></div><small>${r.got}/${r.need}${left > 0 ? ` · du hast ${r.have}` : ' · fertig'}</small></div>
+                ${left > 0 ? `<button class="pbtn small green" data-g="${esc(r.id)}"${can > 0 ? '' : ' disabled'}>${can > 0 ? `+${can}` : 'fehlt'}</button>` : '<span class="ok">✓</span>'}
+              </div>`;
+                  })
+                  .join('')}</div>
+          <p class="mine small proj-reward"><b>Wenn es fertig ist:</b> ${esc(c.reward)}</p>`
+          }
+          <div class="proj-steps">${c.steps.map((st) => `<span class="${st.state}">${st.state === 'done' ? '✓ ' : ''}${st.state === 'next' ? '???' : esc(st.name)}</span>`).join('')}</div>
+          <div class="two">
+            <button class="pbtn small ghost" data-m="close">Zurück</button>
+            ${c.done ? '' : '<button class="pbtn small blue" data-m="show">Baustelle zeigen</button>'}
+          </div>
+        </div>`;
+      };
+      draw(d);
+      ui.appendChild(modal);
+      modal.addEventListener('click', (e) => {
+        const t = e.target as HTMLElement;
+        if (e.target === modal || t.closest('[data-m=close]')) return modal.remove();
+        if (t.closest('[data-m=show]')) {
+          modal.remove();
+          return on2.show();
+        }
+        const g = t.closest<HTMLButtonElement>('[data-g]');
+        if (g && !g.disabled) on2.give(g.dataset.g!);
+      });
+      return {
+        update: (c: ProjData) => {
+          if (!modal.isConnected) return;
+          const p = modal.querySelector('.proj-panel');
+          const scroll = p?.scrollTop ?? 0;
+          draw(c);
+          const p2 = modal.querySelector('.proj-panel');
+          if (p2) p2.scrollTop = scroll;
+        },
+      };
     },
     openInventory(d, act) {
       const modal = document.createElement('div');
