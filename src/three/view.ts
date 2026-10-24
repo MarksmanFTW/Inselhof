@@ -13,13 +13,14 @@ import type { Island } from '../island';
 import { H, TILE, W } from '../island';
 import { DECO_FOOT } from '../shop';
 import type { TimeOfDay } from '../time';
-import { FIRE_FOOT, HOUSE_FOOT, STABLE_FOOT, type BuildKind, type World } from '../world';
+import { FIRE_FOOT, HOUSE_FOOT, HUT_FOOT, STABLE_FOOT, type BuildKind, type World } from '../world';
 import { PROJECTS, siteOf } from '../projects';
 import { boardSpot } from '../orders';
 import { Build, CURVE, FOCUS, U, curve, mat, rbox, sphere, vcMat } from './engine';
 import { makeHorse, type HorseModel } from './horse';
 import { Interior } from './interior3d';
 import { makeKid, type Kid } from './kid';
+import { hut, makeAnimal, type Animal } from './folk';
 import * as M from './models';
 import { WATER_Y, buildTerrain, type Terrain } from './terrain';
 
@@ -64,6 +65,8 @@ export interface Frame {
   guide: { x: number; y: number } | null;
   /** Angeln: Pose im Wasser (Welt-Pixel), bite = es zuckt */
   fishing: { x: number; y: number; bite: boolean } | null;
+  /** Bewohner: wo sie gerade sind; wish = „!“ (wünscht sich heute etwas), happy = freut sich (s) */
+  folk: { id: string; x: number; y: number; yaw: number; moving: boolean; wish: boolean; happy: number; hidden: boolean }[];
   inside: number;
 }
 
@@ -103,6 +106,12 @@ interface HorseSlot {
   pet: number;
   seen: boolean;
 }
+interface FolkSlot {
+  a: Animal;
+  bubble: THREE.Sprite;
+  yaw: number;
+  walk: number;
+}
 interface KidSlot {
   key: string;
   kid: Kid;
@@ -131,6 +140,8 @@ export class View {
   private smoke: { m: THREE.Mesh; base: THREE.Vector3; ph: number }[] = [];
   private horses: HorseSlot[] = [];
   private kids = new Map<string, KidSlot>();
+  private folk = new Map<string, FolkSlot>();
+  private bubbleTex: THREE.Texture;
   private worldVer = -1;
   private farmVer = -1;
   private farmT = 0;
@@ -269,6 +280,30 @@ export class View {
       x.fillStyle = '#ffffffaa';
       x.beginPath();
       x.arc(22, 22, 6, 0, 7);
+      x.fill();
+    });
+    // Sprechblase mit „!“ über Bewohnern, die sich heute etwas wünschen
+    this.bubbleTex = this.canvasTex(64, (x) => {
+      x.fillStyle = '#ffffff';
+      x.strokeStyle = '#e8a03a';
+      x.lineWidth = 4;
+      x.beginPath();
+      x.ellipse(32, 28, 24, 22, 0, 0, Math.PI * 2);
+      x.moveTo(24, 46);
+      x.lineTo(30, 60);
+      x.lineTo(38, 47);
+      x.fill();
+      x.beginPath();
+      x.ellipse(32, 28, 24, 22, 0, 0.5 * Math.PI + 0.35, 0.5 * Math.PI - 0.35 + Math.PI * 2);
+      x.stroke();
+      x.fillStyle = '#ff8a2a';
+      x.fillRect(28, 13, 8, 18);
+      x.beginPath();
+      x.arc(32, 13, 4, 0, Math.PI * 2);
+      x.arc(32, 31, 4, 0, Math.PI * 2);
+      x.fill();
+      x.beginPath();
+      x.arc(32, 39, 4.5, 0, Math.PI * 2);
       x.fill();
     });
     this.glowTex = this.canvasTex(64, (x) => {
@@ -532,6 +567,7 @@ export class View {
     w.paddocks.forEach((h) => want.set(`paddock:${h.x},${h.y}`, () => this.placeAt(M.paddock(), h.x, h.y, true)));
     w.fires.forEach((h) => want.set(`fire:${h.x},${h.y}`, () => this.placeAt(M.campfire().g, h.x, h.y, false)));
     w.decos.forEach((h) => want.set(`deco:${h.id}:${h.x},${h.y}`, () => this.placeAt(M.deco(h.id), h.x, h.y, false)));
+    w.villagers.forEach((v) => want.set(`hut:${v.id}:${v.x},${v.y}`, () => this.placeAt(hut(v.id), v.x, v.y, true)));
     // Insel-Projekte: fertige Gebäude und die Baustelle des aktuellen
     PROJECTS.forEach((p, k) => {
       if (k > w.proj.n) return;
@@ -660,7 +696,7 @@ export class View {
   private syncCovered() {
     const w = this.world;
     const f = this.farm;
-    const k = `${w.houses.length}|${w.stables.length}|${w.fires.length}|${w.decos.length}|${w.paddocks.length}|${f.plots.size}|${f.meadow.size}`;
+    const k = `${w.houses.length}|${w.stables.length}|${w.fires.length}|${w.decos.length}|${w.paddocks.length}|${w.villagers.length}|${f.plots.size}|${f.meadow.size}`;
     if (k === this.coveredKey) return;
     this.coveredKey = k;
     const boxes: [number, number, number, number][] = [];
@@ -671,6 +707,7 @@ export class View {
     add(w.stables, STABLE_FOOT);
     add(w.fires, FIRE_FOOT);
     add(w.decos, DECO_FOOT);
+    add(w.villagers, HUT_FOOT);
     this.terrain.hideDetails((x, y) => {
       if (boxes.some(([a, b, c, d]) => x > a && x < b && y > c && y < d)) return true;
       const key = plotKey(Math.floor(x / TILE), Math.floor(y / TILE));
@@ -734,6 +771,44 @@ export class View {
       s.m.g.rotation.y = s.yaw - Math.PI / 2;
       s.m.pose({ walk: s.walk, moving, graze: s.graze, t: fr.t + i * 1.7, sleep: !!fr.tod?.night && !moving && !rider, pet: s.pet, ridden: !!rider });
     });
+  }
+  /** Bewohner: laufen, hüpfen vor Freude, „!“ über dem Kopf */
+  private syncFolk(fr: Frame) {
+    const seen = new Set<string>();
+    for (const v of fr.folk) {
+      seen.add(v.id);
+      let s = this.folk.get(v.id);
+      if (!s) {
+        const a = makeAnimal(v.id);
+        const bubble = new THREE.Sprite(new THREE.SpriteMaterial({ map: this.bubbleTex, transparent: true, depthWrite: false }));
+        bubble.scale.setScalar(0.62);
+        this.scene.add(a.g, bubble);
+        s = { a, bubble, yaw: v.yaw, walk: 0 };
+        this.folk.set(v.id, s);
+      }
+      const show = fr.mode === 'play' && fr.inside < 0 && !v.hidden;
+      s.a.g.visible = show;
+      s.bubble.visible = show && v.wish;
+      if (!show) continue;
+      s.yaw += angTo(s.yaw, v.yaw) * Math.min(1, fr.dt * 8);
+      if (v.moving) s.walk += fr.dt * 12;
+      this.pos(s.a.g, v.x, v.y);
+      s.a.g.rotation.y = s.yaw;
+      s.a.pose({ walk: s.walk, moving: v.moving, happy: Math.min(1, v.happy), t: fr.t + v.x * 0.1, sleep: false });
+      if (s.bubble.visible) {
+        // Sprites wölben sich nicht mit: von Hand nach unten ziehen wie die Welt
+        const p = s.a.g.position;
+        const cz = Math.min(0, p.z - FOCUS.value);
+        s.bubble.position.set(p.x, p.y + 1.72 + Math.sin(fr.t * 3 + v.x) * 0.06 - cz * cz * CURVE.value, p.z);
+      }
+    }
+    for (const [id, s] of this.folk)
+      if (!seen.has(id)) {
+        this.scene.remove(s.a.g, s.bubble);
+        s.a.dispose();
+        s.bubble.material.dispose();
+        this.folk.delete(id);
+      }
   }
   private syncKid(which: string, a: Actor | null, fr: Frame) {
     let s = this.kids.get(which);
@@ -1061,6 +1136,7 @@ export class View {
       (s.m.material as THREE.MeshStandardMaterial).opacity = 0.5 * (1 - p) * (fr.tod?.rain ? 0.6 : 1);
     }
     this.syncHorses(fr);
+    this.syncFolk(fr);
     // Boot
     if (fr.boatOut !== null) {
       this.boat.visible = true;
@@ -1188,7 +1264,7 @@ export class View {
       });
     };
     for (const o of this.decor) if (o.tree && o.crown) check(o.root, 2.8, 8);
-    for (const [k, o] of this.built) if (k.startsWith('house:') || k.startsWith('stable:')) check(o, k.startsWith('stable') ? 3.4 : 2.7, 4.2);
+    for (const [k, o] of this.built) if (k.startsWith('house:') || k.startsWith('stable:') || k.startsWith('hut:')) check(o, k.startsWith('stable') ? 3.4 : k.startsWith('hut') ? 2 : 2.7, k.startsWith('hut') ? 3.4 : 4.2);
   }
 
   /** wieder ganz nah an der Figur anfangen (Menü → Spiel, Haus verlassen) */
@@ -1205,7 +1281,7 @@ export class View {
     }
     if (!this.ghost || this.ghost.key !== key) {
       if (this.ghost) this.scene.remove(this.ghost.o, this.ghost.foot);
-      const o = g.kind === 'house' ? M.house() : g.kind === 'stable' ? M.stable() : g.kind === 'paddock' ? M.paddock() : g.kind === 'fire' ? M.campfire().g : M.deco(g.deco);
+      const o = g.kind === 'house' ? M.house() : g.kind === 'stable' ? M.stable() : g.kind === 'paddock' ? M.paddock() : g.kind === 'fire' ? M.campfire().g : g.kind === 'hut' ? hut(g.deco) : M.deco(g.deco);
       const m = M.ghostOf(o, true);
       const foot = new THREE.Mesh(new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2), curve(new THREE.MeshBasicMaterial({ color: '#78e66e', transparent: true, opacity: 0.4, depthWrite: false })));
       this.scene.add(o, foot);
@@ -1216,7 +1292,7 @@ export class View {
     gh.mat.color.set(g.ok ? '#c8f0b8' : '#f4a8a0');
     (gh.foot.material as THREE.MeshBasicMaterial).color.set(g.ok ? '#78e66e' : '#f0463c');
     this.pos(gh.o, g.x, g.y);
-    const f = g.kind === 'house' ? HOUSE_FOOT : g.kind === 'stable' ? STABLE_FOOT : g.kind === 'paddock' ? PADDOCK_FOOT : g.kind === 'fire' ? FIRE_FOOT : DECO_FOOT;
+    const f = g.kind === 'house' ? HOUSE_FOOT : g.kind === 'stable' ? STABLE_FOOT : g.kind === 'paddock' ? PADDOCK_FOOT : g.kind === 'fire' ? FIRE_FOOT : g.kind === 'hut' ? HUT_FOOT : DECO_FOOT;
     gh.foot.scale.set((f.right - f.left) * U, 1, (f.bottom - f.top) * U);
     gh.foot.position.set((g.x + (f.left + f.right) / 2) * U, this.groundY(g.x, g.y) + 0.06, (g.y + (f.top + f.bottom) / 2) * U);
   }

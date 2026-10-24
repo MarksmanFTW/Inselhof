@@ -14,7 +14,7 @@ export interface IslandState {
 
 /** eine Spiel-Aktion */
 export interface Action {
-  kind: 'axe' | 'hoe' | 'seeds' | 'water' | 'refill' | 'harvest' | 'build' | 'sleep' | 'eat' | 'cook' | 'furnish' | 'adopt' | 'feed' | 'brush' | 'foal' | 'mow' | 'rake' | 'sell' | 'buy' | 'dress' | 'pick' | 'craft' | 'tut' | 'shake' | 'fish' | 'donate' | 'order';
+  kind: 'axe' | 'hoe' | 'seeds' | 'water' | 'refill' | 'harvest' | 'build' | 'sleep' | 'eat' | 'cook' | 'furnish' | 'adopt' | 'feed' | 'brush' | 'foal' | 'mow' | 'rake' | 'sell' | 'buy' | 'dress' | 'pick' | 'craft' | 'tut' | 'shake' | 'fish' | 'donate' | 'order' | 'wish' | 'present';
   c?: number;
   r?: number;
   /** Baum (Axt) bzw. Stock/Stein (pick): Nummer */
@@ -24,7 +24,7 @@ export interface Action {
   /** Abgleich: Baum ist umgefallen (unabhängig von einzelnen Schlägen) */
   fell?: boolean;
   /** Bauen: Haus, Lagerfeuer, Stall, Koppel, Deko */
-  what?: 'house' | 'fire' | 'stable' | 'paddock' | 'deco';
+  what?: 'house' | 'fire' | 'stable' | 'paddock' | 'deco' | 'hut';
   /** Essen: Ofenrübe statt roher Rübe */
   cooked?: boolean;
   /** Möbel: Haus, Platz, Möbelstück */
@@ -40,7 +40,7 @@ export interface Action {
 
 /** Effekte (Splitter, „+4 Holz“) */
 export interface Fx {
-  k: 'chop' | 'fell' | 'till' | 'seed' | 'water' | 'refill' | 'harvest' | 'build' | 'can' | 'quest' | 'level' | 'sleep' | 'cook' | 'furnish' | 'horse' | 'feed' | 'brush' | 'foal' | 'mow' | 'rake' | 'trade' | 'pick' | 'craft' | 'fruit' | 'fish' | 'project' | 'order';
+  k: 'chop' | 'fell' | 'till' | 'seed' | 'water' | 'refill' | 'harvest' | 'build' | 'can' | 'quest' | 'level' | 'sleep' | 'cook' | 'furnish' | 'horse' | 'feed' | 'brush' | 'foal' | 'mow' | 'rake' | 'trade' | 'pick' | 'craft' | 'fruit' | 'fish' | 'project' | 'order' | 'villager';
   /** neue Stufe */
   n?: number;
   x: number;

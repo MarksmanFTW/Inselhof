@@ -11,6 +11,7 @@ import { FISH, fishById } from './fish';
 import { PROJECTS, cleanProj, newProj, type Foot, type ProjState } from './projects';
 import { cleanOrders, newOrders, type OrderState } from './orders';
 import { DISH_IDS } from './store';
+import { cleanVillagers, nextVillager, type Villager } from './villagers';
 import type { PickKind } from './island';
 import type { Clock } from './time';
 
@@ -45,17 +46,21 @@ export interface Fire {
   x: number;
   y: number;
 }
-export type BuildKind = 'house' | 'fire' | 'stable' | 'paddock' | 'deco';
+export type BuildKind = 'house' | 'fire' | 'stable' | 'paddock' | 'deco' | 'hut';
 /** Grundfläche des Lagerfeuers */
 export const FIRE_FOOT = { left: -6, right: 6, top: -4, bottom: 1 };
 /** Grundfläche des Pferdestalls */
 export const STABLE_FOOT = { left: -24, right: 24, top: -14, bottom: 1 };
+/** Bewohnerhaus: kleines Häuschen für ein Tier */
+export const HUT_FOOT = { left: -12, right: 12, top: -10, bottom: 1 };
+export const HUT_COST = 12;
 export const BUILDS: Record<BuildKind, { cost: number; foot: typeof HOUSE_FOOT }> = {
   house: { cost: HOUSE_COST, foot: HOUSE_FOOT },
   fire: { cost: FIRE_COST, foot: FIRE_FOOT },
   stable: { cost: STABLE_COST, foot: STABLE_FOOT },
   paddock: { cost: PADDOCK_COST, foot: PADDOCK_FOOT },
   deco: { cost: 0, foot: DECO_FOOT },
+  hut: { cost: HUT_COST, foot: HUT_FOOT },
 };
 
 export interface WorldSave {
@@ -97,6 +102,8 @@ export interface WorldSave {
   dishes?: Record<string, number>;
   recipes?: string[];
   orders?: OrderState;
+  /** eingezogene Bewohner (jeder wohnt in seinem Häuschen) */
+  villagers?: Villager[];
 }
 
 export type TreeStage = 'tree' | 'stump' | 'sapling';
@@ -137,6 +144,7 @@ export class World {
   dishes: Record<string, number> = {};
   recipes: string[] = [];
   orders: OrderState = newOrders();
+  villagers: Villager[] = [];
   /** Treffer am aktuellen Baum (nicht gespeichert) */
   private hits = new Map<number, number>();
   /** wird bei jeder Änderung hochgezählt (Schatten neu malen, speichern) */
@@ -168,6 +176,7 @@ export class World {
       for (const [k, v] of Object.entries(save.dishes ?? {})) if (DISH_IDS.includes(k as never) && typeof v === 'number' && v > 0) this.dishes[k] = Math.floor(v);
       this.recipes = (save.recipes ?? []).filter((r) => DISH_IDS.includes(r as never));
       this.orders = cleanOrders(save.orders);
+      this.villagers = cleanVillagers(save.villagers);
       this.apples = Math.max(0, Math.floor(save.apples ?? 0));
       this.berries = Math.max(0, Math.floor(save.berries ?? 0));
       for (const [k, v] of Object.entries(save.shaken ?? {})) {
@@ -183,6 +192,7 @@ export class World {
       this.albumClaimed = Math.max(0, Math.floor(save.albumClaimed ?? 0));
       // ältere Spielstände: eigene Pferde stehen schon im Album
       for (const h of this.horses) if (!this.album.horses.includes(h.breed)) this.album.horses.push(h.breed);
+      for (const v of this.villagers) this.albumAdd('folk', v.id);
       const c = save.clock;
       this.clock = c && typeof c.offset === 'number' && typeof c.day0 === 'number' ? { offset: c.offset, day0: c.day0 } : null;
     }
@@ -215,6 +225,7 @@ export class World {
     this.dishes = w.dishes;
     this.recipes = w.recipes;
     this.orders = w.orders;
+    this.villagers = w.villagers;
     this.version++;
   }
 
@@ -227,7 +238,7 @@ export class World {
       ...(this.stables.length ? { stables: this.stables.map((f) => ({ ...f })), horses: this.horses.map((h) => ({ ...h })) } : {}),
       ...(this.paddocks.length ? { paddocks: this.paddocks.map((f) => ({ ...f })) } : {}),
       ...(this.coins || this.decos.length || albumCount(this.album) || Object.keys(this.decoInv).length
-        ? { coins: this.coins, decos: this.decos.map((d) => ({ ...d })), decoInv: { ...this.decoInv }, album: { horses: [...this.album.horses], deco: [...this.album.deco], ...(this.album.fish ? { fish: [...this.album.fish] } : {}) }, albumClaimed: this.albumClaimed }
+        ? { coins: this.coins, decos: this.decos.map((d) => ({ ...d })), decoInv: { ...this.decoInv }, album: { horses: [...this.album.horses], deco: [...this.album.deco], ...(this.album.fish ? { fish: [...this.album.fish] } : {}), ...(this.album.folk ? { folk: [...this.album.folk] } : {}) }, albumClaimed: this.albumClaimed }
         : {}),
       ...(this.clock ? { clock: { ...this.clock } } : {}),
       prog: { xp: this.prog.xp, stats: { ...this.prog.stats }, quests: this.prog.quests, v: this.prog.v },
@@ -237,6 +248,7 @@ export class World {
       ...(Object.keys(this.dishes).length || this.recipes.length || this.orders.list
         ? { dishes: { ...this.dishes }, recipes: [...this.recipes], orders: { day: this.orders.day, list: this.orders.list ? this.orders.list.map((o) => ({ ...o, need: { ...o.need } })) : null, done: [...this.orders.done] } }
         : {}),
+      ...(this.villagers.length ? { villagers: this.villagers.map((v) => ({ ...v })) } : {}),
       ...(this.proj.n || this.proj.sites.length || Object.keys(this.proj.got).length ? { proj: { n: this.proj.n, got: { ...this.proj.got }, sites: this.proj.sites.map((s) => (s ? [s[0], s[1]] : null)) as ProjState['sites'] } } : {}),
     };
   }
@@ -323,6 +335,7 @@ export class World {
       [this.fires, FIRE_FOOT],
       [this.stables, STABLE_FOOT],
       [this.decos, DECO_FOOT],
+      [this.villagers, HUT_FOOT],
     ] as const)
       for (const h of list) if (x + fw > h.x + f.left && x - fw < h.x + f.right && y + fh > h.y + f.top && y - fh < h.y + f.bottom) return true;
     for (const h of this.projSites()) if (x + fw > h.x + h.foot.left && x - fw < h.x + h.foot.right && y + fh > h.y + h.foot.top && y - fh < h.y + h.foot.bottom) return true;
@@ -469,6 +482,7 @@ export class World {
       [this.stables, STABLE_FOOT],
       [this.paddocks, PADDOCK_FOOT],
       [this.decos, DECO_FOOT],
+      [this.villagers, HUT_FOOT],
     ] as const)
       for (const h of list)
         if (x + f.right + 4 > h.x + g.left && x + f.left - 4 < h.x + g.right && y + f.bottom + 4 > h.y + g.top - 6 && y + f.top - 8 < h.y + g.bottom) return false;
@@ -483,6 +497,16 @@ export class World {
   build(x: number, y: number, player?: { x: number; y: number }, kind: BuildKind = 'house') {
     const cost = BUILDS[kind].cost;
     if (this.wood < cost || !this.canPlace(x, y, player, kind)) return false;
+    if (kind === 'hut') {
+      // ins neue Häuschen zieht der nächste Bewohner ein
+      const v = nextVillager(this);
+      if (!v) return false;
+      this.wood -= cost;
+      this.villagers.push({ id: v.id, x: Math.round(x), y: Math.round(y), hearts: 0, wished: -1, gifted: -1 });
+      this.albumAdd('folk', v.id);
+      this.version++;
+      return true;
+    }
     this.wood -= cost;
     (kind === 'fire' ? this.fires : kind === 'stable' ? this.stables : kind === 'paddock' ? this.paddocks : this.houses).push({ x: Math.round(x), y: Math.round(y) });
     this.version++;

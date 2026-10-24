@@ -376,7 +376,9 @@ export interface HudActions {
   act: (down: boolean) => void;
   tool: (t: ToolId) => void;
   /** Bau-Fenster: Haus oder Lagerfeuer wählen → platzieren */
-  place: (what: 'house' | 'fire' | 'stable' | 'paddock' | 'deco', item?: string) => void;
+  place: (what: 'house' | 'fire' | 'stable' | 'paddock' | 'deco' | 'hut', item?: string) => void;
+  /** wer ins nächste Bewohnerhaus einzieht (null = alle da) */
+  nextFolk: () => { name: string; animal: string; img: string } | null;
   /** gekaufte Deko zum Aufstellen */
   decoList: () => { id: string; name: string; img: string; n: number }[];
   album: () => void;
@@ -423,6 +425,7 @@ export interface HudIcons {
   berry: string;
   rod: string;
   grilled: string;
+  hut: string;
 }
 
 /** Rucksack-Fenster: Abschnitte mit Gegenständen; Antippen zeigt Infos und Knöpfe */
@@ -455,6 +458,25 @@ export interface KitchenData {
   list: { id: string; name: string; text: string; img: string; energy: number; price: number; need: Need[]; known: boolean; have: number }[];
 }
 /** Bestellbrett */
+/** Bewohner-Fenster */
+export interface VillagerData {
+  name: string;
+  animal: string;
+  text: string;
+  img: string;
+  /** was er heute erzählt */
+  line: string;
+  hearts: number;
+  max: number;
+  /** Wunsch von heute (null = schon erfüllt) */
+  wish: { name: string; img: string; n: number; have: number; coins: number; fav: boolean } | null;
+  fav: { name: string; img: string };
+  /** Tagesgeschenk: noch gesperrt (unter 6 Herzen), bereit, heute schon abgeholt */
+  present: { name: string; img: string; n: number; state: 'locked' | 'ready' | 'taken' };
+  steps: { at: number; text: string; got: boolean }[];
+  night: boolean;
+}
+
 export interface OrdersData {
   day: string;
   list: { who: string; size: string; need: Need[]; coins: number; extra?: { img: string; text: string }; done: boolean }[];
@@ -575,6 +597,8 @@ export interface Hud {
   openKitchen(d: KitchenData, cook: (id: string) => void): { update(d: KitchenData): void };
   /** Bestellbrett; update() zeichnet neu, solange offen */
   openOrders(d: OrdersData, deliver: (i: number) => void): { update(d: OrdersData): void };
+  /** Bewohner: Wunsch erfüllen, Geschenk abholen; update() zeichnet neu, solange offen */
+  openVillager(d: VillagerData, hearts: [string, string], on: { give: () => void; present: () => void }): { update(d: VillagerData): void };
   /** Bestellbrett-Knopf: so viele könnte man gerade liefern */
   setOrders(ready: number): void;
   /** Insel-Projekt-Anzeige unter der Aufgabe (null = keine) */
@@ -595,7 +619,7 @@ export interface Hud {
 }
 
 /** Anzeigen und Knöpfe im Spiel */
-export function showHud(on: HudActions, icons: HudIcons, costs: { house: number; fire: number; stable: number; paddock: number }): Hud {
+export function showHud(on: HudActions, icons: HudIcons, costs: { house: number; fire: number; stable: number; paddock: number; hut: number }): Hud {
   clear();
   ui.className = 'ui-hud';
   const slot = (t: ToolId, icon: string) =>
@@ -869,6 +893,62 @@ export function showHud(on: HudActions, icons: HudIcons, costs: { house: number;
         if (b && !b.disabled) deliverIt(Number(b.dataset.o));
       });
       return { update: (c: OrdersData) => modal.isConnected && draw(c) };
+    },
+    openVillager(d, hearts, act) {
+      const modal = document.createElement('div');
+      modal.className = 'modal';
+      const draw = (c: VillagerData) => {
+        const w = c.wish;
+        const can = !!w && w.have >= w.n;
+        const p = c.present;
+        modal.innerHTML = `<div class="panel build-panel stable-panel folk-panel">
+          <h2>${esc(c.name)}</h2>
+          <div class="horse-hero folk-hero"><img src="${c.img}" alt="" /></div>
+          <p class="have"><b>${esc(c.animal)}</b> – ${esc(c.text)}</p>
+          <p class="say">„${esc(c.line)}“</p>
+          <div class="hearts folk-hearts">${Array.from({ length: c.max }, (_, i) => `<img src="${hearts[i < c.hearts ? 0 : 1]}" alt="" />`).join('')}</div>
+          <h3 class="sub">Wunsch von heute</h3>
+          ${
+            w
+              ? `<div class="craft-row wish">
+              <img class="tool" src="${w.img}" alt="" />
+              <div class="what"><b>${w.n} ${esc(w.name)}${w.fav ? ' <small class="cnt fav">♥ Lieblingssache</small>' : ''}</b><small>Du hast ${w.have} · Belohnung: ${w.coins} Münzen + ${w.fav ? 2 : 1} ${w.fav ? 'Herzen' : 'Herz'}</small></div>
+              <button class="pbtn green small" data-m="give"${can ? '' : ' disabled'}>${can ? 'Schenken' : 'Fehlt noch'}</button>
+            </div>`
+              : `<p class="mine">Heute schon erfüllt – ${esc(c.name)} freut sich! Morgen gibt es einen neuen Wunsch.</p>`
+          }
+          <div class="craft-row present${p.state === 'locked' ? ' locked' : ''}">
+            <img class="tool" src="${p.img}" alt="" />
+            <div class="what"><b>Geschenk: ${p.n} ${esc(p.name)}</b><small>${p.state === 'locked' ? 'Ab 6 Herzen schenkt dir ' + esc(c.name) + ' jeden Tag etwas.' : p.state === 'taken' ? 'Heute schon abgeholt – morgen wieder!' : 'Jeden Tag ein kleines Geschenk.'}</small></div>
+            ${p.state === 'ready' ? '<button class="pbtn green small" data-m="present">Abholen</button>' : ''}
+          </div>
+          <div class="folk-steps">
+            <span><img src="${c.fav.img}" alt="" />Mag am liebsten: <b>${esc(c.fav.name)}</b></span>
+            ${c.steps.map((s) => `<span class="${s.got ? 'got' : ''}"><img src="${hearts[0]}" alt="" />${s.at}: ${esc(s.text)}</span>`).join('')}
+          </div>
+          <button class="pbtn small ghost" data-m="close">Tschüss!</button>
+        </div>`;
+      };
+      draw(d);
+      ui.appendChild(modal);
+      modal.addEventListener('click', (e) => {
+        const t = e.target as HTMLElement;
+        if (e.target === modal || t.closest('[data-m=close]')) return modal.remove();
+        const b = t.closest<HTMLButtonElement>('[data-m]');
+        if (!b || b.disabled) return;
+        if (b.dataset.m === 'give') act.give();
+        if (b.dataset.m === 'present') act.present();
+      });
+      return {
+        update: (c: VillagerData) => {
+          if (!modal.isConnected) return;
+          const pn = modal.querySelector('.folk-panel');
+          const sc = pn?.scrollTop ?? 0;
+          draw(c);
+          const p2 = modal.querySelector('.folk-panel');
+          if (p2) p2.scrollTop = sc;
+        },
+      };
     },
     setProject(text, progress) {
       const c = $('.proj-chip');
@@ -1254,6 +1334,20 @@ export function showHud(on: HudActions, icons: HudIcons, costs: { house: number;
             <button class="pbtn green small" data-m="${what}"${enough ? '' : ' disabled'}>${enough ? 'Platzieren' : `Noch ${cost - wood} Holz`}</button></div>
           </div>`;
       };
+      const folkCard = () => {
+        const nf = on.nextFolk();
+        const cost = costs.hut;
+        const enough = wood >= cost;
+        if (!nf)
+          return `<div class="build-card poor"><img src="${icons.hut}" alt="" /><div><b>Bewohnerhaus</b><p>Alle sechs Bewohner wohnen schon auf deiner Insel.</p></div></div>`;
+        return `<div class="build-card folk${enough ? '' : ' poor'}">
+            <img src="${icons.hut}" alt="" />
+            <div><b>Bewohnerhaus</b><p>Hier zieht <b>${esc(nf.name)}</b> ein (${esc(nf.animal)}). Erfüll Wünsche und werdet Freunde!</p>
+            <p class="cost"><img src="${icons.log}" alt="" /> ${cost} Holz</p>
+            <button class="pbtn green small" data-m="hut"${enough ? '' : ' disabled'}>${enough ? 'Platzieren' : `Noch ${cost - wood} Holz`}</button></div>
+            <img class="who" src="${nf.img}" alt="" />
+          </div>`;
+      };
       const modal = document.createElement('div');
       modal.className = 'modal';
       modal.innerHTML = `<div class="panel build-panel">
@@ -1263,6 +1357,7 @@ export function showHud(on: HudActions, icons: HudIcons, costs: { house: number;
           ${card('fire', icons.fire, 'Lagerfeuer', 'Brät Rüben zu Ofenrüben – macht richtig satt.')}
           ${card('stable', icons.stable, 'Pferdestall', 'Platz für 4 Pferde – such dir deine Lieblingsrassen aus.')}
           ${card('paddock', icons.paddock, 'Koppel', 'Eingezäunte Weide beim Stall – dort grasen deine Pferde.')}
+          ${folkCard()}
           <h3 class="sub">Deko aufstellen</h3>
           ${
             decos.length
@@ -1281,7 +1376,7 @@ export function showHud(on: HudActions, icons: HudIcons, costs: { house: number;
           on.place('deco', dk.dataset.deco);
           return;
         }
-        if (m && !m.disabled && (m.dataset.m === 'house' || m.dataset.m === 'fire' || m.dataset.m === 'stable' || m.dataset.m === 'paddock')) {
+        if (m && !m.disabled && (m.dataset.m === 'house' || m.dataset.m === 'fire' || m.dataset.m === 'stable' || m.dataset.m === 'paddock' || m.dataset.m === 'hut')) {
           modal.remove();
           on.place(m.dataset.m);
         }

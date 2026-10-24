@@ -5,6 +5,7 @@
  */
 import { RARE_BREEDS, STABLE_BREEDS } from './horses';
 import { FISH } from './fish';
+import { VILLAGERS } from './villagers';
 import { timeOf, type Clock } from './time';
 
 /** Verkaufspreise in Münzen pro Stück */
@@ -67,8 +68,10 @@ export interface Album {
   deco: string[];
   /** gefangene Fischarten (seit dem Angeln) */
   fish?: string[];
+  /** eingezogene Bewohner */
+  folk?: string[];
 }
-export const ALBUM_TOTAL = STABLE_BREEDS.length + RARE_BREEDS.length + DECO.length + FISH.length;
+export const ALBUM_TOTAL = STABLE_BREEDS.length + RARE_BREEDS.length + DECO.length + FISH.length + VILLAGERS.length;
 /** Belohnungen: ab so vielen Einträgen gibt es Münzen */
 export const ALBUM_REWARDS = [
   { at: 5, coins: 20 },
@@ -77,9 +80,10 @@ export const ALBUM_REWARDS = [
   { at: 20, coins: 100 },
   { at: ALBUM_TOTAL, coins: 250 },
 ];
-export const albumCount = (a: Album) => a.horses.length + a.deco.length + (a.fish?.length ?? 0);
+export const albumCount = (a: Album) => a.horses.length + a.deco.length + (a.fish?.length ?? 0) + (a.folk?.length ?? 0);
 export function cleanAlbum(a: Partial<Album> | undefined): Album {
   const ok = (l: unknown) => (Array.isArray(l) ? [...new Set(l.filter((x): x is string => typeof x === 'string'))] : []);
   const fish = ok(a?.fish).filter((id) => FISH.some((f) => f.id === id));
-  return { horses: ok(a?.horses), deco: ok(a?.deco), ...(fish.length ? { fish } : {}) };
+  const folk = ok(a?.folk).filter((id) => VILLAGERS.some((v) => v.id === id));
+  return { horses: ok(a?.horses), deco: ok(a?.deco), ...(fish.length ? { fish } : {}), ...(folk.length ? { folk } : {}) };
 }

@@ -18,6 +18,7 @@ import { fishById } from './fish';
 import { FEST_COINS, PROJECTS, PROJ_ITEMS, islandHas, islandTake, pickSite, type ProjItem } from './projects';
 import { cook, isDish, recipeById } from './cooking';
 import { deliver, type Order } from './orders';
+import { fulfill, nextVillager, takePresent, type WishResult } from './villagers';
 import type { PickKind } from './island';
 
 /**
@@ -60,6 +61,9 @@ export interface OpResult {
   /** Bestellung geliefert / gekocht */
   delivered?: Order;
   cooked?: string;
+  /** Bewohner eingezogen (id) / Wunsch erfüllt */
+  movedIn?: string;
+  wish?: WishResult;
 }
 
 /** Ackerbau kennt die Fähigkeiten der Insel-Stufe */
@@ -69,7 +73,7 @@ export function link(world: World, farm: Farm) {
 
 const STAT: Partial<Record<Action['kind'], Stat>> = { hoe: 'tilled', seeds: 'planted', water: 'watered', harvest: 'harvested', adopt: 'adopted', foal: 'adopted', mow: 'mowed', feed: 'cared', brush: 'cared', cook: 'cooked' };
 /** Bauen: was zählt wofür (Deko und Koppel zählen nicht) */
-const BUILT: Partial<Record<BuildKind, Stat>> = { house: 'built', fire: 'fire', stable: 'stable' };
+const BUILT: Partial<Record<BuildKind, Stat>> = { house: 'built', fire: 'fire', stable: 'stable', hut: 'villagers' };
 
 
 /** Aktion ausführen und Fortschritt verbuchen */
@@ -92,6 +96,7 @@ export function applyOp(world: World, farm: Farm, op: Op): OpResult {
     else if (a.kind === 'shake' && res.fruit) merge(gain(world.prog, 'fruit', res.fruit.apples + res.fruit.berries, give));
     else if (a.kind === 'donate' && res.finished) merge(gain(world.prog, 'projects', 1, give));
     else if (a.kind === 'order' && res.delivered) merge(gain(world.prog, 'orders', 1, give));
+    else if (a.kind === 'wish' && res.wish) merge(gain(world.prog, 'wishes', 1, give));
     else if (a.kind === 'fish' && res.caught) {
       merge(gain(world.prog, 'fish', 1, give));
       if (res.caught.first) merge(gain(world.prog, 'species', 1, give));
@@ -164,6 +169,14 @@ function run(world: World, farm: Farm, op: Op): OpResult {
   if (a.kind === 'order') {
     const r = deliver(world, farm, Math.floor(a.n ?? -1), t);
     return { err: r.err, done: !r.err, delivered: r.order };
+  }
+  if (a.kind === 'wish') {
+    const r = fulfill(world, farm, Math.floor(a.n ?? -1), t, a.item);
+    return { err: r.err, done: !r.err, wish: r.err ? undefined : r };
+  }
+  if (a.kind === 'present') {
+    const e = takePresent(world, farm, Math.floor(a.n ?? -1), t);
+    return { err: e, done: !e };
   }
   if (a.kind === 'donate') return donate(world, farm, a.item as ProjItem, Math.max(1, Math.floor(a.n ?? 1)));
   if (a.kind === 'tut') {
@@ -260,8 +273,10 @@ function run(world: World, farm: Farm, op: Op): OpResult {
     const x = a.x ?? 0;
     const y = a.y ?? 0;
     const what = a.what ?? 'house';
-    if (farmUnder(farm, x, y, what)) err = 'Hier ist ein Feld im Weg';
-    else if (world.build(x, y, actor, what)) return { err: null, done: true, built: true };
+    const folk = what === 'hut' ? nextVillager(world) : null;
+    if (what === 'hut' && !folk) err = 'Alle Bewohner sind schon eingezogen';
+    else if (farmUnder(farm, x, y, what)) err = 'Hier ist ein Feld im Weg';
+    else if (world.build(x, y, actor, what)) return { err: null, done: true, built: true, ...(folk ? { movedIn: folk.id } : {}) };
     else err = world.wood < BUILDS[what].cost ? 'Zu wenig Holz' : 'Hier ist kein Platz';
   } else if (a.kind === 'sleep') {
     world.clock ??= newClock(t);

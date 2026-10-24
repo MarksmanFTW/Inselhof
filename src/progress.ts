@@ -33,7 +33,10 @@ export type Stat =
   | 'species'
   // Insel-Projekte fertig, Bestellungen geliefert
   | 'projects'
-  | 'orders';
+  | 'orders'
+  // Bewohner eingezogen, Wünsche erfüllt
+  | 'villagers'
+  | 'wishes';
 
 export interface Progress {
   xp: number;
@@ -43,12 +46,12 @@ export interface Progress {
   /**
    * Version der Aufgabenliste: fehlt = ursprüngliche Liste, 2 = mit Tutorial am
    * Anfang (kurz im Oktober 2026), 3 = ausgebaut, Tutorial gehört jedem Spieler selbst,
-   * 4 = mit Angeln
+   * 4 = mit Angeln, 5 = mit Bewohnern
    */
   v?: number;
 }
 
-export const QUEST_V = 4;
+export const QUEST_V = 5;
 export const newProgress = (): Progress => ({ xp: 0, stats: {}, quests: 0, v: QUEST_V });
 
 /**
@@ -74,6 +77,9 @@ export function cleanProgress(p: Partial<Progress> | undefined, legacy?: { fires
   }
   // v3 → v4: zwei Angel-Aufgaben nach dem ersten Haus, eine vor dem zweiten Haus
   if (v <= 3) n = n < 10 ? n : n < 20 ? n + 2 : n + 3;
+  // v4 → v5: drei Bewohner-Aufgaben hinten an der Liste (wer schon mitten in den
+  // endlosen Aufgaben ist, behält seine – sonst gäbe es Belohnungen doppelt)
+  if (v <= 4 && n > V4_LEN) n += 3;
   out.quests = n;
   return out;
 }
@@ -104,6 +110,8 @@ export const XP: Record<Exclude<Stat, 'wood'>, number> = {
   species: 5,
   projects: 60,
   orders: 10,
+  villagers: 30,
+  wishes: 8,
 };
 
 /** XP bis Stufe L: 30 · L(L-1)/2 → 30, 90, 180, 300 … */
@@ -178,10 +186,15 @@ const QUESTS: Quest[] = [
   { text: 'Ernte 25 Rüben', stat: 'harvested', goal: 25, xp: 80, seeds: 5, coins: 15 },
   { text: 'Fang 5 verschiedene Fischarten', stat: 'species', goal: 5, xp: 60, coins: 15, hint: 'Manche Fische gibt es nur nachts, andere nur draußen am Steg.' },
   { text: 'Bau ein zweites Haus', stat: 'built', goal: 2, xp: 100, wood: 5 },
+  { text: 'Bau ein Bewohnerhaus', stat: 'villagers', goal: 1, xp: 40, coins: 10, hint: 'Unter „Bauen“ – kostet 12 Holz. Dann zieht ein Tier bei dir ein!' },
+  { text: 'Erfülle 5 Wünsche deiner Bewohner', stat: 'wishes', goal: 5, xp: 50, coins: 15, hint: 'Ein „!“ über dem Kopf heißt: Heute wünscht sich der Bewohner etwas. Geh hin und tipp.' },
+  { text: 'Hol 3 Bewohner auf die Insel', stat: 'villagers', goal: 3, xp: 80, wood: 10, hint: 'Jedes neue Bewohnerhaus bringt ein neues Tier – sechs gibt es.' },
 ];
 /** ursprüngliche Liste: Aufgabe Nr. n → Nummer in Liste v3 (danach weiter auf v4) */
 const OLD_TO_V3 = [0, 1, 2, 4, 6, 8, 9, 13, 14, 17, 19, 20];
 const V3_LEN = 21;
+/** so lang war Liste v4 */
+const V4_LEN = 24;
 /** Liste v2 hatte vorne drei Tutorial-Aufgaben */
 const V2_TUTORIAL = 3;
 /** n-te Aufgabe; nach der Liste geht es mit immer größeren Ernte-/Holz-Zielen weiter */

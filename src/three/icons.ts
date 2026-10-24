@@ -10,6 +10,7 @@ import { toolGeo } from './kid';
 import * as M from './models';
 import { photo } from './portrait';
 import { fishById } from '../fish';
+import { hut, makeAnimal } from './folk';
 
 const meshOf = (g: THREE.BufferGeometry) => new THREE.Mesh(g, vcMat(0.6));
 
@@ -231,6 +232,7 @@ const MAKERS = {
   rod: () => photo('i:rod', () => tool('rod'), { yaw: 0, tilt: 0.25, fill: 0.5 }),
   grilled: () => photo('i:grilled', grilled, { yaw: 0, tilt: 0.55 }),
   berry: () => photo('i:berry', berries, { yaw: 0, tilt: 0.2 }),
+  hut: () => photo('i:hut', () => hut('hase'), { yaw: -0.45, tilt: 0.42 }),
 } satisfies Record<string, () => string>;
 
 /** Symbole als Objekt mit Eigenschaften, die erst beim Lesen entstehen */
@@ -285,4 +287,17 @@ export function heartUrl(full: boolean) {
 export function fishPhoto(id: string) {
   const f = fishById(id);
   return photo(`fish:${id}`, () => M.fishModel(id, f?.colors ?? ['#888', '#ccc', '#666'], f?.size ?? 0.8), { yaw: id === 'stiefel' ? 0.5 : 0.15, tilt: 0.2, fill: 0.8 });
+}
+
+/** Bewohner fürs Fenster, den Knopf und das Album (Kopf und Halstuch groß im Bild) */
+export function villagerPhoto(id: string) {
+  return photo(
+    `folk:${id}`,
+    () => {
+      const a = makeAnimal(id);
+      a.pose({ walk: 0, moving: false, happy: 0, t: 0, sleep: false });
+      return a.g;
+    },
+    { yaw: -0.3, tilt: 0.18, fill: 0.46 },
+  );
 }

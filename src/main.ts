@@ -21,15 +21,16 @@ import { RECIPES, TOOL_NAME, TUTORIAL, TUT_SEEDS, bagCraft, bagPick, craftBlock,
 import { newClock, rainSince, timeOf, type TimeOfDay } from './time';
 import { MAX_SLOTS, activeSlot, addSlot, loadSave, removeSlot, writeSave, type Save, type Slot } from './save';
 import type { Action, Fx } from './net/types';
-import { showCoop, showCustomize, showHud, showMenu, showSettings, showSlots, textScale, type CraftData, type Hud, type InvData, type KitchenData, type Need, type OrdersData, type ProjData, type ToolId, type TradeData } from './ui';
+import { showCoop, showCustomize, showHud, showMenu, showSettings, showSlots, textScale, type CraftData, type Hud, type InvData, type KitchenData, type Need, type OrdersData, type ProjData, type ToolId, type TradeData, type VillagerData } from './ui';
 import { PROJECTS, PROJ_ITEMS, islandHas, projProgress, siteOf, type ProjItem } from './projects';
 import { COOK, knows, recipeById, isDish } from './cooking';
 import { CUSTOMERS, SIZES, boardSpot, ordersToday } from './orders';
-import { STORE_NAMES, storeHas, storeHasAll, DISH_IDS, type StoreItem } from './store';
-import { BUILDS, FIRE_COST, HOUSE_COST, World, type BuildKind } from './world';
+import { STORE_NAMES, storeHas, storeHasAll, storeName, DISH_IDS, type StoreItem } from './store';
+import { BUILDS, FIRE_COST, HOUSE_COST, HUT_COST, World, type BuildKind } from './world';
+import { BEST_FRIEND_COINS, MAX_HEARTS, SURPRISE, VILLAGERS, nextVillager, villagerById, wishOf, type Villager } from './villagers';
 import { View } from './three/view';
 import { horsePhoto } from './three/portrait';
-import { decoPhoto, fishPhoto, furniturePhoto, heartUrl, lazyIcons } from './three/icons';
+import { decoPhoto, fishPhoto, furniturePhoto, heartUrl, lazyIcons, villagerPhoto } from './three/icons';
 import { warmHorse } from './three/horse';
 
 const screen = document.querySelector<HTMLCanvasElement>('#screen')!;
@@ -220,7 +221,7 @@ function perform(a: Action, actor: { x: number; y: number }): string | null {
     else if (a.kind === 'harvest' && res.harvest) {
       emit({ k: 'harvest', x: cx, y: cy, text: `+1 Rübe  +${res.harvest.seeds} Samen` });
       if (res.harvest.gotCan) emit({ k: 'can', x: actor.x, y: actor.y, text: 'Eisen-Gießkanne!' });
-    } else if (a.kind === 'build') emit({ k: 'build', x: a.x ?? 0, y: a.y ?? 0, text: a.what === 'fire' ? 'Lagerfeuer!' : a.what === 'stable' ? 'Pferdestall!' : a.what === 'paddock' ? 'Koppel!' : a.what === 'deco' ? `${decoById(a.item ?? '')?.name ?? 'Deko'} steht!` : 'Haus gebaut!' });
+    } else if (a.kind === 'build') emit({ k: 'build', x: a.x ?? 0, y: a.y ?? 0, text: a.what === 'hut' ? `${villagerById(res.movedIn ?? '')?.name ?? 'Jemand'} zieht ein!` : a.what === 'fire' ? 'Lagerfeuer!' : a.what === 'stable' ? 'Pferdestall!' : a.what === 'paddock' ? 'Koppel!' : a.what === 'deco' ? `${decoById(a.item ?? '')?.name ?? 'Deko'} steht!` : 'Haus gebaut!' });
     else if (a.kind === 'adopt') {
       const st = world.stables[a.house ?? -1];
       const h = world.horses[world.horses.length - 1];
@@ -268,6 +269,7 @@ function perform(a: Action, actor: { x: number; y: number }): string | null {
   syncHud();
   persist();
   if (res.picked || res.crafted) tutorialStep();
+  if (res.movedIn) folkWelcome(res.movedIn);
   return res.err;
 }
 /** eigenes Tutorial weiterzählen; am Ende 3 Rübensamen für die Insel */
@@ -322,7 +324,7 @@ function facingWater() {
   }
   return false;
 }
-type Intent = ToolId | 'harvest' | 'refill' | 'cook' | 'rake' | 'pick' | 'shake' | 'fish' | 'project' | 'orders' | 'trade' | 'enter' | 'exit' | 'sleep' | 'chest' | 'furnish' | 'stable' | 'horse' | 'dismount' | null;
+type Intent = ToolId | 'harvest' | 'refill' | 'cook' | 'rake' | 'pick' | 'shake' | 'fish' | 'project' | 'orders' | 'villager' | 'trade' | 'enter' | 'exit' | 'sleep' | 'chest' | 'furnish' | 'stable' | 'horse' | 'dismount' | null;
 /** Stock/Stein direkt bei der Figur (Nummer in island.pickups) */
 function pickNear() {
   let best = -1;
@@ -397,6 +399,7 @@ function openAlbum() {
       { title: 'Seltene Pferde', items: RARE_BREEDS.map((b) => ({ name: b.name, img: pic(b.id), has: world.album.horses.includes(b.id), rare: true })) },
       { title: 'Deko', items: DECO.map((d) => ({ name: d.name, img: decoIcon(d.id), has: world.album.deco.includes(d.id) })) },
       { title: 'Fische', items: FISH.map((f) => ({ name: f.name, img: fishPhoto(f.id), has: (world.album.fish ?? []).includes(f.id), rare: !f.cook && f.price > 0 })) },
+      { title: 'Bewohner', items: VILLAGERS.map((v) => ({ name: v.name, img: villagerPhoto(v.id), has: (world.album.folk ?? []).includes(v.id) })) },
     ],
     count: albumCount(world.album),
     total: ALBUM_TOTAL,
@@ -443,6 +446,8 @@ function intent(): { kind: Intent; tree: number; tile: [number, number] } {
   if (sd >= 0) return { kind: 'stable', tree: sd, tile };
   const hn = horseNear();
   if (hn >= 0) return { kind: 'horse', tree: hn, tile };
+  const vn = villagerNear();
+  if (vn >= 0) return { kind: 'villager', tree: vn, tile };
   const p = farm.plot(...tile);
   if (p?.crop && p.crop.stage >= RIPE) return { kind: 'harvest', tree: -1, tile };
   // trockenes Heu liegt vor einem: einsammeln
@@ -780,6 +785,207 @@ function openOrders() {
     }) ?? null;
 }
 
+// ---------- Bewohner ----------
+/** wo jeder Bewohner gerade herumläuft (nur auf diesem Gerät, nicht gespeichert) */
+interface Walker {
+  x: number;
+  y: number;
+  tx: number;
+  ty: number;
+  wait: number;
+  yaw: number;
+  moving: boolean;
+  /** freut sich noch so lange (s) */
+  happy: number;
+}
+const walkers = new Map<string, Walker>();
+/** so weit laufen sie von ihrem Häuschen weg */
+const FOLK_R = 34;
+const homeOf = (v: Villager) => ({ x: v.x, y: v.y + 7 });
+/** dort darf ein Bewohner hin: Land, nichts im Weg, keine Felder zertrampeln */
+const folkFree = (x: number, y: number) =>
+  x > 4 && y > 4 && x < W - 4 && y < H - 4 && island.ground[(y | 0) * W + (x | 0)] !== Ground.Water && !world.blocked(x, y, 3, 2) && !farm.plot(...Farm.tileAt(x, y));
+function folkTarget(v: Villager) {
+  const h = homeOf(v);
+  for (let k = 0; k < 8; k++) {
+    const a = Math.random() * Math.PI * 2;
+    const r = 8 + Math.random() * FOLK_R;
+    const x = h.x + Math.cos(a) * r;
+    const y = h.y + Math.sin(a) * r * 0.7;
+    if (folkFree(x, y)) return { x, y };
+  }
+  return h;
+}
+/** Bewohner spazieren um ihr Häuschen, bleiben bei dir stehen und schauen dich an; nachts sind sie drinnen */
+function folkLife(dt: number) {
+  const night = !!tod?.night;
+  for (const v of world.villagers) {
+    let s = walkers.get(v.id);
+    if (!s) {
+      const h = homeOf(v);
+      const t = folkTarget(v);
+      s = { x: h.x, y: h.y, tx: t.x, ty: t.y, wait: 0.3 + Math.random() * 1.5, yaw: 0, moving: false, happy: 0 };
+      walkers.set(v.id, s);
+    }
+    s.happy = Math.max(0, s.happy - dt);
+    s.moving = false;
+    if (night) {
+      const h = homeOf(v);
+      Object.assign(s, { x: h.x, y: h.y, tx: h.x, ty: h.y, yaw: 0 });
+      continue;
+    }
+    if (inside < 0 && Math.hypot(player.x - s.x, (player.y - s.y) * 1.3) < 20) {
+      s.yaw = Math.atan2(player.x - s.x, player.y - s.y);
+      continue;
+    }
+    if (s.wait > 0) {
+      s.wait -= dt;
+      continue;
+    }
+    const dx = s.tx - s.x;
+    const dy = s.ty - s.y;
+    const d = Math.hypot(dx, dy);
+    if (d < 1.5) {
+      s.wait = 1.5 + Math.random() * 3;
+      const t = folkTarget(v);
+      s.tx = t.x;
+      s.ty = t.y;
+      continue;
+    }
+    const step = Math.min(d, 13 * dt);
+    const nx = s.x + (dx / d) * step;
+    const ny = s.y + (dy / d) * step;
+    // steht etwas im Weg: anderes Ziel (steckt er selbst fest, darf er raus)
+    if (!folkFree(nx, ny) && folkFree(s.x, s.y)) {
+      const t = folkTarget(v);
+      s.tx = t.x;
+      s.ty = t.y;
+      s.wait = 0.6;
+      continue;
+    }
+    s.x = nx;
+    s.y = ny;
+    s.moving = true;
+    s.yaw = Math.atan2(dx, dy);
+  }
+  for (const id of walkers.keys()) if (!world.villagers.some((v) => v.id === id)) walkers.delete(id);
+}
+function folkFrame(now: number) {
+  const day = islandDay(world.clock, now);
+  const out = [];
+  for (const v of world.villagers) {
+    const s = walkers.get(v.id);
+    if (s) out.push({ id: v.id, x: s.x, y: s.y, yaw: s.yaw, moving: s.moving, wish: v.wished !== day, happy: s.happy, hidden: !!tod?.night });
+  }
+  return out;
+}
+/** Bewohner direkt bei der Figur (nachts: an seiner Tür) */
+function villagerNear() {
+  if (inside >= 0 || riding >= 0) return -1;
+  let best = -1;
+  let bestD = 13;
+  world.villagers.forEach((v, i) => {
+    const p = tod?.night ? homeOf(v) : walkers.get(v.id);
+    if (!p) return;
+    const d = Math.hypot(p.x - player.x, (p.y - player.y) * 1.4);
+    if (d < bestD) {
+      bestD = d;
+      best = i;
+    }
+  });
+  return best;
+}
+let folkUI: { update(d: VillagerData): void } | null = null;
+let folkOpen = -1;
+function villagerData(i: number): VillagerData {
+  const v = world.villagers[i];
+  const def = villagerById(v.id)!;
+  const day = islandDay(world.clock, Date.now());
+  const w = v.wished === day ? null : wishOf(world, i, day);
+  return {
+    name: def.name,
+    animal: def.animal,
+    text: def.text,
+    img: villagerPhoto(v.id),
+    line: tod?.night ? 'Gähn … ich bin schon im Schlafanzug. Aber für dich mach ich gern auf!' : v.hearts >= MAX_HEARTS ? 'Wir sind jetzt beste Freunde – für immer!' : def.lines[(day + i) % def.lines.length],
+    hearts: v.hearts,
+    max: MAX_HEARTS,
+    wish: w ? { name: storeName(w.item, w.n), img: storeImg(w.item), n: w.n, have: storeHas(world, farm, w.item), coins: w.coins, fav: w.fav } : null,
+    fav: { name: STORE_NAMES[def.fav], img: storeImg(def.fav) },
+    present: { name: storeName(def.present, def.presentN), img: storeImg(def.present), n: def.presentN, state: v.hearts < 6 ? 'locked' : v.gifted === day ? 'taken' : 'ready' },
+    steps: [
+      { at: 3, text: `Überraschung (${SURPRISE.coins} Münzen + ${SURPRISE.seeds} Samen)`, got: v.hearts >= 3 },
+      { at: 6, text: 'jeden Tag ein Geschenk', got: v.hearts >= 6 },
+      { at: MAX_HEARTS, text: `beste Freunde (+${BEST_FRIEND_COINS} Münzen)`, got: v.hearts >= MAX_HEARTS },
+    ],
+    night: !!tod?.night,
+  };
+}
+function openVillager(i: number) {
+  if (!world.villagers[i]) return;
+  sfx('click');
+  folkOpen = i;
+  folkUI = hud?.openVillager(villagerData(i), hearts, { give: () => giveWish(i), present: () => takeGift(i) }) ?? null;
+}
+/** sich freuen: Herzchen und ein Hüpfer */
+function folkCheer(id: string, n: number) {
+  const s = walkers.get(id);
+  if (!s) return;
+  s.happy = 1.6;
+  view.heartsAt(s.x, s.y, n, 1.5);
+}
+function giveWish(i: number) {
+  const v = world.villagers[i];
+  const def = villagerById(v.id)!;
+  const wish = wishOf(world, i, islandDay(world.clock, Date.now()));
+  const before = v.hearts;
+  const err = doAction({ kind: 'wish', n: i, item: wish.item });
+  if (err) return hud?.toast(err);
+  sfx('coin');
+  const after = world.villagers[i].hearts;
+  folkCheer(v.id, 1 + (after - before) * 2);
+  const s = walkers.get(v.id) ?? player;
+  floats.push({ x: s.x, y: s.y, h: 2, text: `+${wish.coins} Münzen  +${after - before} ♥`, life: 1.8 });
+  folkUI?.update(villagerData(i));
+  const card = (title: string, text: string, img: string, line: string) => {
+    sfx('quest');
+    hud?.intro({ title, text, steps: [{ img, text: line }], ok: 'Juhu!' }, () => sfx('click'));
+  };
+  if (before < MAX_HEARTS && after >= MAX_HEARTS) card('Beste Freunde!', `${def.name} und du seid jetzt beste Freunde.`, villagerPhoto(v.id), `Als Dankeschön: ${BEST_FRIEND_COINS} Münzen!`);
+  else if (before < 6 && after >= 6) card(`${def.name} mag dich richtig gern!`, 'Ab jetzt bekommst du jeden Tag ein kleines Geschenk.', storeImg(def.present), `Jeden Tag: ${def.presentN} ${storeName(def.present, def.presentN)} – einfach im Bewohner-Fenster abholen.`);
+  else if (before < 3 && after >= 3) card(`${def.name} hat eine Überraschung für dich!`, 'Danke, dass du so lieb zu mir bist!', icons.coin, `${SURPRISE.coins} Münzen und ${SURPRISE.seeds} Rübensamen.`);
+}
+function takeGift(i: number) {
+  const v = world.villagers[i];
+  const def = villagerById(v.id)!;
+  const err = doAction({ kind: 'present', n: i });
+  if (err) return hud?.toast(err);
+  sfx('coin');
+  folkCheer(v.id, 2);
+  hud?.toast(`${def.name} schenkt dir ${def.presentN} ${storeName(def.present, def.presentN)}!`);
+  folkUI?.update(villagerData(i));
+}
+/** ein neuer Bewohner ist da: kurz vorstellen */
+function folkWelcome(id: string) {
+  const d = villagerById(id);
+  if (!d) return;
+  setTimeout(() => folkCheer(id, 4), 300);
+  sfx('quest');
+  hud?.intro(
+    {
+      title: `${d.name} zieht ein!`,
+      text: `${d.animal} ${d.name}: ${d.text}`,
+      steps: [
+        { img: villagerPhoto(id), text: `Siehst du ein „!“ über dem Kopf? Dann wünscht sich ${d.name} heute etwas – geh hin und tipp.` },
+        { img: storeImg(d.fav), text: `Am liebsten mag ${d.name} ${STORE_NAMES[d.fav]} – das gibt doppelt Herzen.` },
+        { img: hearts[0], text: '3 Herzen: eine Überraschung · 6 Herzen: jeden Tag ein Geschenk · 10 Herzen: beste Freunde!' },
+      ],
+      ok: 'Willkommen!',
+    },
+    () => sfx('click'),
+  );
+}
+
 // ---------- Insel-Projekte ----------
 let projUI: { update(d: ProjData): void } | null = null;
 /** Pfeil zur Baustelle bis … */
@@ -935,6 +1141,7 @@ function syncHud() {
   kitchenUI?.update(kitchenData());
   const od = ordersData();
   ordersUI?.update(od);
+  if (folkUI && world.villagers[folkOpen]) folkUI.update(villagerData(folkOpen));
   hud.setOrders(od.list.filter((o) => !o.done && o.need.every((x) => x.have >= x.n)).length);
   hud.setEnergy(energy());
   hud.setSlots(farm.seeds, farm.water, farm.capacity, farm.hasCan, farm.hay);
@@ -975,7 +1182,7 @@ function ghostSpot() {
     if (player.dir === Dir.Right) return { x: px + 42, y: py + 20 };
     return { x: px - 42, y: py + 20 };
   }
-  const k = placeKind === 'fire' || placeKind === 'deco' ? 0.5 : placeKind === 'stable' ? 1.3 : 1;
+  const k = placeKind === 'fire' || placeKind === 'deco' ? 0.5 : placeKind === 'stable' ? 1.3 : placeKind === 'hut' ? 0.75 : 1;
   if (player.dir === Dir.Down) return { x: px, y: py + Math.round(22 * k) };
   if (player.dir === Dir.Up) return { x: px, y: py - Math.round(6 * k) - (k < 1 ? 4 : 0) };
   if (player.dir === Dir.Right) return { x: px + Math.round(28 * k), y: py + 6 };
@@ -1353,6 +1560,10 @@ function startPlay() {
       project: openProject,
       orders: openOrders,
       place: (what, item) => startPlacing(what, item),
+      nextFolk: () => {
+        const n = nextVillager(world);
+        return n ? { name: n.name, animal: n.animal, img: villagerPhoto(n.id) } : null;
+      },
       eat,
       decoList: () =>
         Object.entries(world.decoInv)
@@ -1367,7 +1578,7 @@ function startPlay() {
       },
     },
     icons,
-    { house: HOUSE_COST, fire: FIRE_COST, stable: STABLE_COST, paddock: PADDOCK_COST },
+    { house: HOUSE_COST, fire: FIRE_COST, stable: STABLE_COST, paddock: PADDOCK_COST, hut: HUT_COST },
   );
   // neue Insel: noch nichts gebastelt → das erste eigene Werkzeug in die Hand
   if (!hasTool(tool)) tool = (['axe', 'hoe', 'water', 'scythe'] as const).find(hasTool) ?? tool;
@@ -1405,7 +1616,8 @@ function startPlay() {
 function startPlacing(what: BuildKind, item?: string) {
   placing = true;
   placeKind = what;
-  placeDeco = item ?? '';
+  // Bewohnerhaus: Vorschau mit dem Dach dessen, der einzieht
+  placeDeco = what === 'hut' ? (nextVillager(world)?.id ?? 'hase') : (item ?? '');
   hud?.setPlacing(true);
 }
 /** Liegt ein Feld unter der Haus-Grundfläche? */
@@ -1544,12 +1756,14 @@ async function cloudSync() {
       sl.pending = got.shared.pending;
       if (got.current) {
         const projBefore = world.proj.n;
+        const folkBefore = world.villagers.length;
         world.apply(got.current.world);
         farm.apply(got.current.farm);
         unstick();
         syncHud();
         // der andere hat ein Projekt fertig gemacht: mitfeiern
         if (mode === 'play') for (let k = projBefore; k < world.proj.n; k++) projectDone(k);
+        if (mode === 'play') for (const v of world.villagers.slice(folkBefore)) hud?.toast(`${villagerById(v.id)?.name} ist auf eure Insel gezogen!`);
       }
       for (const o of got.remote) {
         remoteFx(o.op);
@@ -1794,7 +2008,7 @@ function frame(now: number) {
     // Werkzeug benutzen
     if (!placing) {
       const it = intent();
-      hud?.setAction(!!it.kind || !!fishing, fishing ? icons.rod : it.kind === 'trade' ? icons.coin : it.kind === 'project' ? icons.craft : it.kind === 'cook' ? icons.meal : it.kind === 'orders' ? icons.board : it.kind === 'stable' ? icons.stable : it.kind === 'horse' || it.kind === 'dismount' ? horseIcon(world.horses[it.tree]?.breed ?? '', !!world.horses[it.tree] && isFoal(world.horses[it.tree], Date.now())) : it.kind && ROOM_ACTS.has(it.kind) ? icons.house : it.kind === 'harvest' ? icons.turnip : it.kind === 'rake' ? icons.hay : it.kind === 'pick' ? (island.pickups[it.tree]?.kind === 'stone' ? icons.stone : icons.stick) : it.kind === 'shake' ? (island.decor[it.tree]?.kind === 'bush' ? icons.berry : icons.apple) : it.kind === 'fish' || fishing ? icons.rod : it.kind === 'refill' ? (farm.hasCan ? icons.can : icons.bucket) : icons[tool === 'water' ? (farm.hasCan ? 'can' : 'bucket') : tool]);
+      hud?.setAction(!!it.kind || !!fishing, fishing ? icons.rod : it.kind === 'trade' ? icons.coin : it.kind === 'project' ? icons.craft : it.kind === 'cook' ? icons.meal : it.kind === 'orders' ? icons.board : it.kind === 'villager' ? villagerPhoto(world.villagers[it.tree]?.id ?? 'hase') : it.kind === 'stable' ? icons.stable : it.kind === 'horse' || it.kind === 'dismount' ? horseIcon(world.horses[it.tree]?.breed ?? '', !!world.horses[it.tree] && isFoal(world.horses[it.tree], Date.now())) : it.kind && ROOM_ACTS.has(it.kind) ? icons.house : it.kind === 'harvest' ? icons.turnip : it.kind === 'rake' ? icons.hay : it.kind === 'pick' ? (island.pickups[it.tree]?.kind === 'stone' ? icons.stone : icons.stick) : it.kind === 'shake' ? (island.decor[it.tree]?.kind === 'bush' ? icons.berry : icons.apple) : it.kind === 'fish' || fishing ? icons.rod : it.kind === 'refill' ? (farm.hasCan ? icons.can : icons.bucket) : icons[tool === 'water' ? (farm.hasCan ? 'can' : 'bucket') : tool]);
       if (actHeld && swing <= 0 && it.kind && ROOM_ACTS.has(it.kind)) {
         actHeld = false;
         roomAction(it.kind, it.tree);
@@ -1838,7 +2052,10 @@ function frame(now: number) {
       farm.update(Date.now(), rainSince(world.clock, Date.now()));
     }
   }
-  if (mode === 'play') horseLife(dt, now);
+  if (mode === 'play') {
+    horseLife(dt, now);
+    folkLife(dt);
+  }
   // Mitspieler gleiten weich zur gemeldeten Stelle
   for (const m of mates.values()) {
     const k = 1 - Math.exp(-dt * 9);
@@ -1898,6 +2115,7 @@ function frame(now: number) {
     marker: play && !placing && tool !== 'axe' && hasTool(tool) && riding < 0 && !fishing ? frontTile() : null,
     guide: play && !placing ? guideTarget() : null,
     fishing: play && fishing ? { x: fishing.x, y: fishing.y, bite: fishing.bit } : null,
+    folk: play ? folkFrame(nowMs) : [],
     inside,
   });
   drawOverlay(t, dt, nowMs);
@@ -1962,6 +2180,32 @@ function drawOverlay(t: number, dt: number, nowMs: number) {
       }
     });
   }
+  // Bewohner in der Nähe: Name; nachts „z z z“ über dem Häuschen
+  if (mode === 'play' && inside < 0)
+    world.villagers.forEach((v, i) => {
+      const s = walkers.get(v.id);
+      const def = villagerById(v.id);
+      if (!s || !def) return;
+      if (tod?.night) {
+        if (Math.hypot(v.x - player.x, v.y - player.y) > 80) return;
+        const q = view.project(v.x, v.y - 4, 2.7, tmpP);
+        if (!q) return;
+        ctx.font = `700 ${Math.round(13 * dpr * textScale)}px 'Fredoka', sans-serif`;
+        ctx.textAlign = 'center';
+        ctx.fillStyle = 'rgba(230,240,255,0.9)';
+        for (let k = 0; k < 3; k++) {
+          const ph = (t * 0.5 + k / 3 + i * 0.29) % 1;
+          ctx.globalAlpha = Math.sin(ph * Math.PI);
+          ctx.fillText('z', (q.x + 10 + ph * 14) * dpr, (q.y - ph * 24) * dpr);
+        }
+        ctx.globalAlpha = 1;
+        return;
+      }
+      if (Math.hypot(s.x - player.x, s.y - player.y) < 34) {
+        const q = view.project(s.x, s.y, 2.45, tmpP);
+        if (q) pill(`${def.name}${v.hearts ? ` ♥${v.hearts}` : ''}`, q.x, q.y, 12, 'rgba(60,100,50,0.62)');
+      }
+    });
   // Tutorial: liegt das Ziel außerhalb des Bildes, zeigt ein Pfeil am Rand die Richtung
   const gd = mode === 'play' && inside < 0 && !placing ? guideTarget() : null;
   if (gd) {
@@ -2051,7 +2295,7 @@ function drawOverlay(t: number, dt: number, nowMs: number) {
 let tod: TimeOfDay | null = null;
 
 // ---------- Im Haus ----------
-const ROOM_ACTS = new Set<Intent>(['enter', 'exit', 'sleep', 'chest', 'furnish', 'stable', 'horse', 'dismount', 'trade', 'project', 'cook', 'orders']);
+const ROOM_ACTS = new Set<Intent>(['enter', 'exit', 'sleep', 'chest', 'furnish', 'stable', 'horse', 'dismount', 'trade', 'project', 'cook', 'orders', 'villager']);
 function mount(i: number) {
   const p = horseAt(i);
   if (!p) return;
@@ -2234,6 +2478,7 @@ function roomAction(kind: Intent, slot: number) {
   if (kind === 'project') return openProject();
   if (kind === 'cook') return openKitchen();
   if (kind === 'orders') return openOrders();
+  if (kind === 'villager') return openVillager(slot);
   if (kind === 'chest')
     return hud?.openChest([
       ['Holz', world.wood],
@@ -2284,4 +2529,5 @@ function roomAction(kind: Intent, slot: number) {
   fakeMate: (look: Look, x: number, y: number) => updateMates([{ pid: 'ptest', n: 'Lena', l: look, x, y, d: 0, m: 0, sw: 0, tl: '', rh: -1, in: -1, sp: 1, age: 0 }]),
   swingNow: (tl: typeof swingTool) => ((swingTool = tl), (swing = SWING * 0.5)),
   fishing: () => fishing,
+  folk: () => walkers,
   doAction, get mode() { return mode; }, get mates() { return mates; }, cloudSync, pid, horsePos: (i: number) => horseAt(i), get riding() { return riding; } };

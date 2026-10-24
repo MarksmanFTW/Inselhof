@@ -27,6 +27,9 @@ export const STORE_NAMES: Record<StoreItem, string> = {
   apfelkuchen: 'Apfelkuchen',
   marmelade: 'Beerenmarmelade',
 };
+/** Name für genau ein Stück */
+export const STORE_ONE: Record<StoreItem, string> = { ...STORE_NAMES, turnip: 'Rübe', apple: 'Apfel', berry: 'Beere', fish: 'Fisch', meal: 'Ofenrübe', coins: 'Münze' };
+export const storeName = (item: StoreItem, n: number) => (n === 1 ? STORE_ONE[item] : STORE_NAMES[item]);
 /** was ein Stück wert ist (für Belohnungen) */
 export const STORE_VALUE: Record<StoreItem, number> = { wood: 1, turnip: 4, apple: 1, berry: 1, hay: 2, fish: 3, meal: 10, grilled: 8, coins: 1, obstsalat: 10, fischsuppe: 18, apfelkuchen: 22, marmelade: 16 };
 

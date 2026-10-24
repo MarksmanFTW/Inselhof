@@ -48,7 +48,7 @@ export function cleanOrders(o: Partial<OrderState> | undefined): OrderState {
 }
 
 /** was die Insel schon liefern kann */
-function pool(w: World): StoreItem[] {
+export function orderPool(w: World): StoreItem[] {
   const st = w.prog.stats;
   const p: StoreItem[] = ['wood', 'apple', 'berry'];
   if ((st.harvested ?? 0) > 0) p.push('turnip');
@@ -79,7 +79,7 @@ const AMOUNT: Partial<Record<StoreItem, [number, number]>> = {
 /** die drei Bestellungen eines Tages */
 export function makeOrders(day: number, w: World): Order[] {
   const r = rng(day * 7919 + 17);
-  const pl = pool(w);
+  const pl = orderPool(w);
   return [1, 2, 3].map((kinds, size) => {
     const items: StoreItem[] = [];
     const left = [...pl];
