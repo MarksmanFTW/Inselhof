@@ -14,7 +14,7 @@ export interface IslandState {
 
 /** eine Spiel-Aktion */
 export interface Action {
-  kind: 'axe' | 'hoe' | 'seeds' | 'water' | 'refill' | 'harvest' | 'build' | 'sleep' | 'eat' | 'cook' | 'furnish' | 'adopt' | 'feed' | 'brush' | 'foal' | 'mow' | 'rake' | 'sell' | 'buy' | 'dress' | 'pick' | 'craft' | 'tut' | 'shake' | 'fish' | 'donate' | 'order' | 'wish' | 'present';
+  kind: 'axe' | 'hoe' | 'seeds' | 'water' | 'refill' | 'harvest' | 'build' | 'sleep' | 'eat' | 'cook' | 'furnish' | 'adopt' | 'feed' | 'brush' | 'foal' | 'mow' | 'rake' | 'sell' | 'buy' | 'dress' | 'pick' | 'craft' | 'tut' | 'shake' | 'fish' | 'donate' | 'order' | 'wish' | 'present' | 'upgrade' | 'enlarge';
   c?: number;
   r?: number;
   /** Baum (Axt) bzw. Stock/Stein (pick): Nummer */
@@ -24,7 +24,7 @@ export interface Action {
   /** Abgleich: Baum ist umgefallen (unabhängig von einzelnen Schlägen) */
   fell?: boolean;
   /** Bauen: Haus, Lagerfeuer, Stall, Koppel, Deko */
-  what?: 'house' | 'fire' | 'stable' | 'paddock' | 'deco' | 'hut';
+  what?: 'house' | 'fire' | 'stable' | 'paddock' | 'deco' | 'hut' | 'beet' | 'coach';
   /** Essen: Ofenrübe statt roher Rübe */
   cooked?: boolean;
   /** Möbel: Haus, Platz, Möbelstück */
@@ -34,13 +34,13 @@ export interface Action {
   /** Pferd: Stall (house), Rasse (item), Name; Füttern: Nummer des Pferds */
   name?: string;
   horse?: number;
-  /** Händler: Stückzahl */
+  /** Händler: Stückzahl; Axt: Stufe der Axt; Verbessern: neue Stufe */
   n?: number;
 }
 
 /** Effekte (Splitter, „+4 Holz“) */
 export interface Fx {
-  k: 'chop' | 'fell' | 'till' | 'seed' | 'water' | 'refill' | 'harvest' | 'build' | 'can' | 'quest' | 'level' | 'sleep' | 'cook' | 'furnish' | 'horse' | 'feed' | 'brush' | 'foal' | 'mow' | 'rake' | 'trade' | 'pick' | 'craft' | 'fruit' | 'fish' | 'project' | 'order' | 'villager';
+  k: 'chop' | 'fell' | 'till' | 'seed' | 'water' | 'refill' | 'harvest' | 'build' | 'can' | 'quest' | 'level' | 'sleep' | 'cook' | 'furnish' | 'horse' | 'feed' | 'brush' | 'foal' | 'mow' | 'rake' | 'trade' | 'pick' | 'craft' | 'fruit' | 'fish' | 'project' | 'order' | 'villager' | 'upgrade';
   /** neue Stufe */
   n?: number;
   x: number;

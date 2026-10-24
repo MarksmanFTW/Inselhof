@@ -36,7 +36,10 @@ export type Stat =
   | 'orders'
   // Bewohner eingezogen, Wünsche erfüllt
   | 'villagers'
-  | 'wishes';
+  | 'wishes'
+  // Verbesserungen gekauft, Hochbeete gebaut
+  | 'upgrades'
+  | 'beets';
 
 export interface Progress {
   xp: number;
@@ -46,12 +49,12 @@ export interface Progress {
   /**
    * Version der Aufgabenliste: fehlt = ursprüngliche Liste, 2 = mit Tutorial am
    * Anfang (kurz im Oktober 2026), 3 = ausgebaut, Tutorial gehört jedem Spieler selbst,
-   * 4 = mit Angeln, 5 = mit Bewohnern
+   * 4 = mit Angeln, 5 = mit Bewohnern, 6 = mit Verbesserungen
    */
   v?: number;
 }
 
-export const QUEST_V = 5;
+export const QUEST_V = 6;
 export const newProgress = (): Progress => ({ xp: 0, stats: {}, quests: 0, v: QUEST_V });
 
 /**
@@ -80,6 +83,8 @@ export function cleanProgress(p: Partial<Progress> | undefined, legacy?: { fires
   // v4 → v5: drei Bewohner-Aufgaben hinten an der Liste (wer schon mitten in den
   // endlosen Aufgaben ist, behält seine – sonst gäbe es Belohnungen doppelt)
   if (v <= 4 && n > V4_LEN) n += 3;
+  // v5 → v6: zwei Aufgaben zu Verbesserungen und Hochbeet, genauso hinten dran
+  if (v <= 5 && n > V5_LEN) n += 2;
   out.quests = n;
   return out;
 }
@@ -112,6 +117,8 @@ export const XP: Record<Exclude<Stat, 'wood'>, number> = {
   orders: 10,
   villagers: 30,
   wishes: 8,
+  upgrades: 15,
+  beets: 15,
 };
 
 /** XP bis Stufe L: 30 · L(L-1)/2 → 30, 90, 180, 300 … */
@@ -189,12 +196,16 @@ const QUESTS: Quest[] = [
   { text: 'Bau ein Bewohnerhaus', stat: 'villagers', goal: 1, xp: 40, coins: 10, hint: 'Unter „Bauen“ – kostet 12 Holz. Dann zieht ein Tier bei dir ein!' },
   { text: 'Erfülle 5 Wünsche deiner Bewohner', stat: 'wishes', goal: 5, xp: 50, coins: 15, hint: 'Ein „!“ über dem Kopf heißt: Heute wünscht sich der Bewohner etwas. Geh hin und tipp.' },
   { text: 'Hol 3 Bewohner auf die Insel', stat: 'villagers', goal: 3, xp: 80, wood: 10, hint: 'Jedes neue Bewohnerhaus bringt ein neues Tier – sechs gibt es.' },
+  { text: 'Verbessere ein Werkzeug', stat: 'upgrades', goal: 1, xp: 30, coins: 10, hint: 'Unter „Basteln“ → „Verbessern“: Eisenaxt, Eisenhacke, Wanderschuhe und mehr – für Münzen und Steine.' },
+  { text: 'Bau ein Hochbeet', stat: 'beets', goal: 1, xp: 30, seeds: 6, hint: 'Unter „Bauen“ – kostet 10 Holz. Im Hochbeet wachsen Rüben doppelt so schnell.' },
 ];
 /** ursprüngliche Liste: Aufgabe Nr. n → Nummer in Liste v3 (danach weiter auf v4) */
 const OLD_TO_V3 = [0, 1, 2, 4, 6, 8, 9, 13, 14, 17, 19, 20];
 const V3_LEN = 21;
 /** so lang war Liste v4 */
 const V4_LEN = 24;
+/** so lang war Liste v5 */
+const V5_LEN = 27;
 /** Liste v2 hatte vorne drei Tutorial-Aufgaben */
 const V2_TUTORIAL = 3;
 /** n-te Aufgabe; nach der Liste geht es mit immer größeren Ernte-/Holz-Zielen weiter */

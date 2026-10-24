@@ -336,22 +336,37 @@ function roofGeo(len: number, depth: number, height: number, over = 0.12) {
 }
 
 export const HOUSE_Z = -7 * U;
-/** Wohnhaus: Fußpunkt vorn in der Mitte */
-export function house() {
+/** Wohnhaus: Fußpunkt vorn in der Mitte; ausgebaut (big) mit Obergeschoss */
+export function house(big = false) {
   const g = new THREE.Group();
+  /** so viel höher ist alles über dem Erdgeschoss */
+  const up = big ? 1.35 : 0;
   g.add(
     meshOf(
-      cached('house', () => {
+      cached(big ? 'house-big' : 'house', () => {
         const b = new Build();
         const z = HOUSE_Z;
         b.add(rbox(4.3, 0.32, 2.35, 0.08), '#aaa6b6', { p: [0, 0.16, z] });
         b.add(rbox(4.0, 2.0, 2.05, 0.12), '#fff3dc', { p: [0, 1.3, z] });
         // Holzbalken an den Ecken
-        for (const x of [-1.95, 1.95]) b.add(rbox(0.16, 2.0, 0.16, 0.04), '#c8945a', { p: [x, 1.3, z + 1.0] });
-        b.add(roofGeo(4.5, 2.75, 1.45), '#e0705a', { p: [0, 2.28, z] });
-        b.add(rbox(4.7, 0.12, 0.2, 0.05), '#c85a48', { p: [0, 2.3, z + 1.38] });
-        b.add(rbox(0.45, 1.05, 0.45, 0.06), '#b8b4c2', { p: [1.1, 3.2, z - 0.4] });
-        b.add(rbox(0.55, 0.12, 0.55, 0.04), '#9a96a4', { p: [1.1, 3.75, z - 0.4] });
+        for (const x of [-1.95, 1.95]) b.add(rbox(0.16, 2.0 + up, 0.16, 0.04), '#c8945a', { p: [x, 1.3 + up / 2, z + 1.0] });
+        if (big) {
+          // Obergeschoss: Fachwerk mit zwei Fenstern und Blumen, Balken zwischen den Stockwerken
+          b.add(rbox(4.0, up + 0.05, 2.05, 0.1), '#fff8e8', { p: [0, 2.3 + up / 2, z] });
+          b.add(rbox(4.15, 0.14, 2.15, 0.04), '#c8945a', { p: [0, 2.32, z] });
+          for (const x of [-0.65, 0.65]) b.add(rbox(0.1, up, 0.06, 0.02), '#c8945a', { p: [x, 2.3 + up / 2, z + 1.03] });
+          for (const wx of [-1.3, 1.3]) {
+            b.add(rbox(0.7, 0.66, 0.1, 0.04), '#8a5a32', { p: [wx, 2.95, z + 1.04] });
+            b.add(rbox(0.78, 0.14, 0.22, 0.04), '#9a6a40', { p: [wx, 2.55, z + 1.14] });
+            for (let k = 0; k < 4; k++) b.add(sphere(0.07, 8), ['#ff7a6a', '#ffd84a', '#f48fc0', '#ffffff'][k], { p: [wx - 0.24 + k * 0.16, 2.67, z + 1.16] });
+          }
+          // kleines rundes Fenster in der Mitte
+          b.add(new THREE.TorusGeometry(0.2, 0.05, 8, 16), '#8a5a32', { p: [0, 2.95, z + 1.05] });
+        }
+        b.add(roofGeo(4.5, 2.75, 1.45), '#e0705a', { p: [0, 2.28 + up, z] });
+        b.add(rbox(4.7, 0.12, 0.2, 0.05), '#c85a48', { p: [0, 2.3 + up, z + 1.38] });
+        b.add(rbox(0.45, 1.05, 0.45, 0.06), '#b8b4c2', { p: [1.1, 3.2 + up, z - 0.4] });
+        b.add(rbox(0.55, 0.12, 0.55, 0.04), '#9a96a4', { p: [1.1, 3.75 + up, z - 0.4] });
         // Tür mit Vordach und Stufe
         b.add(rbox(0.85, 1.35, 0.12, 0.05), '#a8743f', { p: [0, 0.98, z + 1.04] });
         b.add(rbox(0.12, 1.25, 0.03, 0.02), '#8a5a32', { p: [0, 0.98, z + 1.11] });
@@ -370,9 +385,12 @@ export function house() {
       0.8,
     ),
   );
-  for (const wx of [-1.25, 1.25]) {
+  const wins: [number, number, number][] = [[-1.25, 1.45, 0.6], [1.25, 1.45, 0.6]];
+  if (big) wins.push([-1.3, 2.95, 0.52], [1.3, 2.95, 0.52]);
+  for (const [wx, wy, ws] of wins) {
     const w = new THREE.Mesh(cached('win', () => new THREE.BoxGeometry(0.6, 0.6, 0.05)), glowMats.window);
-    w.position.set(wx, 1.45, HOUSE_Z + 1.1);
+    w.position.set(wx, wy, HOUSE_Z + 1.1);
+    w.scale.setScalar(ws / 0.6);
     g.add(w);
     const bar = meshOf(
       cached('winbar', () => {
@@ -382,13 +400,21 @@ export function house() {
         return b.geometry();
       }),
     );
-    bar.position.set(wx, 1.45, HOUSE_Z + 1.13);
+    bar.position.set(wx, wy, HOUSE_Z + 1.13);
+    bar.scale.setScalar(ws / 0.6);
     g.add(bar);
   }
+  if (big) {
+    const round = new THREE.Mesh(cached('winround', () => new THREE.CircleGeometry(0.17, 16)), glowMats.window);
+    round.position.set(0, 2.95, HOUSE_Z + 1.07);
+    g.add(round);
+  }
+  g.userData.chimney = big ? CHIMNEY_BIG : CHIMNEY;
   return g;
 }
 /** Rauch aus dem Kamin (relativ zum Haus) */
 export const CHIMNEY = new THREE.Vector3(1.1, 3.85, HOUSE_Z - 0.4);
+export const CHIMNEY_BIG = new THREE.Vector3(1.1, 3.85 + 1.35, HOUSE_Z - 0.4);
 
 export const STABLE_Z = -7 * U;
 export function stable() {
@@ -592,6 +618,70 @@ export function orderBoard() {
       return b.geometry();
     }),
     0.85,
+  );
+}
+
+/** Hochbeet: Holzrahmen um 3 × 2 Felder (Fußpunkt unten in der Mitte); die Erde und
+ *  die Rüben kommen von den Feldern (etwas angehoben) */
+export const BEET_LIFT = 0.3;
+export function beet() {
+  return meshOf(
+    cached('beet', () => {
+      const b = new Build();
+      const w = 3.0;
+      const d = 2.0;
+      const cz = -1.0;
+      const wood = '#b8844a';
+      for (const sz of [-1, 1]) b.add(rbox(w + 0.2, 0.36, 0.14, 0.04), wood, { p: [0, 0.18, cz + sz * (d / 2 + 0.03)] });
+      for (const sx of [-1, 1]) b.add(rbox(0.14, 0.36, d + 0.2, 0.04), wood, { p: [sx * (w / 2 + 0.03), 0.18, cz] });
+      // Bretterfugen und Eckpfosten
+      for (const sz of [-1, 1]) b.add(rbox(w + 0.22, 0.03, 0.16, 0.01), tint(wood, -0.18), { p: [0, 0.2, cz + sz * (d / 2 + 0.03)] });
+      for (const sx of [-1, 1]) for (const sz of [-1, 1]) b.add(rbox(0.2, 0.44, 0.2, 0.05), tint(wood, -0.12), { p: [sx * (w / 2 + 0.03), 0.22, cz + sz * (d / 2 + 0.03)] });
+      // Erde darunter (falls ein Feld gerade nicht gezeichnet ist)
+      b.add(rbox(w - 0.05, 0.22, d - 0.05, 0.03), '#7a5232', { p: [0, 0.14, cz] });
+      // kleines Schild
+      b.add(cyl(0.03, 0.03, 0.5, 6), '#8a5a32', { p: [w / 2 + 0.25, 0.25, cz + 0.6] });
+      b.add(rbox(0.36, 0.22, 0.04, 0.02), '#fff6dc', { p: [w / 2 + 0.25, 0.5, cz + 0.6] });
+      b.add(sphere(0.05, 6), '#b05a9a', { p: [w / 2 + 0.25, 0.5, cz + 0.63] });
+      return b.geometry();
+    }),
+    0.85,
+  );
+}
+
+/** Kutschenhalt: Unterstand mit Bank, Wegweiser und einer kleinen Kutsche daneben */
+export function coachStop() {
+  return meshOf(
+    cached('coach', () => {
+      const b = new Build();
+      const z = -0.5;
+      // Unterstand
+      for (const x of [-1.05, 1.05]) for (const dz of [-0.35, 0.35]) b.add(rbox(0.12, 1.7, 0.12, 0.03), '#8a5a32', { p: [x, 0.85, z + dz] });
+      b.add(roofGeo(2.5, 1.1, 0.5, 0.06), '#5a8ad0', { p: [0, 1.7, z] });
+      b.add(rbox(2.6, 0.08, 0.14, 0.03), '#3a6ab0', { p: [0, 1.72, z + 0.6] });
+      // Bank
+      b.add(rbox(1.7, 0.08, 0.38, 0.03), '#c8945a', { p: [0, 0.45, z - 0.1] });
+      b.add(rbox(1.7, 0.36, 0.06, 0.03), '#c8945a', { p: [0, 0.7, z - 0.3] });
+      for (const x of [-0.7, 0.7]) b.add(rbox(0.08, 0.42, 0.3, 0.02), '#8a5a32', { p: [x, 0.21, z - 0.1] });
+      // Wegweiser mit Hufeisen
+      b.add(cyl(0.05, 0.05, 1.5, 8), '#8a5a32', { p: [1.5, 0.75, z + 0.5] });
+      b.add(rbox(0.7, 0.24, 0.05, 0.03), '#fff6dc', { p: [1.72, 1.3, z + 0.5], r: [0, 0, 0.08] });
+      b.add(rbox(0.6, 0.22, 0.05, 0.03), '#ffe6a8', { p: [1.28, 1.0, z + 0.5], r: [0, 0, -0.08] });
+      b.add(new THREE.TorusGeometry(0.13, 0.035, 6, 12, Math.PI * 1.3), '#c8c8d0', { p: [1.5, 1.58, z + 0.52], r: [0, 0, Math.PI * 0.85] });
+      // kleine Kutsche links: Kasten, Dach, vier Räder, Deichsel
+      const cx = -2.0;
+      b.add(rbox(1.1, 0.6, 0.8, 0.12), '#d85a5a', { p: [cx, 0.75, z + 0.1] });
+      b.add(rbox(1.2, 0.1, 0.9, 0.05), '#fff3dc', { p: [cx, 1.1, z + 0.1] });
+      b.add(rbox(0.5, 0.36, 0.04, 0.04), '#cfefff', { p: [cx, 0.8, z + 0.51] });
+      for (const x of [-0.42, 0.42])
+        for (const dz of [-0.45, 0.45]) {
+          b.add(new THREE.TorusGeometry(0.24, 0.05, 6, 14), '#6a4428', { p: [cx + x, 0.26, z + 0.1 + dz] });
+          b.add(cyl(0.05, 0.05, 0.08, 6), '#ffd84a', { p: [cx + x, 0.26, z + 0.1 + dz], r: [Math.PI / 2, 0, 0] });
+        }
+      b.add(cyl(0.03, 0.03, 0.9, 6), '#8a5a32', { p: [cx + 0.9, 0.4, z + 0.1], r: [0, 0, Math.PI / 2 - 0.15] });
+      return b.geometry();
+    }),
+    0.8,
   );
 }
 

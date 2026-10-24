@@ -174,6 +174,27 @@ function jam() {
   g.add(glass);
   return g;
 }
+/** Wanderschuh mit Schnürsenkeln */
+function shoe() {
+  const b = new Build();
+  b.add(rbox(0.5, 0.75, 0.55, 0.2, 3), '#a8743f', { p: [-0.15, 0.1, 0] });
+  b.add(rbox(1.05, 0.36, 0.6, 0.18, 3), '#a8743f', { p: [0.12, -0.18, 0] });
+  b.add(rbox(1.12, 0.12, 0.64, 0.05), '#5a3a26', { p: [0.13, -0.38, 0] });
+  b.add(rbox(0.54, 0.14, 0.6, 0.06), '#c85a48', { p: [-0.15, 0.46, 0] });
+  for (let k = 0; k < 3; k++) b.add(rbox(0.3, 0.04, 0.05, 0.02), '#fff6dc', { p: [-0.02 + k * 0.08, 0.25 - k * 0.15, 0.29], r: [0, 0, -0.5] });
+  return meshOf(b.geometry());
+}
+/** Hufeisen mit Nägeln, Öffnung nach unten */
+function horseshoe() {
+  const b = new Build();
+  const rot = -0.175 * Math.PI;
+  b.add(new THREE.TorusGeometry(0.42, 0.12, 10, 22, Math.PI * 1.35), '#b8bcc8', { r: [0, 0, rot] });
+  for (let k = 0; k < 6; k++) {
+    const a = rot + (0.08 + (k / 5) * 0.84) * Math.PI * 1.35;
+    b.add(sphere(0.035, 6), '#5a5a68', { p: [Math.cos(a) * 0.42, Math.sin(a) * 0.42, 0.11] });
+  }
+  return meshOf(b.geometry());
+}
 /** Bestellbrett mit drei Zetteln */
 function boardIcon() {
   return M.orderBoard();
@@ -233,6 +254,11 @@ const MAKERS = {
   grilled: () => photo('i:grilled', grilled, { yaw: 0, tilt: 0.55 }),
   berry: () => photo('i:berry', berries, { yaw: 0, tilt: 0.2 }),
   hut: () => photo('i:hut', () => hut('hase'), { yaw: -0.45, tilt: 0.42 }),
+  bighouse: () => photo('i:bighouse', () => M.house(true), { yaw: -0.5, tilt: 0.36 }),
+  beet: () => photo('i:beet', M.beet, { yaw: -0.3, tilt: 0.7 }),
+  coach: () => photo('i:coach', M.coachStop, { yaw: -0.35, tilt: 0.4 }),
+  shoes: () => photo('i:shoes', shoe, { yaw: 0.5, tilt: 0.2 }),
+  hooves: () => photo('i:hooves', horseshoe, { yaw: 0, tilt: 0.1, fill: 0.5 }),
 } satisfies Record<string, () => string>;
 
 /** Symbole als Objekt mit Eigenschaften, die erst beim Lesen entstehen */

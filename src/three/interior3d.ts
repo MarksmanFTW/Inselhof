@@ -4,13 +4,12 @@
  * Koordinaten wie im Spiel (ROOM_W × ROOM_H Welt-Pixel), Blick wie ins Puppenhaus.
  */
 import * as THREE from 'three';
-import { BED, CHEST, DOOR, ROOM_H, ROOM_W, SLOTS } from '../interior';
+import { BED, CHEST, ROOM_H, ROOM_W, doorOf, roomW, slotsOf } from '../interior';
 import type { TimeOfDay } from '../time';
 import { Build, U, cone, curve, cyl, rbox, sphere } from './engine';
 import { glowMats } from './models';
 
 const WALL_Z = 22 * U;
-const RW = ROOM_W * U;
 const RD = ROOM_H * U;
 
 export function furniture(id: string) {
@@ -61,42 +60,64 @@ export class Interior {
   private lamp = new THREE.PointLight('#ffb060', 0, 12, 1.5);
   private hemi = new THREE.HemisphereLight('#fff4e0', '#8a6a50', 1.1);
   private sun = new THREE.DirectionalLight('#fff0d8', 1.4);
-  private pane: THREE.MeshStandardMaterial;
+  private pane!: THREE.MeshStandardMaterial;
   private marks: THREE.Mesh[] = [];
+  /** Raum (Boden, Wände, Bett, Truhe, Fenster, Platz-Markierungen) */
+  private layout = new THREE.Group();
+  private big = false;
+  private rw = ROOM_W * U;
 
   constructor() {
     const s = this.scene;
     s.background = new THREE.Color('#20140c');
     s.add(this.hemi, this.lamp);
-    this.sun.position.set(RW / 2 - 2, 9, WALL_Z + 9);
-    this.sun.target.position.set(RW / 2, 0, RD / 2);
-    this.sun.castShadow = true;
+        this.sun.castShadow = true;
     this.sun.shadow.mapSize.set(1024, 1024);
     Object.assign(this.sun.shadow.camera, { left: -10, right: 10, top: 10, bottom: -10, near: 1, far: 30 });
     s.add(this.sun, this.sun.target);
+    s.add(this.layout, this.furn);
+    this.build(false);
+  }
+
+  /** Raum bauen (ausgebaute Häuser sind breiter) */
+  private build(big: boolean) {
+    this.big = big;
+    this.rw = roomW(big) * U;
+    const rw = this.rw;
+    // Formen und eigene Materialien freigeben (die geteilten Modell-Materialien bleiben)
+    this.layout.traverse((o) => {
+      if (!(o instanceof THREE.Mesh)) return;
+      o.geometry.dispose();
+      if (o.material === this.pane || this.marks.includes(o)) (o.material as THREE.Material).dispose();
+    });
+    this.layout.clear();
+    this.marks = [];
+    this.furnKey = '';
+    this.sun.position.set(rw / 2 - 2, 9, WALL_Z + 9);
+    this.sun.target.position.set(rw / 2, 0, RD / 2);
     const b = new Build();
     // Boden aus Dielen
-    for (let z = WALL_Z; z < RD; z += 0.75) b.add(rbox(RW, 0.2, 0.72, 0.04), Math.round(z / 0.75) % 2 ? '#c8945a' : '#b8844c', { p: [RW / 2, -0.1, z + 0.37] });
+    for (let z = WALL_Z; z < RD; z += 0.75) b.add(rbox(rw, 0.2, 0.72, 0.04), Math.round(z / 0.75) % 2 ? '#c8945a' : '#b8844c', { p: [rw / 2, -0.1, z + 0.37] });
     // Rückwand: unten Holz, oben hell, mit Fenster und Bild
-    b.add(rbox(RW + 0.4, 1.2, 0.3, 0.04), '#a8743f', { p: [RW / 2, 0.6, WALL_Z - 0.15] });
-    b.add(rbox(RW + 0.4, 2.4, 0.3, 0.04), '#f6e6c8', { p: [RW / 2, 2.4, WALL_Z - 0.15] });
-    b.add(rbox(RW + 0.4, 0.16, 0.36, 0.04), '#8a5a32', { p: [RW / 2, 1.22, WALL_Z - 0.1] });
-    b.add(rbox(RW + 0.4, 0.2, 0.36, 0.04), '#8a5a32', { p: [RW / 2, 3.6, WALL_Z - 0.1] });
+    b.add(rbox(rw + 0.4, 1.2, 0.3, 0.04), '#a8743f', { p: [rw / 2, 0.6, WALL_Z - 0.15] });
+    b.add(rbox(rw + 0.4, 2.4, 0.3, 0.04), '#f6e6c8', { p: [rw / 2, 2.4, WALL_Z - 0.15] });
+    b.add(rbox(rw + 0.4, 0.16, 0.36, 0.04), '#8a5a32', { p: [rw / 2, 1.22, WALL_Z - 0.1] });
+    b.add(rbox(rw + 0.4, 0.2, 0.36, 0.04), '#8a5a32', { p: [rw / 2, 3.6, WALL_Z - 0.1] });
     // Fensterrahmen (Scheibe dazwischen kommt extra, sie leuchtet)
     for (const [x, y, w, h] of [[0, 0.75, 2.2, 0.14], [0, -0.75, 2.3, 0.18], [-1.03, 0, 0.14, 1.6], [1.03, 0, 0.14, 1.6], [0, 0, 0.08, 1.4], [0, 0, 1.9, 0.08]] as const)
-      b.add(rbox(w, h, 0.14, 0.03), '#8a5a32', { p: [RW / 2 + x, 2.35 + y, WALL_Z + 0.05] });
-    for (const sx of [-1, 1]) b.add(rbox(0.6, 1.9, 0.08, 0.04), '#f08ab0', { p: [RW / 2 + sx * 1.35, 2.35, WALL_Z + 0.12] });
+      b.add(rbox(w, h, 0.14, 0.03), '#8a5a32', { p: [rw / 2 + x, 2.35 + y, WALL_Z + 0.05] });
+    for (const sx of [-1, 1]) b.add(rbox(0.6, 1.9, 0.08, 0.04), '#f08ab0', { p: [rw / 2 + sx * 1.35, 2.35, WALL_Z + 0.12] });
     // Bild mit Pferd
-    b.add(rbox(1.3, 1.0, 0.08, 0.03), '#c8945a', { p: [RW / 2 + 4.3, 2.4, WALL_Z + 0.02] });
-    b.add(rbox(1.1, 0.8, 0.04, 0.02), '#bfe6f0', { p: [RW / 2 + 4.3, 2.4, WALL_Z + 0.07] });
-    b.add(sphere(0.2, 10), '#c8803a', { p: [RW / 2 + 4.25, 2.3, WALL_Z + 0.1], s: [1.3, 0.8, 0.3] });
-    b.add(sphere(0.1, 8), '#c8803a', { p: [RW / 2 + 4.55, 2.5, WALL_Z + 0.1], s: [1.2, 1, 0.3] });
-    b.add(rbox(1.1, 0.2, 0.04, 0.02), '#7ccf6a', { p: [RW / 2 + 4.3, 2.08, WALL_Z + 0.08] });
+    b.add(rbox(1.3, 1.0, 0.08, 0.03), '#c8945a', { p: [rw / 2 + 4.3, 2.4, WALL_Z + 0.02] });
+    b.add(rbox(1.1, 0.8, 0.04, 0.02), '#bfe6f0', { p: [rw / 2 + 4.3, 2.4, WALL_Z + 0.07] });
+    b.add(sphere(0.2, 10), '#c8803a', { p: [rw / 2 + 4.25, 2.3, WALL_Z + 0.1], s: [1.3, 0.8, 0.3] });
+    b.add(sphere(0.1, 8), '#c8803a', { p: [rw / 2 + 4.55, 2.5, WALL_Z + 0.1], s: [1.2, 1, 0.3] });
+    b.add(rbox(1.1, 0.2, 0.04, 0.02), '#7ccf6a', { p: [rw / 2 + 4.3, 2.08, WALL_Z + 0.08] });
     // Seitenwände (halbhoch) und vorn kniehoch mit Tür in der Mitte
-    for (const x of [-0.15, RW + 0.15]) b.add(rbox(0.3, 2.2, RD - WALL_Z + 0.3, 0.05), '#a8743f', { p: [x, 1.1, (WALL_Z + RD) / 2] });
-    const door = DOOR.x * U;
+    for (const x of [-0.15, rw + 0.15]) b.add(rbox(0.3, 2.2, RD - WALL_Z + 0.3, 0.05), '#a8743f', { p: [x, 1.1, (WALL_Z + RD) / 2] });
+    const door = doorOf(big).x * U;
     b.add(rbox(door - 1.1, 0.5, 0.3, 0.05), '#a8743f', { p: [(door - 1.1) / 2, 0.25, RD + 0.15] });
-    b.add(rbox(RW - door - 1.1, 0.5, 0.3, 0.05), '#a8743f', { p: [door + 1.1 + (RW - door - 1.1) / 2, 0.25, RD + 0.15] });
+    b.add(rbox(rw - door - 1.1, 0.5, 0.3, 0.05), '#a8743f', { p: [door + 1.1 + (rw - door - 1.1) / 2, 0.25, RD + 0.15] });
     b.add(rbox(1.8, 0.03, 0.8, 0.03), '#c8584a', { p: [door, 0.02, RD - 0.45] });
     // Bett
     const bx = (BED.x + BED.w / 2) * U;
@@ -116,42 +137,65 @@ export class Interior {
     b.add(rbox(CHEST.w * U + 0.05, 0.3, CHEST.h * U + 0.05, 0.08), '#8a5a32', { p: [cx, 0.95, cz] });
     for (const x of [-0.75, 0.75]) b.add(rbox(0.1, 1.15, CHEST.h * U + 0.08, 0.02), '#6a6670', { p: [cx + x, 0.55, cz] });
     b.add(rbox(0.22, 0.3, 0.06, 0.03), '#f2c14e', { p: [cx, 0.75, cz + (CHEST.h * U) / 2 + 0.03] });
+    if (big) {
+      // neuer Teil rechts: Kamin an der Rückwand mit Holzstapel
+      const kx = rw - 2.1;
+      const kz = WALL_Z + 0.42;
+      b.add(rbox(2.0, 2.0, 0.7, 0.06), '#b8b4c2', { p: [kx, 1.0, kz] });
+      b.add(rbox(2.2, 0.18, 0.84, 0.05), '#8a5a32', { p: [kx, 2.05, kz + 0.04] });
+      b.add(rbox(1.1, 0.9, 0.06, 0.03), '#3a2a24', { p: [kx, 0.55, kz + 0.36] });
+      // Holzscheite in der Feuerstelle
+      for (const r of [-0.4, 0.4]) b.add(cyl(0.08, 0.08, 0.7, 8), '#7a4a2a', { p: [kx, 0.16, kz + 0.52], r: [0, 0, Math.PI / 2 + r * 0.3] });
+      b.add(rbox(0.9, 1.6, 0.6, 0.06), '#a8a4b4', { p: [kx, 2.9, kz - 0.05] });
+      for (const [x, y] of [[-0.28, 0.12], [0.28, 0.12], [0, 0.3]] as const) b.add(cyl(0.12, 0.12, 0.8, 10), '#a8743f', { p: [kx - 1.6 + x, y, kz + 0.5], r: [Math.PI / 2, 0, 0] });
+    }
     const room = b.mesh(0.8);
     room.castShadow = true;
-    s.add(room);
+    this.layout.add(room);
+    if (big) {
+      // Flammen vor der dunklen Öffnung
+      for (const [x, h, m] of [[0, 0.55, glowMats.flame], [-0.18, 0.35, glowMats.flame2], [0.18, 0.4, glowMats.flame2]] as const) {
+        const fl = new THREE.Mesh(cone(0.16, h, 8), m);
+        fl.position.set(rw - 2.1 + x, 0.2 + h / 2, WALL_Z + 0.42 + 0.5);
+        this.layout.add(fl);
+      }
+    }
     // Fensterscheibe: tags hell, nachts dunkelblau
     this.pane = curve(new THREE.MeshStandardMaterial({ color: '#cfefff', emissive: '#bfe8ff', emissiveIntensity: 0.6, roughness: 0.3 }));
     const pane = new THREE.Mesh(new THREE.BoxGeometry(1.9, 1.35, 0.04), this.pane);
-    pane.position.set(RW / 2, 2.35, WALL_Z + 0.02);
-    s.add(pane);
-    s.add(this.furn);
+    pane.position.set(rw / 2, 2.35, WALL_Z + 0.02);
+    this.layout.add(pane);
     // freie Plätze leicht markieren
-    for (const sl of SLOTS) {
+    for (const sl of slotsOf(big)) {
       const m = new THREE.Mesh(new THREE.RingGeometry(0.45, 0.55, 24).rotateX(-Math.PI / 2), curve(new THREE.MeshBasicMaterial({ color: '#fff4d6', transparent: true, opacity: 0.35, depthWrite: false })));
       m.position.set(sl.x * U, 0.03, (sl.y - 4) * U);
-      s.add(m);
+      this.layout.add(m);
       this.marks.push(m);
     }
   }
 
   private D = 20;
   private slack = 0;
-  private camX = RW / 2;
+  private camX = (ROOM_W * U) / 2;
+  private vw = 1;
+  private vh = 1;
   resize(w: number, h: number) {
+    this.vw = w;
+    this.vh = h;
     const aspect = w / Math.max(1, h);
     this.camera.aspect = aspect;
     this.camera.fov = aspect < 1 ? 44 : 36;
     // im Hochformat näher dran (Kamera folgt seitlich), sonst der ganze Raum
     const hf = 2 * Math.atan(Math.tan((this.camera.fov * Math.PI) / 360) * aspect);
-    const want = aspect < 1 ? 11.2 : RW + 1.6;
+    const want = aspect < 1 ? 11.2 : this.rw + 1.6;
     this.D = Math.max(13, want / 2 / Math.tan(hf / 2));
-    this.slack = Math.max(0, (RW + 1.4 - 2 * this.D * Math.tan(hf / 2)) / 2);
+    this.slack = Math.max(0, (this.rw + 1.4 - 2 * this.D * Math.tan(hf / 2)) / 2);
     this.camera.updateProjectionMatrix();
     this.follow(this.camX, true);
   }
   /** Kamera seitlich mit der Figur (x in Einheiten) */
   follow(x: number, snap = false) {
-    const want = Math.max(RW / 2 - this.slack, Math.min(RW / 2 + this.slack, x));
+    const want = Math.max(this.rw / 2 - this.slack, Math.min(this.rw / 2 + this.slack, x));
     this.camX = snap ? want : this.camX + (want - this.camX) * 0.12;
     const pitch = 0.95;
     const cz = (WALL_Z + RD) / 2 + 0.7;
@@ -159,13 +203,17 @@ export class Interior {
     this.camera.lookAt(this.camX, 0.6, cz - 0.5);
   }
 
-  update(furn: Record<number, string>, tod: TimeOfDay | null, t: number) {
+  update(furn: Record<number, string>, tod: TimeOfDay | null, t: number, big = false) {
+    if (big !== this.big) {
+      this.build(big);
+      this.resize(this.vw, this.vh);
+    }
     const key = JSON.stringify(furn);
     if (key !== this.furnKey) {
       this.furnKey = key;
       this.furn.clear();
       for (const [k, id] of Object.entries(furn)) {
-        const sl = SLOTS[Number(k)];
+        const sl = slotsOf(this.big)[Number(k)];
         const m = sl && furniture(id);
         if (!m) continue;
         m.position.set(sl.x * U, 0, sl.y * U);
@@ -190,7 +238,7 @@ export class Interior {
     const lamp = this.furn.children.find((c) => c instanceof THREE.Mesh && c.material === glowMats.lamp);
     this.lamp.intensity = dark * (lamp ? 5 : 3.5) * (1 + Math.sin(t * 3) * 0.02);
     if (lamp) this.lamp.position.copy(lamp.position).add(new THREE.Vector3(0, -0.2, 0.3));
-    else this.lamp.position.set(RW / 2, 3.2, RD / 2);
+    else this.lamp.position.set(this.rw / 2, 3.2, RD / 2);
     this.marks.forEach((m) => ((m.material as THREE.MeshBasicMaterial).opacity = 0.25 + Math.sin(t * 3) * 0.12));
   }
 }

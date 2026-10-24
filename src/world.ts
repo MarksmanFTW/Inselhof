@@ -2,7 +2,7 @@
  * Was sich auf der Insel verändert: gefällte Bäume (wachsen nach), Holz im
  * Rucksack, gebaute Häuser. Reine Logik ohne Zeichnen – lässt sich testen.
  */
-import { Ground, H, W, type Decor, type Island } from './island';
+import { Ground, H, TILE, W, type Decor, type Island } from './island';
 import { accById, FOAL_HAY, FOAL_PAUSE_DAYS, GATE, MAX_LOVE, PADDOCK_COST, PADDOCK_FOOT, PADDOCK_REACH, STABLE_COST, STABLE_SPACE, breedById, cleanHorses, cleanName, isFoal, islandDay, type Care, type Horse, type Paddock, type Stable } from './horses';
 import { ALBUM_REWARDS, DECO_FOOT, albumCount, cleanAlbum, decoById, type Album, type Deco } from './shop';
 import { cleanProgress, levelOf, newProgress, perks, type Progress } from './progress';
@@ -41,12 +41,14 @@ export interface House {
   y: number;
   /** Möbel drinnen: Platz → Möbelstück */
   furn?: Record<number, string>;
+  /** ausgebaut: Obergeschoss, drinnen größer */
+  big?: boolean;
 }
 export interface Fire {
   x: number;
   y: number;
 }
-export type BuildKind = 'house' | 'fire' | 'stable' | 'paddock' | 'deco' | 'hut';
+export type BuildKind = 'house' | 'fire' | 'stable' | 'paddock' | 'deco' | 'hut' | 'beet' | 'coach';
 /** Grundfläche des Lagerfeuers */
 export const FIRE_FOOT = { left: -6, right: 6, top: -4, bottom: 1 };
 /** Grundfläche des Pferdestalls */
@@ -54,6 +56,26 @@ export const STABLE_FOOT = { left: -24, right: 24, top: -14, bottom: 1 };
 /** Bewohnerhaus: kleines Häuschen für ein Tier */
 export const HUT_FOOT = { left: -12, right: 12, top: -10, bottom: 1 };
 export const HUT_COST = 12;
+/** Hochbeet: 3 × 2 Felder (Fußpunkt unten in der Mitte, liegt auf dem Kachel-Raster) */
+export const BEET_FOOT = { left: -12, right: 12, top: -16, bottom: 0 };
+export const BEET_COST = 10;
+/** Rüben wachsen im Hochbeet doppelt so schnell */
+export const BEET_GROW = 0.5;
+/** Kutschenhalt: Unterstand mit Bank und Wegweiser */
+export const COACH_FOOT = { left: -10, right: 10, top: -8, bottom: 1 };
+export const COACH_COST = 12;
+/** Haus ausbauen */
+export const ENLARGE = { wood: 25, coins: 40 };
+/** Hochbeet aufs Raster legen: linke obere Kachel c, r → Fußpunkt */
+export const beetSnap = (x: number, y: number) => ({ x: Math.round((x - 12) / TILE) * TILE + 12, y: Math.round(y / TILE) * TILE });
+/** die sechs Kacheln eines Hochbeets */
+export function beetTiles(b: { x: number; y: number }): [number, number][] {
+  const c0 = Math.round((b.x - 12) / TILE);
+  const r0 = Math.round((b.y - 16) / TILE);
+  const out: [number, number][] = [];
+  for (let r = r0; r < r0 + 2; r++) for (let c = c0; c < c0 + 3; c++) out.push([c, r]);
+  return out;
+}
 export const BUILDS: Record<BuildKind, { cost: number; foot: typeof HOUSE_FOOT }> = {
   house: { cost: HOUSE_COST, foot: HOUSE_FOOT },
   fire: { cost: FIRE_COST, foot: FIRE_FOOT },
@@ -61,6 +83,8 @@ export const BUILDS: Record<BuildKind, { cost: number; foot: typeof HOUSE_FOOT }
   paddock: { cost: PADDOCK_COST, foot: PADDOCK_FOOT },
   deco: { cost: 0, foot: DECO_FOOT },
   hut: { cost: HUT_COST, foot: HUT_FOOT },
+  beet: { cost: BEET_COST, foot: BEET_FOOT },
+  coach: { cost: COACH_COST, foot: COACH_FOOT },
 };
 
 export interface WorldSave {
@@ -104,6 +128,9 @@ export interface WorldSave {
   orders?: OrderState;
   /** eingezogene Bewohner (jeder wohnt in seinem Häuschen) */
   villagers?: Villager[];
+  /** Hochbeete und Kutschenhalte */
+  beets?: { x: number; y: number }[];
+  coaches?: { x: number; y: number }[];
 }
 
 export type TreeStage = 'tree' | 'stump' | 'sapling';
@@ -145,6 +172,8 @@ export class World {
   recipes: string[] = [];
   orders: OrderState = newOrders();
   villagers: Villager[] = [];
+  beets: { x: number; y: number }[] = [];
+  coaches: { x: number; y: number }[] = [];
   /** Treffer am aktuellen Baum (nicht gespeichert) */
   private hits = new Map<number, number>();
   /** wird bei jeder Änderung hochgezählt (Schatten neu malen, speichern) */
@@ -177,6 +206,8 @@ export class World {
       this.recipes = (save.recipes ?? []).filter((r) => DISH_IDS.includes(r as never));
       this.orders = cleanOrders(save.orders);
       this.villagers = cleanVillagers(save.villagers);
+      this.beets = (save.beets ?? []).filter((h) => typeof h?.x === 'number' && typeof h?.y === 'number').map((h) => ({ x: h.x, y: h.y }));
+      this.coaches = (save.coaches ?? []).filter((h) => typeof h?.x === 'number' && typeof h?.y === 'number').map((h) => ({ x: h.x, y: h.y }));
       this.apples = Math.max(0, Math.floor(save.apples ?? 0));
       this.berries = Math.max(0, Math.floor(save.berries ?? 0));
       for (const [k, v] of Object.entries(save.shaken ?? {})) {
@@ -226,6 +257,8 @@ export class World {
     this.recipes = w.recipes;
     this.orders = w.orders;
     this.villagers = w.villagers;
+    this.beets = w.beets;
+    this.coaches = w.coaches;
     this.version++;
   }
 
@@ -249,6 +282,8 @@ export class World {
         ? { dishes: { ...this.dishes }, recipes: [...this.recipes], orders: { day: this.orders.day, list: this.orders.list ? this.orders.list.map((o) => ({ ...o, need: { ...o.need } })) : null, done: [...this.orders.done] } }
         : {}),
       ...(this.villagers.length ? { villagers: this.villagers.map((v) => ({ ...v })) } : {}),
+      ...(this.beets.length ? { beets: this.beets.map((v) => ({ ...v })) } : {}),
+      ...(this.coaches.length ? { coaches: this.coaches.map((v) => ({ ...v })) } : {}),
       ...(this.proj.n || this.proj.sites.length || Object.keys(this.proj.got).length ? { proj: { n: this.proj.n, got: { ...this.proj.got }, sites: this.proj.sites.map((s) => (s ? [s[0], s[1]] : null)) as ProjState['sites'] } } : {}),
     };
   }
@@ -336,6 +371,8 @@ export class World {
       [this.stables, STABLE_FOOT],
       [this.decos, DECO_FOOT],
       [this.villagers, HUT_FOOT],
+      [this.beets, BEET_FOOT],
+      [this.coaches, COACH_FOOT],
     ] as const)
       for (const h of list) if (x + fw > h.x + f.left && x - fw < h.x + f.right && y + fh > h.y + f.top && y - fh < h.y + f.bottom) return true;
     for (const h of this.projSites()) if (x + fw > h.x + h.foot.left && x - fw < h.x + h.foot.right && y + fh > h.y + h.foot.top && y - fh < h.y + h.foot.bottom) return true;
@@ -423,32 +460,36 @@ export class World {
     return best;
   }
 
-  /** Ein Axtschlag; liefert Holz-Ertrag, wenn der Baum fällt */
-  chop(i: number, now = Date.now()): { felled: boolean; wood: number; left: number } {
+  /** Holz pro Baum (Goldaxt: eins mehr) */
+  private woodOf(c: { wood: number }, axe: number) {
+    return c.wood + this.perks.extraWood + (axe >= 2 ? 1 : 0);
+  }
+  /** Ein Axtschlag (axe = Stufe der Axt: Eisen/Gold fällen schneller); liefert Holz-Ertrag, wenn der Baum fällt */
+  chop(i: number, now = Date.now(), axe = 0): { felled: boolean; wood: number; left: number } {
     const d = this.isl.decor[i];
     const c = d && CHOP[d.kind];
     if (!c || this.felled.has(i)) return { felled: false, wood: 0, left: 0 };
     const n = (this.hits.get(i) ?? 0) + 1;
-    const hits = Math.max(1, c.hits - this.perks.chopFaster);
+    const hits = Math.max(1, c.hits - this.perks.chopFaster - axe);
     if (n < hits) {
       this.hits.set(i, n);
       return { felled: false, wood: 0, left: hits - n };
     }
     this.hits.delete(i);
     this.felled.set(i, now);
-    const wood = c.wood + this.perks.extraWood;
+    const wood = this.woodOf(c, axe);
     this.wood += wood;
     this.version++;
     return { felled: true, wood, left: 0 };
   }
 
   /** Baum gilt als gefällt (Abgleich einer gemeinsamen Insel) */
-  fell(i: number, now = Date.now()) {
+  fell(i: number, now = Date.now(), axe = 0) {
     const c = CHOP[this.isl.decor[i]?.kind];
     if (!c || this.felled.has(i)) return 0;
     this.hits.delete(i);
     this.felled.set(i, now);
-    const wood = c.wood + this.perks.extraWood;
+    const wood = this.woodOf(c, axe);
     this.wood += wood;
     this.version++;
     return wood;
@@ -483,6 +524,8 @@ export class World {
       [this.paddocks, PADDOCK_FOOT],
       [this.decos, DECO_FOOT],
       [this.villagers, HUT_FOOT],
+      [this.beets, BEET_FOOT],
+      [this.coaches, COACH_FOOT],
     ] as const)
       for (const h of list)
         if (x + f.right + 4 > h.x + g.left && x + f.left - 4 < h.x + g.right && y + f.bottom + 4 > h.y + g.top - 6 && y + f.top - 8 < h.y + g.bottom) return false;
@@ -508,9 +551,28 @@ export class World {
       return true;
     }
     this.wood -= cost;
-    (kind === 'fire' ? this.fires : kind === 'stable' ? this.stables : kind === 'paddock' ? this.paddocks : this.houses).push({ x: Math.round(x), y: Math.round(y) });
+    (kind === 'fire' ? this.fires : kind === 'stable' ? this.stables : kind === 'paddock' ? this.paddocks : kind === 'beet' ? this.beets : kind === 'coach' ? this.coaches : this.houses).push({ x: Math.round(x), y: Math.round(y) });
     this.version++;
     return true;
+  }
+
+  /** Haus ausbauen: Obergeschoss, drinnen mehr Platz */
+  enlarge(house: number) {
+    const h = this.houses[house];
+    if (!h) return 'Dieses Haus gibt es nicht';
+    if (h.big) return 'Dieses Haus ist schon ausgebaut';
+    if (this.wood < ENLARGE.wood) return 'Zu wenig Holz';
+    if (this.coins < ENLARGE.coins) return 'Zu wenig Münzen';
+    this.wood -= ENLARGE.wood;
+    this.coins -= ENLARGE.coins;
+    h.big = true;
+    this.version++;
+    return null;
+  }
+
+  /** Liegt diese Kachel in einem Hochbeet? */
+  onBeet(c: number, r: number) {
+    return this.beets.some((b) => beetTiles(b).some(([bc, br]) => bc === c && br === r));
   }
 
   /** Möbelstück in ein Haus stellen (Platz frei, genug Holz) */

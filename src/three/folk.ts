@@ -152,8 +152,7 @@ export function makeAnimal(id: string): Animal {
       if (t) t.rotation.y = Math.sin(time * (moving || happy > 0 ? 9 : 2.5)) * (id === 'katze' ? 0.35 : 0.25);
     },
     dispose() {
-      (m.material as THREE.Material).dispose();
-      if (t) (t.material as THREE.Material).dispose();
+      // Formen und Materialien teilen sich alle Bewohner derselben Art – nichts freigeben
     },
   };
 }

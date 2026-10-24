@@ -9,5 +9,7 @@ export const FURNITURE = [
 ] as const;
 export type FurnitureId = (typeof FURNITURE)[number]['id'];
 export const furnitureById = (id: string) => FURNITURE.find((f) => f.id === id);
-/** so viele Plätze hat jedes Haus */
+/** so viele Plätze hat jedes Haus (ausgebaut: mehr) */
 export const SLOT_COUNT = 5;
+export const SLOT_COUNT_BIG = 8;
+export const slotCount = (big?: boolean) => (big ? SLOT_COUNT_BIG : SLOT_COUNT);

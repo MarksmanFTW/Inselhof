@@ -2212,3 +2212,71 @@ img[src$='#foto'] {
   height: 52px;
   object-fit: contain;
 }
+
+/* ---------- Verbesserungen ---------- */
+.craft-row .tool-wrap {
+  position: relative;
+  flex: none;
+  display: grid;
+}
+.craft-row .badge {
+  position: absolute;
+  left: 50%;
+  bottom: -4px;
+  transform: translateX(-50%);
+  padding: 0 6px;
+  border-radius: 8px;
+  font: 700 10px/15px 'Fredoka', system-ui, sans-serif;
+  font-style: normal;
+  color: #fff;
+  white-space: nowrap;
+}
+.badge.iron {
+  background: #8a90a0;
+}
+.badge.gold {
+  background: #e0a820;
+}
+.craft-row .stars {
+  display: inline-flex;
+  gap: 2px;
+  vertical-align: middle;
+}
+.craft-row .stars i {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #ecd8b0;
+}
+.craft-row .stars i.iron {
+  background: #9aa0b0;
+}
+.craft-row .stars i.gold {
+  background: #f2c14e;
+}
+.craft-row .why {
+  color: #b0402c !important;
+  font-weight: 600;
+}
+.craft-row.up.locked {
+  opacity: 0.6;
+}
+.craft-have span + span {
+  margin-left: 2px;
+}
+.craft-row.up .pbtn {
+  padding-left: 10px;
+  padding-right: 10px;
+}
+.craft-list {
+  min-width: 0;
+}
+.craft-list > .craft-row {
+  min-width: 0;
+}
+.craft-row .what b {
+  overflow-wrap: anywhere;
+}
+.build-card.folk > div {
+  padding-right: 44px;
+}

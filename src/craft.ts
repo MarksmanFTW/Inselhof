@@ -47,6 +47,8 @@ export interface Bag {
   tut: number;
   /** Belohnung fürs Tutorial abgeholt */
   paid?: boolean;
+  /** Verbesserungen: Werkzeug/Schuhe/Hufeisen → Stufe (1 Eisen, 2 Gold), siehe upgrades.ts */
+  up?: Partial<Record<ToolKind | 'shoes' | 'hooves', number>>;
 }
 export const newBag = (): Bag => ({ sticks: 0, stones: 0, tools: [], got: { sticks: 0, stones: 0 }, tut: 0 });
 /** Spieler, die schon vor dem Tutorial gespielt haben: alles da, Tutorial erledigt */
@@ -62,6 +64,12 @@ export function cleanBag(raw: Partial<Bag> | undefined): Bag {
   b.got = { sticks: num(raw.got?.sticks), stones: num(raw.got?.stones) };
   b.tut = Math.min(TUTORIAL.length, num(raw.tut));
   if (raw.paid) b.paid = true;
+  const up: NonNullable<Bag['up']> = {};
+  for (const k of [...ALL_TOOLS, 'shoes', 'hooves'] as const) {
+    const v = num(raw.up?.[k]);
+    if (v) up[k] = Math.min(2, v);
+  }
+  if (Object.keys(up).length) b.up = up;
   return b;
 }
 

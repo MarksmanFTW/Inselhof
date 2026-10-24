@@ -7,11 +7,13 @@ import { Grid } from './props';
 
 export const ROOM_W = 120;
 export const ROOM_H = 86;
+/** ausgebautes Haus: der Raum geht rechts weiter */
+export const ROOM_W_BIG = 168;
+export const roomW = (big?: boolean) => (big ? ROOM_W_BIG : ROOM_W);
 /** Wand oben bis hier, darunter Boden */
 const WALL = 26;
 /** Laufbereich der Füße */
 const MIN_X = 7;
-const MAX_X = ROOM_W - 7;
 const MIN_Y = WALL + 6;
 const MAX_Y = ROOM_H - 4;
 
@@ -19,6 +21,8 @@ type Rect = { x: number; y: number; w: number; h: number };
 export const BED: Rect = { x: 6, y: 22, w: 24, h: 22 };
 export const CHEST: Rect = { x: 92, y: 26, w: 18, h: 12 };
 export const DOOR = { x: ROOM_W / 2, y: ROOM_H - 2 };
+/** Tür in der Mitte der Vorderwand */
+export const doorOf = (big?: boolean) => ({ x: roomW(big) / 2, y: ROOM_H - 2 });
 /** Möbel-Plätze (Mitte unten des Möbelstücks) */
 export const SLOTS: { x: number; y: number }[] = [
   { x: 60, y: 58 },
@@ -27,6 +31,13 @@ export const SLOTS: { x: number; y: number }[] = [
   { x: 20, y: 82 },
   { x: 100, y: 82 },
 ];
+/** drei Plätze mehr im ausgebauten Haus (im neuen Teil rechts) */
+const BIG_SLOTS = [
+  { x: 136, y: 56 },
+  { x: 158, y: 68 },
+  { x: 140, y: 82 },
+];
+export const slotsOf = (big?: boolean) => (big ? [...SLOTS, ...BIG_SLOTS] : SLOTS);
 /** Grundfläche eines Möbelstücks (zum Anstoßen) */
 const FOOT: Record<string, { w: number; h: number }> = {
   table: { w: 22, h: 6 },
@@ -40,11 +51,12 @@ const FOOT: Record<string, { w: number; h: number }> = {
 const hit = (r: Rect, x: number, y: number, fw = 3, fh = 1) => x + fw > r.x && x - fw < r.x + r.w && y + fh > r.y && y - fh < r.y + r.h;
 
 /** Darf der Fuß hier stehen? */
-export function roomFree(x: number, y: number, furn: Record<number, string> = {}) {
-  if (x < MIN_X || x > MAX_X || y < MIN_Y || y > MAX_Y) return false;
+export function roomFree(x: number, y: number, furn: Record<number, string> = {}, big = false) {
+  if (x < MIN_X || x > roomW(big) - 7 || y < MIN_Y || y > MAX_Y) return false;
   if (hit(BED, x, y) || hit(CHEST, x, y)) return false;
+  const slots = slotsOf(big);
   for (const [k, id] of Object.entries(furn)) {
-    const s = SLOTS[Number(k)];
+    const s = slots[Number(k)];
     const f = FOOT[id];
     if (!s || !f || !f.w) continue;
     if (hit({ x: s.x - f.w / 2, y: s.y - f.h, w: f.w, h: f.h }, x, y)) return false;
@@ -54,13 +66,13 @@ export function roomFree(x: number, y: number, furn: Record<number, string> = {}
 
 export type RoomSpot = { kind: 'bed' | 'chest' | 'door' } | { kind: 'slot'; slot: number };
 /** Was ist in Reichweite der Füße? */
-export function nearSpot(x: number, y: number, furn: Record<number, string> = {}): RoomSpot | null {
-  if (Math.abs(x - DOOR.x) < 9 && y > ROOM_H - 10) return { kind: 'door' };
+export function nearSpot(x: number, y: number, furn: Record<number, string> = {}, big = false): RoomSpot | null {
+  if (Math.abs(x - doorOf(big).x) < 9 && y > ROOM_H - 10) return { kind: 'door' };
   if (x < BED.x + BED.w + 8 && y < BED.y + BED.h + 8) return { kind: 'bed' };
   if (x > CHEST.x - 8 && y < CHEST.y + CHEST.h + 8) return { kind: 'chest' };
   let best = -1;
   let bd = 16;
-  SLOTS.forEach((s, i) => {
+  slotsOf(big).forEach((s, i) => {
     if (furn[i]) return;
     const d = Math.hypot(s.x - x, (s.y - y) * 1.3);
     if (d < bd) {

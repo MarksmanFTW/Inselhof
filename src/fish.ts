@@ -46,8 +46,9 @@ export const BITE_MAX = 6500;
 export const BITE_WINDOW = 1500;
 
 /** was beißt? rand: 0..1 (zweimal benutzt) */
-export function rollFish(rand: () => number, o: { night: boolean; dock: boolean }) {
-  const pool = FISH.filter((f) => !f.night || o.night).map((f) => ({ f, w: f.weight * (o.dock && (f.dock || !f.cook) ? 1.8 : !o.dock && f.dock ? 0.15 : 1) }));
+export function rollFish(rand: () => number, o: { night: boolean; dock: boolean; lucky?: boolean }) {
+  // lucky = Goldangel: seltene Fische (die man nicht brät) beißen doppelt so oft
+  const pool = FISH.filter((f) => !f.night || o.night).map((f) => ({ f, w: f.weight * (o.dock && (f.dock || !f.cook) ? 1.8 : !o.dock && f.dock ? 0.15 : 1) * (o.lucky && !f.cook && f.price > 0 ? 2 : 1) }));
   let r = rand() * pool.reduce((s, p) => s + p.w, 0);
   for (const p of pool) if ((r -= p.w) <= 0) return p.f;
   return pool[0].f;

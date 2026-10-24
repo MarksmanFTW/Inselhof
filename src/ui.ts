@@ -376,7 +376,10 @@ export interface HudActions {
   act: (down: boolean) => void;
   tool: (t: ToolId) => void;
   /** Bau-Fenster: Haus oder Lagerfeuer wählen → platzieren */
-  place: (what: 'house' | 'fire' | 'stable' | 'paddock' | 'deco' | 'hut', item?: string) => void;
+  place: (what: 'house' | 'fire' | 'stable' | 'paddock' | 'deco' | 'hut' | 'beet' | 'coach', item?: string) => void;
+  /** Häuser: wie viele noch klein sind; Haus ausbauen */
+  houses: () => { small: number; total: number; coins: number };
+  enlarge: () => void;
   /** wer ins nächste Bewohnerhaus einzieht (null = alle da) */
   nextFolk: () => { name: string; animal: string; img: string } | null;
   /** gekaufte Deko zum Aufstellen */
@@ -426,6 +429,11 @@ export interface HudIcons {
   rod: string;
   grilled: string;
   hut: string;
+  bighouse: string;
+  beet: string;
+  coach: string;
+  shoes: string;
+  hooves: string;
 }
 
 /** Rucksack-Fenster: Abschnitte mit Gegenständen; Antippen zeigt Infos und Knöpfe */
@@ -497,8 +505,10 @@ export interface ProjData {
 
 /** Basteln-Fenster */
 export interface CraftData {
-  have: { sticks: number; stones: number; wood: number };
+  have: { sticks: number; stones: number; wood: number; coins: number };
   recipes: { id: string; name: string; text: string; img: string; sticks: number; stones: number; wood: number; owned: boolean }[];
+  /** Verbesserungen: lv = jetzige Stufe (0–2), next = was als Nächstes kommt, block = warum noch nicht */
+  ups: { id: string; img: string; what: string; now: string; lv: number; next: { name: string; text: string; coins: number; stones: number; wood: number } | null; block: string | null }[];
 }
 
 export interface TradeData {
@@ -599,6 +609,8 @@ export interface Hud {
   openOrders(d: OrdersData, deliver: (i: number) => void): { update(d: OrdersData): void };
   /** Bewohner: Wunsch erfüllen, Geschenk abholen; update() zeichnet neu, solange offen */
   openVillager(d: VillagerData, hearts: [string, string], on: { give: () => void; present: () => void }): { update(d: VillagerData): void };
+  /** Kutschenhalt: wohin fahren? */
+  openTravel(d: { here: string; block: string | null; list: { id: number; name: string; sub: string }[] }, go: (id: number) => void): void;
   /** Bestellbrett-Knopf: so viele könnte man gerade liefern */
   setOrders(ready: number): void;
   /** Insel-Projekt-Anzeige unter der Aufgabe (null = keine) */
@@ -608,7 +620,7 @@ export interface Hud {
   /** Rucksack; update() zeichnet neu, solange offen */
   openInventory(d: InvData, act: (item: string, action: string) => void): { update(d: InvData): void; close(): void };
   /** Basteln; update() zeichnet neu, solange offen */
-  openCraft(d: CraftData, make: (id: string) => void): { update(d: CraftData): void };
+  openCraft(d: CraftData, make: (id: string) => void, improve: (id: string) => void): { update(d: CraftData): void };
   /** welche Werkzeuge schon gebastelt sind (die anderen sind gesperrt) */
   setOwned(tools: string[]): void;
   /** Knopf hüpfen lassen (Tutorial) */
@@ -619,7 +631,11 @@ export interface Hud {
 }
 
 /** Anzeigen und Knöpfe im Spiel */
-export function showHud(on: HudActions, icons: HudIcons, costs: { house: number; fire: number; stable: number; paddock: number; hut: number }): Hud {
+export function showHud(
+  on: HudActions,
+  icons: HudIcons,
+  costs: { house: number; fire: number; stable: number; paddock: number; hut: number; beet: number; coach: number; enlarge: { wood: number; coins: number } },
+): Hud {
   clear();
   ui.className = 'ui-hud';
   const slot = (t: ToolId, icon: string) =>
@@ -655,7 +671,7 @@ export function showHud(on: HudActions, icons: HudIcons, costs: { house: number;
       <button class="pbtn green use off" data-act="use" aria-label="Benutzen"><img src="${icons.axe}" alt="" /></button>
     </div>
     <div class="place-bar" hidden>
-      <p>Lauf dorthin, wo dein Haus stehen soll</p>
+      <p>Lauf dorthin, wo es stehen soll</p>
       <div class="btns">
         <button class="pbtn small" data-act="cancel">Abbrechen</button>
         <button class="pbtn green small" data-act="confirm">Hier bauen</button>
@@ -894,6 +910,32 @@ export function showHud(on: HudActions, icons: HudIcons, costs: { house: number;
       });
       return { update: (c: OrdersData) => modal.isConnected && draw(c) };
     },
+    openTravel(d, go) {
+      const modal = document.createElement('div');
+      modal.className = 'modal';
+      modal.innerHTML = `<div class="panel build-panel craft-panel travel-panel">
+          <h2>Kutsche</h2>
+          <p class="have">Du bist ${esc(d.here)}. Wohin soll es gehen?</p>
+          ${
+            d.block
+              ? `<p class="mine">${esc(d.block)}</p>`
+              : `<div class="craft-list">${d.list
+                  .map((x) => `<div class="craft-row"><img class="tool" src="${icons.coach}" alt="" /><div class="what"><b>${esc(x.name)}</b><small>${esc(x.sub)}</small></div><button class="pbtn green small" data-go="${x.id}">Losfahren</button></div>`)
+                  .join('')}</div>`
+          }
+          <button class="pbtn small ghost" data-m="close">Zurück</button>
+        </div>`;
+      ui.appendChild(modal);
+      modal.addEventListener('click', (e) => {
+        const t = e.target as HTMLElement;
+        if (e.target === modal || t.closest('[data-m=close]')) return modal.remove();
+        const b = t.closest<HTMLElement>('[data-go]');
+        if (b) {
+          modal.remove();
+          go(Number(b.dataset.go));
+        }
+      });
+    },
     openVillager(d, hearts, act) {
       const modal = document.createElement('div');
       modal.className = 'modal';
@@ -1081,20 +1123,42 @@ export function showHud(on: HudActions, icons: HudIcons, costs: { house: number;
         close: () => modal.remove(),
       };
     },
-    openCraft(d, make) {
+    openCraft(d, make, improve) {
       const modal = document.createElement('div');
       modal.className = 'modal';
       const cost = (n: number, img: string, have: number, label: string) =>
         n ? `<span class="cost${have < n ? ' miss' : ''}" title="${label}"><img src="${img}" alt="" />${n}</span>` : '';
+      let tab: 'craft' | 'up' = 'craft';
+      const upList = (c: CraftData) =>
+        `<div class="craft-list">${c.ups
+          .map((u) => {
+            const stars = `<span class="stars">${[1, 2].map((k) => `<i class="${u.lv >= k ? (k === 1 ? 'iron' : 'gold') : ''}"></i>`).join('')}</span>`;
+            if (!u.next)
+              return `<div class="craft-row owned up"><span class="tool-wrap"><img class="tool" src="${u.img}" alt="" /><em class="badge gold">Gold</em></span><div class="what"><b>${esc(u.now)} ${stars}</b><small>Ganz verbessert!</small></div><span class="done">✓</span></div>`;
+            const n = u.next;
+            return `<div class="craft-row up${u.block && /Werkzeug|Stufe/.test(u.block) ? ' locked' : ''}">
+                <span class="tool-wrap"><img class="tool" src="${u.img}" alt="" />${u.lv ? `<em class="badge ${u.lv === 1 ? 'iron' : 'gold'}">${u.lv === 1 ? 'Eisen' : 'Gold'}</em>` : ''}</span>
+                <div class="what"><b>${esc(n.name)} ${stars}</b><small>${esc(n.text)}</small>
+                  <div class="costs">${cost(n.coins, icons.coin, c.have.coins, 'Münzen')}${cost(n.stones, icons.stone, c.have.stones, 'Steine')}${cost(n.wood, icons.log, c.have.wood, 'Holz')}</div>
+                  ${u.block && u.block !== 'Zu wenig Münzen' && u.block !== 'Zu wenig Holz' && u.block !== 'Zu wenig Steine' ? `<small class="why">${esc(u.block)}</small>` : ''}
+                </div>
+                <button class="pbtn green small" data-u="${u.id}"${u.block ? ' disabled' : ''}>Kaufen</button>
+              </div>`;
+          })
+          .join('')}</div>
+          <p class="mine small">Verbesserungen gehören dir – Münzen und Holz kommen aus dem Vorrat der Insel.</p>`;
       const draw = (c: CraftData) => {
         modal.innerHTML = `<div class="panel build-panel craft-panel">
-          <h2>Basteln</h2>
+          <h2>${tab === 'craft' ? 'Basteln' : 'Verbessern'}</h2>
+          <div class="tabs"><button class="pbtn small${tab === 'craft' ? ' green' : ''}" data-tab="craft">Basteln</button><button class="pbtn small${tab === 'up' ? ' green' : ''}" data-tab="up">Verbessern</button></div>
           <p class="have craft-have">Du hast
             <span><img src="${icons.stick}" alt="" /><b>${c.have.sticks}</b> Stöcke</span>
             <span><img src="${icons.stone}" alt="" /><b>${c.have.stones}</b> Steine</span>
             <span><img src="${icons.log}" alt="" /><b>${c.have.wood}</b> Holz</span>
+            ${tab === 'up' ? `<span><img src="${icons.coin}" alt="" /><b>${c.have.coins}</b> Münzen</span>` : ''}
           </p>
-          <div class="craft-list">${c.recipes
+          ${tab === 'up' ? upList(c) : ''}
+          <div class="craft-list"${tab === 'up' ? ' hidden' : ''}>${c.recipes
             .map((r) => {
               const can = !r.owned && c.have.sticks >= r.sticks && c.have.stones >= r.stones && c.have.wood >= r.wood;
               return `<div class="craft-row${r.owned ? ' owned' : ''}">
@@ -1106,19 +1170,37 @@ export function showHud(on: HudActions, icons: HudIcons, costs: { house: number;
               </div>`;
             })
             .join('')}</div>
-          <p class="mine small">Stöcke liegen auf der Wiese, Steine im Sand am Strand – nach einer Weile liegen neue da.</p>
+          ${tab === 'craft' ? '<p class="mine small">Stöcke liegen auf der Wiese, Steine im Sand am Strand – nach einer Weile liegen neue da.</p>' : ''}
           <button class="pbtn small ghost" data-m="close">Zurück</button>
         </div>`;
       };
+      let cur = d;
       draw(d);
       ui.appendChild(modal);
       modal.addEventListener('click', (e) => {
         const t = e.target as HTMLElement;
         if (e.target === modal || t.closest('[data-m=close]')) return modal.remove();
+        const tb = t.closest<HTMLElement>('[data-tab]');
+        if (tb) {
+          tab = tb.dataset.tab as 'craft' | 'up';
+          return draw(cur);
+        }
         const b = t.closest<HTMLButtonElement>('[data-c]');
         if (b && !b.disabled) make(b.dataset.c!);
+        const u = t.closest<HTMLButtonElement>('[data-u]');
+        if (u && !u.disabled) improve(u.dataset.u!);
       });
-      return { update: (c: CraftData) => modal.isConnected && draw(c) };
+      return {
+        update: (c: CraftData) => {
+          cur = c;
+          if (!modal.isConnected) return;
+          const p = modal.querySelector('.craft-panel');
+          const sc = p?.scrollTop ?? 0;
+          draw(c);
+          const p2 = modal.querySelector('.craft-panel');
+          if (p2) p2.scrollTop = sc;
+        },
+      };
     },
     openChest(items) {
       const modal = document.createElement('div');
@@ -1324,7 +1406,7 @@ export function showHud(on: HudActions, icons: HudIcons, costs: { house: number;
     },
     openBuild(wood) {
       const decos = on.decoList();
-      const card = (what: 'house' | 'fire' | 'stable' | 'paddock', img: string, title: string, text: string) => {
+      const card = (what: 'house' | 'fire' | 'stable' | 'paddock' | 'beet' | 'coach', img: string, title: string, text: string) => {
         const cost = costs[what];
         const enough = wood >= cost;
         return `<div class="build-card${enough ? '' : ' poor'}">
@@ -1348,6 +1430,18 @@ export function showHud(on: HudActions, icons: HudIcons, costs: { house: number;
             <img class="who" src="${nf.img}" alt="" />
           </div>`;
       };
+      const bigCard = () => {
+        const h = on.houses();
+        const c = costs.enlarge;
+        const enough = wood >= c.wood && h.coins >= c.coins;
+        const why = !h.total ? 'Bau zuerst ein Haus' : !h.small ? 'Alle Häuser sind ausgebaut' : !enough ? (wood < c.wood ? `Noch ${c.wood - wood} Holz` : `Noch ${c.coins - h.coins} Münzen`) : '';
+        return `<div class="build-card${why ? ' poor' : ''}">
+            <img src="${icons.bighouse}" alt="" />
+            <div><b>Haus ausbauen</b><p>Dein Haus (das nächste) bekommt ein Obergeschoss – drinnen 3 Möbelplätze mehr und ein Kamin.</p>
+            <p class="cost"><img src="${icons.log}" alt="" /> ${c.wood} Holz <img src="${icons.coin}" alt="" /> ${c.coins}</p>
+            <button class="pbtn green small" data-m="enlarge"${why ? ' disabled' : ''}>${why || 'Ausbauen'}</button></div>
+          </div>`;
+      };
       const modal = document.createElement('div');
       modal.className = 'modal';
       modal.innerHTML = `<div class="panel build-panel">
@@ -1357,7 +1451,10 @@ export function showHud(on: HudActions, icons: HudIcons, costs: { house: number;
           ${card('fire', icons.fire, 'Lagerfeuer', 'Brät Rüben zu Ofenrüben – macht richtig satt.')}
           ${card('stable', icons.stable, 'Pferdestall', 'Platz für 4 Pferde – such dir deine Lieblingsrassen aus.')}
           ${card('paddock', icons.paddock, 'Koppel', 'Eingezäunte Weide beim Stall – dort grasen deine Pferde.')}
+          ${card('beet', icons.beet, 'Hochbeet', 'Sechs Felder in einem Holzrahmen – Rüben wachsen hier doppelt so schnell.')}
           ${folkCard()}
+          ${card('coach', icons.coach, 'Kutschenhalt', 'Bau zwei oder mehr – dann fährst du mit deinem Pferd von Halt zu Halt.')}
+          ${bigCard()}
           <h3 class="sub">Deko aufstellen</h3>
           ${
             decos.length
@@ -1376,7 +1473,12 @@ export function showHud(on: HudActions, icons: HudIcons, costs: { house: number;
           on.place('deco', dk.dataset.deco);
           return;
         }
-        if (m && !m.disabled && (m.dataset.m === 'house' || m.dataset.m === 'fire' || m.dataset.m === 'stable' || m.dataset.m === 'paddock' || m.dataset.m === 'hut')) {
+        if (m && !m.disabled && m.dataset.m === 'enlarge') {
+          modal.remove();
+          on.enlarge();
+          return;
+        }
+        if (m && !m.disabled && (m.dataset.m === 'house' || m.dataset.m === 'fire' || m.dataset.m === 'stable' || m.dataset.m === 'paddock' || m.dataset.m === 'hut' || m.dataset.m === 'beet' || m.dataset.m === 'coach')) {
           modal.remove();
           on.place(m.dataset.m);
         }

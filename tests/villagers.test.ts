@@ -151,7 +151,7 @@ describe('Bewohner', () => {
     expect(questAt(25).stat).toBe('wishes');
     expect(cleanProgress({ xp: 0, stats: {}, quests: 20, v: 4 }).quests).toBe(20);
     expect(cleanProgress({ xp: 0, stats: {}, quests: 24, v: 4 }).quests).toBe(24);
-    expect(cleanProgress({ xp: 0, stats: {}, quests: 30, v: 4 }).quests).toBe(33);
-    expect(cleanProgress({ xp: 0, stats: {}, quests: 30, v: 5 }).quests).toBe(30);
+    expect(cleanProgress({ xp: 0, stats: {}, quests: 30, v: 4 }).quests).toBe(35);
+    expect(cleanProgress({ xp: 0, stats: {}, quests: 30, v: 6 }).quests).toBe(30);
   });
 });

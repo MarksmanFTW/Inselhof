@@ -4,7 +4,7 @@
  * gemacht hat, werden auf den neuesten Stand aus der Cloud nochmal angewendet.
  */
 import { Farm } from './farm';
-import { SLOT_COUNT, furnitureById } from './furniture';
+import { furnitureById, slotCount } from './furniture';
 import { FOAL_HAY } from './horses';
 import { SEED_PACK, SELL, decoById, horseOffers, merchantHere, type SellItem } from './shop';
 import { islandDay } from './horses';
@@ -12,7 +12,9 @@ import { gain, type Gain, type Stat } from './progress';
 import { napOffset, newClock, sleepOffset, sleepyHour, timeOf } from './time';
 import { TILE } from './island';
 import type { Action } from './net/types';
-import { BUILDS, type BuildKind, type World } from './world';
+import { BEET_GROW, BUILDS, beetSnap, beetTiles, type BuildKind, type World } from './world';
+import { key as plotKey } from './farm';
+import { upgradeById } from './upgrades';
 import { TUT_SEEDS, recipeOf, type ToolKind } from './craft';
 import { fishById } from './fish';
 import { FEST_COINS, PROJECTS, PROJ_ITEMS, islandHas, islandTake, pickSite, type ProjItem } from './projects';
@@ -69,11 +71,12 @@ export interface OpResult {
 /** Ackerbau kennt die Fähigkeiten der Insel-Stufe */
 export function link(world: World, farm: Farm) {
   farm.perks = () => world.perks;
+  farm.growAt = (c, r) => (world.beets.length && world.onBeet(c, r) ? BEET_GROW : 1);
 }
 
 const STAT: Partial<Record<Action['kind'], Stat>> = { hoe: 'tilled', seeds: 'planted', water: 'watered', harvest: 'harvested', adopt: 'adopted', foal: 'adopted', mow: 'mowed', feed: 'cared', brush: 'cared', cook: 'cooked' };
 /** Bauen: was zählt wofür (Deko und Koppel zählen nicht) */
-const BUILT: Partial<Record<BuildKind, Stat>> = { house: 'built', fire: 'fire', stable: 'stable', hut: 'villagers' };
+const BUILT: Partial<Record<BuildKind, Stat>> = { house: 'built', fire: 'fire', stable: 'stable', hut: 'villagers', beet: 'beets' };
 
 
 /** Aktion ausführen und Fortschritt verbuchen */
@@ -97,6 +100,7 @@ export function applyOp(world: World, farm: Farm, op: Op): OpResult {
     else if (a.kind === 'donate' && res.finished) merge(gain(world.prog, 'projects', 1, give));
     else if (a.kind === 'order' && res.delivered) merge(gain(world.prog, 'orders', 1, give));
     else if (a.kind === 'wish' && res.wish) merge(gain(world.prog, 'wishes', 1, give));
+    else if (a.kind === 'upgrade') merge(gain(world.prog, 'upgrades', 1, give));
     else if (a.kind === 'fish' && res.caught) {
       merge(gain(world.prog, 'fish', 1, give));
       if (res.caught.first) merge(gain(world.prog, 'species', 1, give));
@@ -130,6 +134,8 @@ export function tileFree(world: World, c: number, r: number, actor: { x: number;
 
 /** Liegt ein Feld unter der Haus-Grundfläche? */
 export function farmUnder(farm: Farm, x: number, y: number, kind: BuildKind = 'house') {
+  // Hochbeet: genau seine sechs Kacheln (daneben darf ein Feld liegen)
+  if (kind === 'beet') return beetTiles(beetSnap(x, y)).some(([c, r]) => !!farm.plot(c, r));
   const f = BUILDS[kind].foot;
   const [c0, r0] = Farm.tileAt(x + f.left, y + f.top - (kind === 'house' ? 6 : 0));
   const [c1, r1] = Farm.tileAt(x + f.right, y + f.bottom);
@@ -148,6 +154,22 @@ function run(world: World, farm: Farm, op: Op): OpResult {
   if (a.kind === 'pick') {
     const got = world.pick(a.tree ?? -1, t);
     return { err: got ? null : 'Schon aufgehoben', done: !!got, picked: got ?? undefined };
+  }
+  if (a.kind === 'upgrade') {
+    // Werkzeug verbessern: Münzen und Holz der Insel (Steine und die Stufe zählt das Gerät im Rucksack)
+    const lv = upgradeById(a.item ?? '')?.levels[Math.floor(a.n ?? 0) - 1];
+    if (!lv) return { err: 'Gibt es nicht', done: false };
+    if (world.level < lv.level) return { err: `Ab Insel-Stufe ${lv.level}`, done: false };
+    if (world.coins < lv.coins) return { err: 'Zu wenig Münzen', done: false };
+    if (world.wood < lv.wood) return { err: 'Zu wenig Holz', done: false };
+    world.coins -= lv.coins;
+    world.wood -= lv.wood;
+    world.version++;
+    return { err: null, done: true };
+  }
+  if (a.kind === 'enlarge') {
+    const e = world.enlarge(a.house ?? -1);
+    return { err: e, done: !e };
   }
   if (a.kind === 'craft') {
     const r = recipeOf(a.item ?? '');
@@ -187,11 +209,12 @@ function run(world: World, farm: Farm, op: Op): OpResult {
   }
   if (a.kind === 'axe') {
     if (!world.isl.decor[a.tree ?? -1]) return { err: null, done: false };
+    const axe = Math.max(0, Math.min(2, Math.floor(a.n ?? 0)));
     if (a.fell) {
-      const wood = world.fell(a.tree!, t);
+      const wood = world.fell(a.tree!, t, axe);
       return { err: null, done: wood > 0, felled: wood > 0, wood };
     }
-    const res = world.chop(a.tree!, t);
+    const res = world.chop(a.tree!, t, axe);
     return { err: null, done: true, felled: res.felled, wood: res.wood };
   }
   if (a.kind === 'hoe') {
@@ -270,13 +293,23 @@ function run(world: World, farm: Farm, op: Op): OpResult {
     else err = world.placeDeco(a.x ?? 0, a.y ?? 0, a.item!, actor);
     if (!err) return { err: null, done: true, built: true };
   } else if (a.kind === 'build') {
-    const x = a.x ?? 0;
-    const y = a.y ?? 0;
     const what = a.what ?? 'house';
+    // Hochbeet liegt genau auf dem Feld-Raster
+    const { x, y } = what === 'beet' ? beetSnap(a.x ?? 0, a.y ?? 0) : { x: a.x ?? 0, y: a.y ?? 0 };
     const folk = what === 'hut' ? nextVillager(world) : null;
     if (what === 'hut' && !folk) err = 'Alle Bewohner sind schon eingezogen';
     else if (farmUnder(farm, x, y, what)) err = 'Hier ist ein Feld im Weg';
-    else if (world.build(x, y, actor, what)) return { err: null, done: true, built: true, ...(folk ? { movedIn: folk.id } : {}) };
+    else if (world.build(x, y, actor, what)) {
+      if (what === 'beet') {
+        // die sechs Felder im Beet sind gleich fertig zum Säen
+        for (const [c, r] of beetTiles({ x, y })) {
+          farm.plots.set(plotKey(c, r), { wetAt: 0 });
+          farm.meadow.delete(plotKey(c, r));
+        }
+        farm.version++;
+      }
+      return { err: null, done: true, built: true, ...(folk ? { movedIn: folk.id } : {}) };
+    }
     else err = world.wood < BUILDS[what].cost ? 'Zu wenig Holz' : 'Hier ist kein Platz';
   } else if (a.kind === 'sleep') {
     world.clock ??= newClock(t);
@@ -352,7 +385,7 @@ function run(world: World, farm: Farm, op: Op): OpResult {
     return { err: null, done: got > 0, hay: got };
   } else if (a.kind === 'furnish') {
     const f = furnitureById(a.item ?? '');
-    if (!f || (a.slot ?? -1) < 0 || (a.slot ?? 0) >= SLOT_COUNT) err = 'Unbekanntes Möbelstück';
+    if (!f || (a.slot ?? -1) < 0 || (a.slot ?? 0) >= slotCount(world.houses[a.house ?? -1]?.big)) err = 'Unbekanntes Möbelstück';
     else err = world.furnish(a.house ?? -1, a.slot!, f.id, f.cost);
   }
   return { err, done: !err };

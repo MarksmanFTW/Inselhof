@@ -13,7 +13,7 @@ import type { Island } from '../island';
 import { H, TILE, W } from '../island';
 import { DECO_FOOT } from '../shop';
 import type { TimeOfDay } from '../time';
-import { FIRE_FOOT, HOUSE_FOOT, HUT_FOOT, STABLE_FOOT, type BuildKind, type World } from '../world';
+import { BEET_FOOT, COACH_FOOT, FIRE_FOOT, HOUSE_FOOT, HUT_FOOT, STABLE_FOOT, type BuildKind, type World } from '../world';
 import { PROJECTS, siteOf } from '../projects';
 import { boardSpot } from '../orders';
 import { Build, CURVE, FOCUS, U, curve, mat, rbox, sphere, vcMat } from './engine';
@@ -562,7 +562,16 @@ export class View {
   private syncBuilt() {
     const w = this.world;
     const want = new Map<string, () => THREE.Object3D>();
-    w.houses.forEach((h) => want.set(`house:${h.x},${h.y}`, () => this.placeAt(M.house(), h.x, h.y, true)));
+    w.houses.forEach((h) => want.set(`house:${h.big ? 'big:' : ''}${h.x},${h.y}`, () => this.placeAt(M.house(h.big), h.x, h.y, true)));
+    w.beets.forEach((h) =>
+      want.set(`beet:${h.x},${h.y}`, () => {
+        // wie die Felder darin: Boden in der Mitte des Beets
+        const o = this.placeAt(M.beet(), h.x, h.y, false);
+        o.position.y = this.groundY(h.x, h.y - 8);
+        return o;
+      }),
+    );
+    w.coaches.forEach((h) => want.set(`coach:${h.x},${h.y}`, () => this.placeAt(M.coachStop(), h.x, h.y, true)));
     w.stables.forEach((h) => want.set(`stable:${h.x},${h.y}`, () => this.placeAt(M.stable(), h.x, h.y, true)));
     w.paddocks.forEach((h) => want.set(`paddock:${h.x},${h.y}`, () => this.placeAt(M.paddock(), h.x, h.y, true)));
     w.fires.forEach((h) => want.set(`fire:${h.x},${h.y}`, () => this.placeAt(M.campfire().g, h.x, h.y, false)));
@@ -614,7 +623,7 @@ export class View {
           }
           o.userData.puffs = puffs;
         }
-        puffs.forEach((m, n) => this.smoke.push({ m, base: M.CHIMNEY, ph: n / puffs!.length + o.position.x * 0.1 }));
+        puffs.forEach((m, n) => this.smoke.push({ m, base: (o.userData.chimney as THREE.Vector3) ?? M.CHIMNEY, ph: n / puffs!.length + o.position.x * 0.1 }));
       }
     }
   }
@@ -651,7 +660,8 @@ export class View {
       const [c, r] = k.split(',').map(Number);
       const x = c * TILE + 4;
       const y = r * TILE + 4;
-      const h = this.groundY(x, y);
+      // im Hochbeet liegt die Erde höher
+      const h = this.groundY(x, y) + (this.world.beets.length && this.world.onBeet(c, r) ? M.BEET_LIFT : 0);
       d.position.set(x * U, h, y * U);
       d.rotation.set(0, 0, 0);
       d.scale.setScalar(1);
@@ -696,7 +706,7 @@ export class View {
   private syncCovered() {
     const w = this.world;
     const f = this.farm;
-    const k = `${w.houses.length}|${w.stables.length}|${w.fires.length}|${w.decos.length}|${w.paddocks.length}|${w.villagers.length}|${f.plots.size}|${f.meadow.size}`;
+    const k = `${w.houses.length}|${w.stables.length}|${w.fires.length}|${w.decos.length}|${w.paddocks.length}|${w.villagers.length}|${w.beets.length}|${w.coaches.length}|${f.plots.size}|${f.meadow.size}`;
     if (k === this.coveredKey) return;
     this.coveredKey = k;
     const boxes: [number, number, number, number][] = [];
@@ -708,6 +718,8 @@ export class View {
     add(w.fires, FIRE_FOOT);
     add(w.decos, DECO_FOOT);
     add(w.villagers, HUT_FOOT);
+    add(w.beets, BEET_FOOT);
+    add(w.coaches, COACH_FOOT);
     this.terrain.hideDetails((x, y) => {
       if (boxes.some(([a, b, c, d]) => x > a && x < b && y > c && y < d)) return true;
       const key = plotKey(Math.floor(x / TILE), Math.floor(y / TILE));
@@ -1190,7 +1202,7 @@ export class View {
       const h = this.world.houses[fr.inside];
       this.interior ??= new Interior();
       if (!this.insideNow) this.interior.resize(this.w, this.h);
-      this.interior.update(h?.furn ?? {}, fr.tod, fr.t);
+      this.interior.update(h?.furn ?? {}, fr.tod, fr.t, !!h?.big);
       if (fr.me) this.interior.follow(fr.me.x * U, !this.insideNow);
     }
     this.syncKid('me', fr.me, fr);
@@ -1281,7 +1293,7 @@ export class View {
     }
     if (!this.ghost || this.ghost.key !== key) {
       if (this.ghost) this.scene.remove(this.ghost.o, this.ghost.foot);
-      const o = g.kind === 'house' ? M.house() : g.kind === 'stable' ? M.stable() : g.kind === 'paddock' ? M.paddock() : g.kind === 'fire' ? M.campfire().g : g.kind === 'hut' ? hut(g.deco) : M.deco(g.deco);
+      const o = g.kind === 'house' ? M.house() : g.kind === 'stable' ? M.stable() : g.kind === 'paddock' ? M.paddock() : g.kind === 'fire' ? M.campfire().g : g.kind === 'hut' ? hut(g.deco) : g.kind === 'beet' ? M.beet() : g.kind === 'coach' ? M.coachStop() : M.deco(g.deco);
       const m = M.ghostOf(o, true);
       const foot = new THREE.Mesh(new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2), curve(new THREE.MeshBasicMaterial({ color: '#78e66e', transparent: true, opacity: 0.4, depthWrite: false })));
       this.scene.add(o, foot);
@@ -1292,7 +1304,7 @@ export class View {
     gh.mat.color.set(g.ok ? '#c8f0b8' : '#f4a8a0');
     (gh.foot.material as THREE.MeshBasicMaterial).color.set(g.ok ? '#78e66e' : '#f0463c');
     this.pos(gh.o, g.x, g.y);
-    const f = g.kind === 'house' ? HOUSE_FOOT : g.kind === 'stable' ? STABLE_FOOT : g.kind === 'paddock' ? PADDOCK_FOOT : g.kind === 'fire' ? FIRE_FOOT : g.kind === 'hut' ? HUT_FOOT : DECO_FOOT;
+    const f = g.kind === 'house' ? HOUSE_FOOT : g.kind === 'stable' ? STABLE_FOOT : g.kind === 'paddock' ? PADDOCK_FOOT : g.kind === 'fire' ? FIRE_FOOT : g.kind === 'hut' ? HUT_FOOT : g.kind === 'beet' ? BEET_FOOT : g.kind === 'coach' ? COACH_FOOT : DECO_FOOT;
     gh.foot.scale.set((f.right - f.left) * U, 1, (f.bottom - f.top) * U);
     gh.foot.position.set((g.x + (f.left + f.right) / 2) * U, this.groundY(g.x, g.y) + 0.06, (g.y + (f.top + f.bottom) / 2) * U);
   }

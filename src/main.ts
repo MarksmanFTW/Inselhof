@@ -10,7 +10,7 @@ import { BREEDS, RARE_BREEDS, islandDay, STABLE_BREEDS, FOAL_GROW_MS, MAX_LOVE, 
 import { Ground, H, TILE, W, generate } from './island';
 import { setScene, sfx, unlockAudio } from './audio';
 import { FURNITURE } from './furniture';
-import { DOOR, ROOM_H, nearSpot, roomFree } from './interior';
+import { ROOM_H, doorOf, nearSpot, roomFree } from './interior';
 import { Player } from './player';
 import { absorb, httpApi, newPid, opId, request, type Other, type PendingOp, type Presence, type Shared } from './cloud';
 import { CAN_GOAL, Farm, RIPE, key as plotKey } from './farm';
@@ -26,7 +26,8 @@ import { PROJECTS, PROJ_ITEMS, islandHas, projProgress, siteOf, type ProjItem } 
 import { COOK, knows, recipeById, isDish } from './cooking';
 import { CUSTOMERS, SIZES, boardSpot, ordersToday } from './orders';
 import { STORE_NAMES, storeHas, storeHasAll, storeName, DISH_IDS, type StoreItem } from './store';
-import { BUILDS, FIRE_COST, HOUSE_COST, HUT_COST, World, type BuildKind } from './world';
+import { BEET_COST, BUILDS, COACH_COST, ENLARGE, FIRE_COST, HOUSE_COST, HUT_COST, World, beetSnap, type BuildKind } from './world';
+import { HOOF_SPEED, ROD_DELAY, ROD_WINDOW, SHOE_SPEED, UPGRADES, bagUpgrade, nextLevel, upLevel, upgradeBlock, type UpgradeId } from './upgrades';
 import { BEST_FRIEND_COINS, MAX_HEARTS, SURPRISE, VILLAGERS, nextVillager, villagerById, wishOf, type Villager } from './villagers';
 import { View } from './three/view';
 import { horsePhoto } from './three/portrait';
@@ -205,6 +206,7 @@ function perform(a: Action, actor: { x: number; y: number }): string | null {
   // was man aufhebt oder bastelt, landet im eigenen Rucksack
   if (a.kind === 'pick' && res.picked) bagPick(bag(), res.picked);
   if (a.kind === 'craft' && res.crafted) bagCraft(bag(), res.crafted);
+  if (a.kind === 'upgrade' && res.done) bagUpgrade(bag(), a.item as UpgradeId);
   const c = a.c ?? 0;
   const r = a.r ?? 0;
   const cx = c * TILE + 4;
@@ -221,7 +223,7 @@ function perform(a: Action, actor: { x: number; y: number }): string | null {
     else if (a.kind === 'harvest' && res.harvest) {
       emit({ k: 'harvest', x: cx, y: cy, text: `+1 Rübe  +${res.harvest.seeds} Samen` });
       if (res.harvest.gotCan) emit({ k: 'can', x: actor.x, y: actor.y, text: 'Eisen-Gießkanne!' });
-    } else if (a.kind === 'build') emit({ k: 'build', x: a.x ?? 0, y: a.y ?? 0, text: a.what === 'hut' ? `${villagerById(res.movedIn ?? '')?.name ?? 'Jemand'} zieht ein!` : a.what === 'fire' ? 'Lagerfeuer!' : a.what === 'stable' ? 'Pferdestall!' : a.what === 'paddock' ? 'Koppel!' : a.what === 'deco' ? `${decoById(a.item ?? '')?.name ?? 'Deko'} steht!` : 'Haus gebaut!' });
+    } else if (a.kind === 'build') emit({ k: 'build', x: a.x ?? 0, y: a.y ?? 0, text: a.what === 'hut' ? `${villagerById(res.movedIn ?? '')?.name ?? 'Jemand'} zieht ein!` : a.what === 'beet' ? 'Hochbeet!' : a.what === 'coach' ? 'Kutschenhalt!' : a.what === 'fire' ? 'Lagerfeuer!' : a.what === 'stable' ? 'Pferdestall!' : a.what === 'paddock' ? 'Koppel!' : a.what === 'deco' ? `${decoById(a.item ?? '')?.name ?? 'Deko'} steht!` : 'Haus gebaut!' });
     else if (a.kind === 'adopt') {
       const st = world.stables[a.house ?? -1];
       const h = world.horses[world.horses.length - 1];
@@ -324,7 +326,7 @@ function facingWater() {
   }
   return false;
 }
-type Intent = ToolId | 'harvest' | 'refill' | 'cook' | 'rake' | 'pick' | 'shake' | 'fish' | 'project' | 'orders' | 'villager' | 'trade' | 'enter' | 'exit' | 'sleep' | 'chest' | 'furnish' | 'stable' | 'horse' | 'dismount' | null;
+type Intent = ToolId | 'harvest' | 'refill' | 'cook' | 'rake' | 'pick' | 'shake' | 'fish' | 'project' | 'orders' | 'villager' | 'coach' | 'trade' | 'enter' | 'exit' | 'sleep' | 'chest' | 'furnish' | 'stable' | 'horse' | 'dismount' | null;
 /** Stock/Stein direkt bei der Figur (Nummer in island.pickups) */
 function pickNear() {
   let best = -1;
@@ -430,7 +432,7 @@ function horseNear() {
 function intent(): { kind: Intent; tree: number; tile: [number, number] } {
   const tile = frontTile();
   if (inside >= 0) {
-    const sp = nearSpot(player.x, player.y, world.houses[inside]?.furn);
+    const sp = nearSpot(player.x, player.y, world.houses[inside]?.furn, !!world.houses[inside]?.big);
     const k = sp ? (sp.kind === 'bed' ? 'sleep' : sp.kind === 'door' ? 'exit' : sp.kind === 'chest' ? 'chest' : 'furnish') : null;
     return { kind: k, tree: sp?.kind === 'slot' ? sp.slot : -1, tile };
   }
@@ -448,6 +450,8 @@ function intent(): { kind: Intent; tree: number; tile: [number, number] } {
   if (hn >= 0) return { kind: 'horse', tree: hn, tile };
   const vn = villagerNear();
   if (vn >= 0) return { kind: 'villager', tree: vn, tile };
+  const cn = coachNear();
+  if (cn >= 0) return { kind: 'coach', tree: cn, tile };
   const p = farm.plot(...tile);
   if (p?.crop && p.crop.stage >= RIPE) return { kind: 'harvest', tree: -1, tile };
   // trockenes Heu liegt vor einem: einsammeln
@@ -555,8 +559,35 @@ function useTool() {
   if (!spend(kind)) return;
   // nach Ernten/Auffüllen nicht gleich weitermachen – erst loslassen
   if (swingTool === 'harvest' || swingTool === 'refill' || swingTool === 'cook' || swingTool === 'rake' || swingTool === 'shake') actHeld = false;
-  const err = doAction({ kind, c, r, tree: chopTarget });
-  if (err) hud?.toast(err);
+  // Axt: ihre Stufe fällt schneller (wird beim Abgleich mitgeschickt)
+  const err = doAction({ kind, c, r, tree: chopTarget, ...(kind === 'axe' ? { n: upLevel(bag(), 'axe') } : {}) });
+  if (err) return hud?.toast(err);
+  // verbesserte Hacke, Brause und Sense schaffen mehrere Felder auf einmal
+  for (const [ec, er] of extraTiles(kind, c, r)) {
+    if (kind === 'hoe' && (farm.plot(ec, er) || !tileFree(ec, er))) continue;
+    if (kind === 'water') {
+      const p = farm.plot(ec, er);
+      if (!p || p.wetAt || (p.crop && p.crop.stage >= RIPE)) continue;
+      if (farm.water <= 0) break;
+    }
+    if (kind === 'mow' && (farm.plot(ec, er) || farm.meadow.has(plotKey(ec, er)))) continue;
+    doAction({ kind, c: ec, r: er });
+  }
+}
+/** Kacheln, die ein verbessertes Werkzeug zusätzlich schafft (Hacke/Gießen: weiter nach vorn, Sense: daneben) */
+function extraTiles(kind: Action['kind'], c: number, r: number): [number, number][] {
+  const step: Record<Dir, [number, number]> = { [Dir.Down]: [0, 1], [Dir.Up]: [0, -1], [Dir.Right]: [1, 0], [Dir.Left]: [-1, 0] };
+  const [dx, dy] = step[player.dir];
+  const out: [number, number][] = [];
+  if (kind === 'hoe' || kind === 'water') {
+    const lv = upLevel(bag(), kind);
+    for (let k = 1; k <= lv; k++) out.push([c + dx * k, r + dy * k]);
+  } else if (kind === 'mow') {
+    const lv = upLevel(bag(), 'scythe');
+    if (lv >= 1) out.push([c - dy, r - dx], [c + dy, r + dx]);
+    if (lv >= 2) out.push([c + dx, r + dy], [c + dx - dy, r + dy - dx], [c + dx + dy, r + dy + dx]);
+  }
+  return out;
 }
 
 // ---------- Angeln ----------
@@ -587,7 +618,8 @@ function cast() {
   if (!spot) return hud?.toast('Stell dich direkt ans Wasser');
   if (!spend('fish')) return;
   const night = !!tod && tod.dark > 0.5;
-  fishing = { ...spot, bite: Date.now() + biteDelay(Math.random, !!tod?.rain), bit: false, fish: rollFish(Math.random, { night, dock: onDock() || world.projDone(3) }) };
+  const rod = upLevel(bag(), 'rod');
+  fishing = { ...spot, bite: Date.now() + biteDelay(Math.random, !!tod?.rain) * ROD_DELAY[rod], bit: false, fish: rollFish(Math.random, { night, dock: onDock() || world.projDone(3), lucky: rod >= 2 }) };
   workAt = performance.now();
   sfx('water');
   burst(spot.x, spot.y, 0, 6, ['#ffffff', '#9fd8f0'], 12);
@@ -643,7 +675,7 @@ function updateFishing(now: number) {
     navigator.vibrate?.(80);
     burst(fishing.x, fishing.y, 0, 8, ['#ffffff', '#9fd8f0'], 18);
   }
-  if (fishing.bit && now > fishing.bite + BITE_WINDOW) stopFishing('Weggeschwommen … wirf nochmal aus!');
+  if (fishing.bit && now > fishing.bite + BITE_WINDOW + ROD_WINDOW[upLevel(bag(), 'rod')]) stopFishing('Weggeschwommen … wirf nochmal aus!');
 }
 // ---------- Rucksack (Inventar) ----------
 let invUI: { update(d: InvData): void; close(): void } | null = null;
@@ -659,7 +691,7 @@ function invData(): InvData {
   const food = (id: Food, name: string, img: string, n: number, text: string) => ({ id: `food:${id}`, name, img, n, text: `${text} +${FOOD[id]} Kraft.`, acts: [{ id: 'eat', label: 'Essen' }] });
   const tools = RECIPES.filter((r) => b.tools.includes(r.id)).map((r) => ({
     id: `tool:${r.id}`,
-    name: r.id === 'water' && farm.hasCan ? 'Eisen-Gießkanne' : r.name,
+    name: (r.id === 'water' && farm.hasCan ? 'Eisen-Gießkanne' : r.name) + (upLevel(b, r.id) ? ` · ${UPGRADES.find((u) => u.id === r.id)!.levels[upLevel(b, r.id) - 1].name}` : ''),
     img: r.id === 'water' ? (farm.hasCan ? icons.can : icons.bucket) : icons[r.id],
     text: TOOL_TEXT[r.id] + (r.id === 'water' ? ` Gerade ${farm.water}/${farm.capacity} voll.` : ''),
     acts: r.id === 'rod' ? [] : [{ id: 'hold', label: tool === r.id ? 'In der Hand' : 'In die Hand' }],
@@ -986,6 +1018,105 @@ function folkWelcome(id: string) {
   );
 }
 
+// ---------- Kutsche & Haus ausbauen ----------
+/** steht die Figur an einem Kutschenhalt? (Nummer, -1 = nein) */
+function coachNear() {
+  if (inside >= 0) return -1;
+  return world.coaches.findIndex((c) => Math.abs(player.x - c.x) < 13 && player.y > c.y - 12 && player.y < c.y + 12);
+}
+/** Name eines Halts nach dem, was in der Nähe steht */
+function coachName(i: number) {
+  const c = world.coaches[i];
+  const spots: [string, number, number][] = [
+    ['am Steg', BOARD.x, BOARD.y],
+    ...world.houses.map((h, k): [string, number, number] => [k ? `beim ${k + 1}. Haus` : 'bei deinem Haus', h.x, h.y]),
+    ...world.stables.map((h): [string, number, number] => ['beim Pferdestall', h.x, h.y]),
+    ...world.villagers.map((v): [string, number, number] => [`bei ${villagerById(v.id)?.name}`, v.x, v.y]),
+    ...world.fires.map((f): [string, number, number] => ['am Lagerfeuer', f.x, f.y]),
+    ...world.beets.map((b): [string, number, number] => ['beim Hochbeet', b.x, b.y]),
+    ...PROJECTS.filter((_, k) => world.projDone(k)).map((p, k): [string, number, number] => {
+      const [x, y] = siteOf(world, farm, k);
+      return [`${p.id === 'lighthouse' || p.id === 'pavilion' ? 'beim' : 'am'} ${p.name}`, x, y];
+    }),
+  ];
+  let best = '';
+  let bd = 70;
+  for (const [name, x, y] of spots) {
+    const d = Math.hypot(x - c.x, y - c.y);
+    if (d < bd) {
+      bd = d;
+      best = name;
+    }
+  }
+  if (best) return best;
+  const dx = c.x - W / 2;
+  const dy = c.y - H / 2;
+  return Math.abs(dx) > Math.abs(dy) * 1.5 ? (dx > 0 ? 'im Osten' : 'im Westen') : dy > 0 ? 'im Süden' : 'im Norden';
+}
+function openCoach(i: number) {
+  sfx('click');
+  const others = world.coaches.map((c, k) => ({ k, c })).filter((o) => o.k !== i);
+  const block = !world.horses.length ? 'Für die Kutsche brauchst du ein Pferd – bau einen Stall und nimm eins auf.' : !others.length ? 'Bau noch einen Kutschenhalt woanders auf der Insel, dann kannst du hinfahren.' : null;
+  hud?.openTravel(
+    {
+      here: coachName(i),
+      block,
+      list: others.map((o) => ({ id: o.k, name: coachName(o.k), sub: `${Math.max(1, Math.round(Math.hypot(o.c.x - player.x, o.c.y - player.y) / 45))} s zu Fuß gespart` })),
+    },
+    (k) => travel(k),
+  );
+}
+/** mit der Kutsche zu Halt k fahren */
+function travel(k: number) {
+  const c = world.coaches[k];
+  if (!c) return;
+  stopFishing();
+  sfx('hoof');
+  const clop = setInterval(() => sfx('hoof'), 260);
+  hud?.sleep(`Die Kutsche rattert los … nach ${coachName(k)}`, () => {
+    clearInterval(clop);
+    player.x = c.x;
+    player.y = c.y + 10;
+    player.dir = Dir.Down;
+    unstick();
+    view.snap();
+    sfx('neigh');
+  });
+}
+/** Haus ausbauen: das nächste noch kleine Haus bekommt ein Obergeschoss */
+function enlargeHouse() {
+  let best = -1;
+  let bd = Infinity;
+  world.houses.forEach((h, i) => {
+    const d = Math.hypot(h.x - player.x, h.y - player.y);
+    if (!h.big && d < bd) {
+      bd = d;
+      best = i;
+    }
+  });
+  if (best < 0) return hud?.toast(world.houses.length ? 'Alle Häuser sind schon ausgebaut' : 'Bau zuerst ein Haus');
+  if (world.wood < ENLARGE.wood) return hud?.toast('Zu wenig Holz');
+  if (world.coins < ENLARGE.coins) return hud?.toast('Zu wenig Münzen');
+  if (!spend('build')) return;
+  const err = doAction({ kind: 'enlarge', house: best });
+  if (err) return hud?.toast(err);
+  const h = world.houses[best];
+  emit({ k: 'build', x: h.x, y: h.y, text: 'Ausgebaut!' });
+  view.firework(h.x, h.y - 30);
+  hud?.intro(
+    {
+      title: 'Dein Haus ist ausgebaut!',
+      text: 'Oben gibt es jetzt ein zweites Stockwerk, und drinnen ist viel mehr Platz.',
+      steps: [
+        { img: icons.bighouse, text: 'Drinnen warten 3 neue Plätze für Möbel – und ein gemütlicher Kamin.' },
+        { img: icons.house, text: 'Geh durch die Tür hinein und richte alles ein.' },
+      ],
+      ok: 'Juhu!',
+    },
+    () => sfx('click'),
+  );
+}
+
 // ---------- Insel-Projekte ----------
 let projUI: { update(d: ProjData): void } | null = null;
 /** Pfeil zur Baustelle bis … */
@@ -1084,8 +1215,20 @@ function projectNear() {
 let craftUI: { update(d: CraftData): void } | null = null;
 function craftData(): CraftData {
   return {
-    have: { sticks: bag().sticks, stones: bag().stones, wood: world.wood },
+    have: { sticks: bag().sticks, stones: bag().stones, wood: world.wood, coins: world.coins },
     recipes: RECIPES.map((r) => ({ ...r, img: icons[r.id === 'water' ? 'bucket' : r.id], owned: hasTool(r.id) })),
+    ups: UPGRADES.map((u) => {
+      const lv = upLevel(bag(), u.id);
+      return {
+        id: u.id,
+        img: upImg(u.id),
+        what: u.id === 'shoes' ? 'Schuhe' : u.id === 'hooves' ? 'Hufeisen' : TOOL_NAME[u.id as ToolKind],
+        now: lv ? u.levels[lv - 1].name : '',
+        lv,
+        next: nextLevel(bag(), u.id),
+        block: upgradeBlock(bag(), u.id, { coins: world.coins, wood: world.wood, level: world.level }),
+      };
+    }),
   };
 }
 function openCraft() {
@@ -1099,7 +1242,23 @@ function openCraft() {
     if (id === 'rod') return hud?.toast('Stell dich ans Wasser und tipp auf den grünen Knopf');
     tool = id as ToolId;
     hud?.setTool(tool);
-  }) ?? null;
+  }, improve) ?? null;
+}
+/** Bild zu einer Verbesserung */
+const upImg = (id: UpgradeId) => (id === 'shoes' ? icons.shoes : id === 'hooves' ? icons.hooves : id === 'water' ? (farm.hasCan ? icons.can : icons.bucket) : icons[id]);
+/** Werkzeug verbessern (im Basteln-Fenster) */
+function improve(id: string) {
+  const uid = id as UpgradeId;
+  const block = upgradeBlock(bag(), uid, { coins: world.coins, wood: world.wood, level: world.level });
+  if (block) return hud?.toast(block);
+  const next = nextLevel(bag(), uid)!;
+  const err = doAction({ kind: 'upgrade', item: uid, n: upLevel(bag(), uid) + 1 });
+  if (err) return hud?.toast(err);
+  writeSave(save);
+  sfx('quest');
+  emit({ k: 'craft', x: player.x, y: player.y, text: `${next.name}!` });
+  craftUI?.update(craftData());
+  hud?.intro({ title: `${next.name}!`, text: next.text, steps: [{ img: upImg(uid), text: upLevel(bag(), uid) >= 2 ? 'Ganz verbessert – besser geht es nicht!' : 'Später gibt es noch die Gold-Stufe (ab Insel-Stufe 4).' }], ok: 'Super' }, () => sfx('click'));
 }
 /** „Basteln“ hüpft, wenn das Tutorial oder die Aufgabe ein Werkzeug will und man es bauen kann */
 function tutorialNudge() {
@@ -1182,11 +1341,17 @@ function ghostSpot() {
     if (player.dir === Dir.Right) return { x: px + 42, y: py + 20 };
     return { x: px - 42, y: py + 20 };
   }
-  const k = placeKind === 'fire' || placeKind === 'deco' ? 0.5 : placeKind === 'stable' ? 1.3 : placeKind === 'hut' ? 0.75 : 1;
-  if (player.dir === Dir.Down) return { x: px, y: py + Math.round(22 * k) };
-  if (player.dir === Dir.Up) return { x: px, y: py - Math.round(6 * k) - (k < 1 ? 4 : 0) };
-  if (player.dir === Dir.Right) return { x: px + Math.round(28 * k), y: py + 6 };
-  return { x: px - Math.round(28 * k), y: py + 6 };
+  const k = placeKind === 'fire' || placeKind === 'deco' ? 0.5 : placeKind === 'stable' ? 1.3 : placeKind === 'hut' || placeKind === 'beet' || placeKind === 'coach' ? 0.75 : 1;
+  const g =
+    player.dir === Dir.Down
+      ? { x: px, y: py + Math.round(22 * k) }
+      : player.dir === Dir.Up
+        ? { x: px, y: py - Math.round(6 * k) - (k < 1 ? 4 : 0) }
+        : player.dir === Dir.Right
+          ? { x: px + Math.round(28 * k), y: py + 6 }
+          : { x: px - Math.round(28 * k), y: py + 6 };
+  // Hochbeet liegt genau auf dem Feld-Raster
+  return placeKind === 'beet' ? beetSnap(g.x, g.y + 8) : g;
 }
 
 // ---------- Kamera ----------
@@ -1560,6 +1725,8 @@ function startPlay() {
       project: openProject,
       orders: openOrders,
       place: (what, item) => startPlacing(what, item),
+      houses: () => ({ small: world.houses.filter((h) => !h.big).length, total: world.houses.length, coins: world.coins }),
+      enlarge: enlargeHouse,
       nextFolk: () => {
         const n = nextVillager(world);
         return n ? { name: n.name, animal: n.animal, img: villagerPhoto(n.id) } : null;
@@ -1578,7 +1745,7 @@ function startPlay() {
       },
     },
     icons,
-    { house: HOUSE_COST, fire: FIRE_COST, stable: STABLE_COST, paddock: PADDOCK_COST, hut: HUT_COST },
+    { house: HOUSE_COST, fire: FIRE_COST, stable: STABLE_COST, paddock: PADDOCK_COST, hut: HUT_COST, beet: BEET_COST, coach: COACH_COST, enlarge: ENLARGE },
   );
   // neue Insel: noch nichts gebastelt → das erste eigene Werkzeug in die Hand
   if (!hasTool(tool)) tool = (['axe', 'hoe', 'water', 'scythe'] as const).find(hasTool) ?? tool;
@@ -1993,7 +2160,7 @@ function frame(now: number) {
     if (riding >= 0 && !world.horses[riding]) riding = -1;
     const rb = riding >= 0 ? breedById(world.horses[riding].breed) : undefined;
     // je mehr Vertrauen, desto flotter (bis +20 %)
-    player.speedMul = rb ? rb.speed * (1 + world.horses[riding].love * 0.02) : energy() < 15 ? 0.6 : 1;
+    player.speedMul = rb ? rb.speed * (1 + world.horses[riding].love * 0.02) * HOOF_SPEED[upLevel(bag(), 'hooves')] : (energy() < 15 ? 0.6 : 1) * SHOE_SPEED[upLevel(bag(), 'shoes')];
     updateFishing(Date.now());
     // beim Schlagen und Angeln bleibt man stehen
     if (swing > 0 || fishing) player.update(0, 0, dt);
@@ -2008,7 +2175,7 @@ function frame(now: number) {
     // Werkzeug benutzen
     if (!placing) {
       const it = intent();
-      hud?.setAction(!!it.kind || !!fishing, fishing ? icons.rod : it.kind === 'trade' ? icons.coin : it.kind === 'project' ? icons.craft : it.kind === 'cook' ? icons.meal : it.kind === 'orders' ? icons.board : it.kind === 'villager' ? villagerPhoto(world.villagers[it.tree]?.id ?? 'hase') : it.kind === 'stable' ? icons.stable : it.kind === 'horse' || it.kind === 'dismount' ? horseIcon(world.horses[it.tree]?.breed ?? '', !!world.horses[it.tree] && isFoal(world.horses[it.tree], Date.now())) : it.kind && ROOM_ACTS.has(it.kind) ? icons.house : it.kind === 'harvest' ? icons.turnip : it.kind === 'rake' ? icons.hay : it.kind === 'pick' ? (island.pickups[it.tree]?.kind === 'stone' ? icons.stone : icons.stick) : it.kind === 'shake' ? (island.decor[it.tree]?.kind === 'bush' ? icons.berry : icons.apple) : it.kind === 'fish' || fishing ? icons.rod : it.kind === 'refill' ? (farm.hasCan ? icons.can : icons.bucket) : icons[tool === 'water' ? (farm.hasCan ? 'can' : 'bucket') : tool]);
+      hud?.setAction(!!it.kind || !!fishing, fishing ? icons.rod : it.kind === 'trade' ? icons.coin : it.kind === 'project' ? icons.craft : it.kind === 'cook' ? icons.meal : it.kind === 'orders' ? icons.board : it.kind === 'villager' ? villagerPhoto(world.villagers[it.tree]?.id ?? 'hase') : it.kind === 'coach' ? icons.coach : it.kind === 'stable' ? icons.stable : it.kind === 'horse' || it.kind === 'dismount' ? horseIcon(world.horses[it.tree]?.breed ?? '', !!world.horses[it.tree] && isFoal(world.horses[it.tree], Date.now())) : it.kind && ROOM_ACTS.has(it.kind) ? icons.house : it.kind === 'harvest' ? icons.turnip : it.kind === 'rake' ? icons.hay : it.kind === 'pick' ? (island.pickups[it.tree]?.kind === 'stone' ? icons.stone : icons.stick) : it.kind === 'shake' ? (island.decor[it.tree]?.kind === 'bush' ? icons.berry : icons.apple) : it.kind === 'fish' || fishing ? icons.rod : it.kind === 'refill' ? (farm.hasCan ? icons.can : icons.bucket) : icons[tool === 'water' ? (farm.hasCan ? 'can' : 'bucket') : tool]);
       if (actHeld && swing <= 0 && it.kind && ROOM_ACTS.has(it.kind)) {
         actHeld = false;
         roomAction(it.kind, it.tree);
@@ -2295,7 +2462,7 @@ function drawOverlay(t: number, dt: number, nowMs: number) {
 let tod: TimeOfDay | null = null;
 
 // ---------- Im Haus ----------
-const ROOM_ACTS = new Set<Intent>(['enter', 'exit', 'sleep', 'chest', 'furnish', 'stable', 'horse', 'dismount', 'trade', 'project', 'cook', 'orders', 'villager']);
+const ROOM_ACTS = new Set<Intent>(['enter', 'exit', 'sleep', 'chest', 'furnish', 'stable', 'horse', 'dismount', 'trade', 'project', 'cook', 'orders', 'villager', 'coach']);
 function mount(i: number) {
   const p = horseAt(i);
   if (!p) return;
@@ -2376,8 +2543,8 @@ function enterHouse(i: number) {
   if (!h) return;
   outsidePos = { x: Math.round(player.x), y: Math.round(player.y) };
   inside = i;
-  player.collide = (x, y) => roomFree(x, y, world.houses[inside]?.furn);
-  player.x = DOOR.x;
+  player.collide = (x, y) => roomFree(x, y, world.houses[inside]?.furn, !!world.houses[inside]?.big);
+  player.x = doorOf(h.big).x;
   player.y = ROOM_H - 7;
   player.dir = Dir.Up;
   placing = false;
@@ -2479,6 +2646,7 @@ function roomAction(kind: Intent, slot: number) {
   if (kind === 'cook') return openKitchen();
   if (kind === 'orders') return openOrders();
   if (kind === 'villager') return openVillager(slot);
+  if (kind === 'coach') return openCoach(slot);
   if (kind === 'chest')
     return hud?.openChest([
       ['Holz', world.wood],

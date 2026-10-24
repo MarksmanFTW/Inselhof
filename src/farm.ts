@@ -76,6 +76,8 @@ export class Farm {
   version = 0;
   /** Fähigkeiten der Insel-Stufe (wird mit der World verbunden) */
   perks: () => FarmPerks = () => NO_PERKS;
+  /** Wachstum auf dieser Kachel (Hochbeet: schneller; wird mit der World verbunden) */
+  growAt: (c: number, r: number) => number = () => 1;
 
   constructor(
     readonly isl: Island,
@@ -184,7 +186,9 @@ export class Farm {
         this.meadow.delete(k);
         this.version++;
       }
-    for (const p of this.plots.values()) {
+    for (const [k, p] of this.plots) {
+      const [c, r] = k.split(',').map(Number);
+      const grow = GROW_MS * this.perks().growMul * this.growAt(c, r);
       for (let step = 0; step < 6; step++) {
         if (rainSince !== undefined && !p.wetAt && !(p.crop && p.crop.stage >= RIPE)) {
           const at = Math.max(rainSince, p.dry ?? 0);
@@ -194,7 +198,7 @@ export class Farm {
         }
         if (!p.wetAt) break;
         if (p.crop && p.crop.stage < RIPE) {
-          const at = p.wetAt + GROW_MS * this.perks().growMul;
+          const at = p.wetAt + grow;
           if (now < at) break;
           p.crop.stage++;
           p.wetAt = 0;
