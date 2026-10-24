@@ -119,6 +119,65 @@ function grilled() {
   return g;
 }
 
+/** Schüssel (Obstsalat, Fischsuppe) */
+function bowl(fill: (b: Build) => void) {
+  const b = new Build();
+  b.add(new THREE.SphereGeometry(0.55, 20, 10, 0, Math.PI * 2, Math.PI / 2, Math.PI / 2), '#f4f0e6', { p: [0, 0.05, 0] });
+  b.add(new THREE.TorusGeometry(0.55, 0.04, 6, 24), '#e4dccc', { p: [0, 0.05, 0], r: [Math.PI / 2, 0, 0] });
+  b.add(cyl(0.2, 0.24, 0.08, 16), '#e4dccc', { p: [0, -0.5, 0] });
+  fill(b);
+  return meshOf(b.geometry());
+}
+function fruitSalad() {
+  return bowl((b) => {
+    b.add(cyl(0.5, 0.5, 0.04, 20), '#f4e0a0', { p: [0, 0.0, 0] });
+    const cols = ['#e0483e', '#9a6ad0', '#ff9a3a', '#b884e8', '#f4d04a', '#e0483e', '#5fae4e'];
+    for (let k = 0; k < 9; k++) {
+      const a = k * 2.4;
+      const r = 0.12 + (k % 3) * 0.13;
+      b.add(sphere(k % 2 ? 0.1 : 0.13, 10), cols[k % cols.length], { p: [Math.cos(a) * r, 0.08, Math.sin(a) * r] });
+    }
+  });
+}
+function fishSoup() {
+  return bowl((b) => {
+    b.add(cyl(0.5, 0.5, 0.04, 20), '#f0b060', { p: [0, 0.0, 0] });
+    for (let k = 0; k < 5; k++) b.add(sphere(0.07, 8), k % 2 ? '#f6f0f2' : '#5fae4e', { p: [Math.cos(k * 1.3) * 0.28, 0.04, Math.sin(k * 1.3) * 0.28] });
+    b.add(sphere(0.12, 10), '#d8dcec', { p: [0.05, 0.06, -0.05], s: [2.2, 0.6, 0.9] });
+    for (const x of [-0.2, 0.05, 0.3]) b.add(sphere(0.06, 6), '#ffffff', { p: [x, 0.45 + Math.abs(x) * 0.4, 0], s: [0.8, 1.8, 0.8] });
+  });
+}
+function applePie() {
+  const b = new Build();
+  b.add(cyl(0.66, 0.56, 0.1, 24), '#f4f0e6', { p: [0, -0.3, 0] });
+  b.add(cyl(0.55, 0.5, 0.26, 24), '#d89a48', { p: [0, -0.12, 0] });
+  b.add(cyl(0.53, 0.55, 0.06, 24), '#e8b060', { p: [0, 0.03, 0] });
+  for (let k = 0; k < 4; k++) b.add(rbox(1.0, 0.04, 0.08, 0.02), '#c8843a', { p: [0, 0.07, -0.3 + k * 0.2] });
+  for (let k = 0; k < 4; k++) b.add(rbox(0.08, 0.04, 1.0, 0.02), '#c8843a', { p: [-0.3 + k * 0.2, 0.09, 0] });
+  b.add(sphere(0.08, 8), '#e0483e', { p: [0.18, 0.13, 0.08] });
+  b.add(sphere(0.06, 8), '#5fae4e', { p: [0.26, 0.13, 0.05], s: [1.4, 0.4, 0.8] });
+  return meshOf(b.geometry());
+}
+function jam() {
+  const g = new THREE.Group();
+  const b = new Build();
+  b.add(cyl(0.36, 0.38, 0.7, 20), '#7a3a8a', { p: [0, -0.1, 0] });
+  b.add(cyl(0.3, 0.3, 0.08, 20), '#e8e0d0', { p: [0, 0.29, 0] });
+  b.add(cyl(0.42, 0.42, 0.06, 20), '#e0485a', { p: [0, 0.34, 0] });
+  for (let k = 0; k < 8; k++) b.add(sphere(0.05, 6), '#ffffff', { p: [Math.cos(k * 0.78) * 0.38, 0.33, Math.sin(k * 0.78) * 0.38] });
+  b.add(rbox(0.42, 0.26, 0.04, 0.03), '#fff6dc', { p: [0, -0.08, 0.37] });
+  b.add(sphere(0.06, 8), '#9a6ad0', { p: [-0.07, -0.08, 0.4] });
+  b.add(sphere(0.06, 8), '#b884e8', { p: [0.07, -0.06, 0.4] });
+  g.add(meshOf(b.geometry()));
+  const glass = new THREE.Mesh(cyl(0.38, 0.4, 0.74, 20).translate(0, -0.1, 0), new THREE.MeshStandardMaterial({ color: '#ffffff', transparent: true, opacity: 0.25, roughness: 0.1 }));
+  g.add(glass);
+  return g;
+}
+/** Bestellbrett mit drei Zetteln */
+function boardIcon() {
+  return M.orderBoard();
+}
+
 /** Rucksack: Leinensack mit Klappe, Riemen und Schnalle */
 function backpack() {
   const b = new Build();
@@ -163,6 +222,11 @@ const MAKERS = {
   stone: () => photo('i:stone', () => M.pebble(0), { yaw: 0.3, tilt: 0.45 }),
   craft: () => photo('i:craft', craftTool, { yaw: 0, tilt: 0.2 }),
   bag: () => photo('i:bag', backpack, { yaw: 0.35, tilt: 0.2 }),
+  board: () => photo('i:board', boardIcon, { yaw: 0.2, tilt: 0.1, fill: 0.62 }),
+  obstsalat: () => photo('i:obstsalat', fruitSalad, { yaw: 0, tilt: 0.6 }),
+  fischsuppe: () => photo('i:fischsuppe', fishSoup, { yaw: 0, tilt: 0.6 }),
+  apfelkuchen: () => photo('i:apfelkuchen', applePie, { yaw: 0.3, tilt: 0.55 }),
+  marmelade: () => photo('i:marmelade', jam, { yaw: 0.2, tilt: 0.25 }),
   apple: () => photo('i:apple', apple, { yaw: 0.3, tilt: 0.25 }),
   rod: () => photo('i:rod', () => tool('rod'), { yaw: 0, tilt: 0.25, fill: 0.5 }),
   grilled: () => photo('i:grilled', grilled, { yaw: 0, tilt: 0.55 }),

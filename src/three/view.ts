@@ -15,6 +15,7 @@ import { DECO_FOOT } from '../shop';
 import type { TimeOfDay } from '../time';
 import { FIRE_FOOT, HOUSE_FOOT, STABLE_FOOT, type BuildKind, type World } from '../world';
 import { PROJECTS, siteOf } from '../projects';
+import { boardSpot } from '../orders';
 import { Build, CURVE, FOCUS, U, curve, mat, rbox, sphere, vcMat } from './engine';
 import { makeHorse, type HorseModel } from './horse';
 import { Interior } from './interior3d';
@@ -209,6 +210,14 @@ export class View {
     }
     this.guide.visible = false;
     s.add(this.guide);
+    // Bestellbrett am Steg
+    {
+      const bp = boardSpot(isl);
+      const board = M.orderBoard();
+      board.position.set(bp.x * U, this.groundY(bp.x, bp.y), bp.y * U);
+      board.rotation.y = -0.25;
+      s.add(board);
+    }
     {
       const b = new Build();
       b.add(sphere(0.13, 12), '#ffffff', { p: [0, 0, 0] });

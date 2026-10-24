@@ -574,6 +574,27 @@ export function deco(id: string) {
   return g;
 }
 
+/** Bestellbrett am Steg: Holztafel auf zwei Pfosten mit drei Zetteln und Dach */
+export function orderBoard() {
+  return meshOf(
+    cached('orderboard', () => {
+      const b = new Build();
+      for (const x of [-0.75, 0.75]) b.add(rbox(0.12, 1.9, 0.12, 0.03), '#8a5a32', { p: [x, 0.95, 0] });
+      b.add(rbox(1.7, 1.0, 0.08, 0.04), '#c8945a', { p: [0, 1.3, 0.02] });
+      b.add(rbox(1.84, 0.1, 0.1, 0.03), '#8a5a32', { p: [0, 1.83, 0.02] });
+      b.add(roofGeo(1.9, 0.5, 0.28, 0.04), '#e0705a', { p: [0, 1.88, 0.02] });
+      const notes = ['#fff6dc', '#fff0f4', '#eef8ff'];
+      notes.forEach((c, k) => {
+        b.add(rbox(0.42, 0.52, 0.02, 0.01), c, { p: [-0.5 + k * 0.5, 1.3 - (k % 2) * 0.06, 0.08], r: [0, 0, (k - 1) * 0.08] });
+        b.add(sphere(0.035, 6), '#e0485a', { p: [-0.5 + k * 0.5, 1.52 - (k % 2) * 0.06, 0.1] });
+        for (let l = 0; l < 3; l++) b.add(rbox(0.28, 0.03, 0.01, 0.005), '#9a8a7a', { p: [-0.5 + k * 0.5, 1.36 - l * 0.1 - (k % 2) * 0.06, 0.095] });
+      });
+      return b.geometry();
+    }),
+    0.85,
+  );
+}
+
 // ---------- Insel-Projekte ----------
 const glassMat = curve(new THREE.MeshStandardMaterial({ color: '#d4f2ff', transparent: true, opacity: 0.32, roughness: 0.08, depthWrite: false }));
 const beamMat = curve(new THREE.MeshBasicMaterial({ color: '#fff2b0', transparent: true, opacity: 0.22, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide }));

@@ -31,8 +31,9 @@ export type Stat =
   | 'rod'
   | 'fish'
   | 'species'
-  // Insel-Projekte fertig
-  | 'projects';
+  // Insel-Projekte fertig, Bestellungen geliefert
+  | 'projects'
+  | 'orders';
 
 export interface Progress {
   xp: number;
@@ -102,6 +103,7 @@ export const XP: Record<Exclude<Stat, 'wood'>, number> = {
   fish: 2,
   species: 5,
   projects: 60,
+  orders: 10,
 };
 
 /** XP bis Stufe L: 30 · L(L-1)/2 → 30, 90, 180, 300 … */
@@ -159,7 +161,7 @@ const QUESTS: Quest[] = [
   { text: 'Gieße 5-mal', stat: 'watered', goal: 5, xp: 10, hint: 'Pflanzen wachsen nur, wenn ihr Feld gegossen ist. Leer? Stell dich ans Wasser.' },
   { text: 'Bau ein Lagerfeuer', stat: 'fire', goal: 1, xp: 15, hint: 'Unter „Bauen“ – kostet 3 Holz. Daran kannst du Rüben braten.' },
   { text: 'Ernte 3 Rüben', stat: 'harvested', goal: 3, xp: 25, seeds: 3, coins: 5, hint: 'Nach dreimal Gießen ist eine Rübe reif. Rüben kannst du essen, wenn du müde bist.' },
-  { text: 'Brate 2 Ofenrüben', stat: 'cooked', goal: 2, xp: 15, hint: 'Stell dich mit Rüben ans Lagerfeuer. Ofenrüben geben viel mehr Kraft.' },
+  { text: 'Brate 2 Ofenrüben', stat: 'cooked', goal: 2, xp: 15, hint: 'Stell dich ans Lagerfeuer und tipp – im Kochfenster „Ofenrübe“ wählen. Gibt viel mehr Kraft.' },
   { text: 'Sammle 10 Holz', stat: 'wood', goal: 10, xp: 25 },
   { text: 'Bau dein erstes Haus', stat: 'built', goal: 1, xp: 50, seeds: 3, coins: 10, hint: 'Unter „Bauen“ – kostet 10 Holz. Im Bett schläfst du dich wieder fit.' },
   { text: 'Bastle eine Angel', stat: 'rod', goal: 1, xp: 15, hint: 'Unter „Basteln“: 3 Stöcke und 1 Stein.' },

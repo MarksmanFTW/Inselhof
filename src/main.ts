@@ -21,8 +21,11 @@ import { RECIPES, TOOL_NAME, TUTORIAL, TUT_SEEDS, bagCraft, bagPick, craftBlock,
 import { newClock, rainSince, timeOf, type TimeOfDay } from './time';
 import { MAX_SLOTS, activeSlot, addSlot, loadSave, removeSlot, writeSave, type Save, type Slot } from './save';
 import type { Action, Fx } from './net/types';
-import { showCoop, showCustomize, showHud, showMenu, showSettings, showSlots, textScale, type CraftData, type Hud, type InvData, type ProjData, type ToolId, type TradeData } from './ui';
+import { showCoop, showCustomize, showHud, showMenu, showSettings, showSlots, textScale, type CraftData, type Hud, type InvData, type KitchenData, type Need, type OrdersData, type ProjData, type ToolId, type TradeData } from './ui';
 import { PROJECTS, PROJ_ITEMS, islandHas, projProgress, siteOf, type ProjItem } from './projects';
+import { COOK, knows, recipeById, isDish } from './cooking';
+import { CUSTOMERS, SIZES, boardSpot, ordersToday } from './orders';
+import { STORE_NAMES, storeHas, storeHasAll, DISH_IDS, type StoreItem } from './store';
 import { BUILDS, FIRE_COST, HOUSE_COST, World, type BuildKind } from './world';
 import { View } from './three/view';
 import { horsePhoto } from './three/portrait';
@@ -239,7 +242,7 @@ function perform(a: Action, actor: { x: number; y: number }): string | null {
       emit({ k: 'trade', x: actor.x, y: actor.y, text });
       if (it.startsWith('horse:')) emit({ k: 'horse', x: actor.x, y: actor.y });
     }
-    else if (a.kind === 'cook') emit({ k: 'cook', x: actor.x, y: actor.y, text: a.item === 'fish' ? '+1 Bratfisch' : '+1 Ofenrübe' });
+    else if (a.kind === 'cook') emit({ k: 'cook', x: actor.x, y: actor.y, text: `+1 ${recipeById(a.item ?? '')?.name ?? (a.item === 'fish' ? 'Bratfisch' : 'Ofenrübe')}` });
     else if (a.kind === 'pick' && res.picked) {
       const p = island.pickups[a.tree ?? -1];
       if (p) emit({ k: 'pick', x: p.x, y: p.y, text: res.picked === 'stick' ? '+1 Stock' : '+1 Stein' });
@@ -319,7 +322,7 @@ function facingWater() {
   }
   return false;
 }
-type Intent = ToolId | 'harvest' | 'refill' | 'cook' | 'rake' | 'pick' | 'shake' | 'fish' | 'project' | 'trade' | 'enter' | 'exit' | 'sleep' | 'chest' | 'furnish' | 'stable' | 'horse' | 'dismount' | null;
+type Intent = ToolId | 'harvest' | 'refill' | 'cook' | 'rake' | 'pick' | 'shake' | 'fish' | 'project' | 'orders' | 'trade' | 'enter' | 'exit' | 'sleep' | 'chest' | 'furnish' | 'stable' | 'horse' | 'dismount' | null;
 /** Stock/Stein direkt bei der Figur (Nummer in island.pickups) */
 function pickNear() {
   let best = -1;
@@ -350,11 +353,12 @@ function tradeData(): TradeData {
   const offers = horseOffers(islandDay(world.clock, now), world.album.horses.length);
   return {
     coins: world.coins,
-    have: { turnip: farm.turnips, meal: farm.meals, wood: world.wood, hay: farm.hay, apple: world.apples, berry: world.berries, ...Object.fromEntries(FISH.map((f) => [`fish:${f.id}`, world.fish[f.id] ?? 0])) },
+    have: { turnip: farm.turnips, meal: farm.meals, wood: world.wood, hay: farm.hay, apple: world.apples, berry: world.berries, ...Object.fromEntries(FISH.map((f) => [`fish:${f.id}`, world.fish[f.id] ?? 0])), ...Object.fromEntries(DISH_IDS.map((id) => [`dish:${id}`, world.dishes[id] ?? 0])) },
     sell: [
       ...(Object.keys(SELL) as SellItem[]).map((id) => ({ id, name: SELL_NAMES[id], price: SELL[id], img: id === 'wood' ? icons.log : id === 'meal' ? icons.meal : id === 'hay' ? icons.hay : id === 'apple' ? icons.apple : id === 'berry' ? icons.berry : icons.turnip })),
-      // Fische nur, wenn man welche hat
+      // Fische und Gerichte nur, wenn man welche hat
       ...FISH.filter((f) => f.price && world.fish[f.id]).map((f) => ({ id: `fish:${f.id}`, name: f.name, price: f.price, img: fishPhoto(f.id) })),
+      ...DISH_IDS.filter((id) => world.dishes[id]).map((id) => ({ id: `dish:${id}`, name: recipeById(id)!.name, price: recipeById(id)!.price, img: icons[id] })),
     ],
     seeds: { n: SEED_PACK.n, price: SEED_PACK.price, img: icons.seeds },
     deco: DECO.map((d) => ({ id: d.id, name: d.name, price: d.price, img: decoIcon(d.id), owned: world.album.deco.includes(d.id) })),
@@ -443,8 +447,10 @@ function intent(): { kind: Intent; tree: number; tile: [number, number] } {
   if (p?.crop && p.crop.stage >= RIPE) return { kind: 'harvest', tree: -1, tile };
   // trockenes Heu liegt vor einem: einsammeln
   if (farm.mown(...tile, Date.now()) === 'dry') return { kind: 'rake', tree: -1, tile };
-  // am Lagerfeuer mit Rüben oder Fisch im Gepäck: braten
-  if ((farm.turnips > 0 || cookableFish()) && world.fireNear(player.x, player.y, 20) >= 0) return { kind: 'cook', tree: -1, tile };
+  // am Lagerfeuer: Kochfenster
+  if (world.fireNear(player.x, player.y, 20) >= 0) return { kind: 'cook', tree: -1, tile };
+  // am Bestellbrett
+  if (Math.hypot(BOARD.x - player.x, (BOARD.y - player.y) * 1.3) < 14) return { kind: 'orders', tree: -1, tile };
   // Stock oder Stein vor den Füßen: aufheben
   const pk = pickNear();
   if (pk >= 0) return { kind: 'pick', tree: pk, tile };
@@ -484,6 +490,8 @@ let restT = 0;
 let workAt = 0;
 const FOOD = { raw: 12, cooked: 40, apple: 8, berry: 4, grilled: GRILLED_ENERGY };
 type Food = keyof typeof FOOD;
+/** Kraft je Gericht (aus den Rezepten) */
+const dishEnergy = (id: string) => recipeById(id)?.energy ?? 20;
 /** Energie gehört zur Insel: neue oder gelöschte Insel = wieder ausgeruht */
 const energy = () => mySlot().energy ?? 100;
 function setEnergy(v: number) {
@@ -505,8 +513,19 @@ function spend(kind: Action['kind']) {
   setEnergy(energy() - c);
   return true;
 }
-function eat(what: Food) {
-  const have = { raw: farm.turnips, cooked: farm.meals, apple: world.apples, berry: world.berries, grilled: world.grilled }[what];
+function eat(what: Food | string) {
+  if (isDish(what)) {
+    if (!((world.dishes[what] ?? 0) > 0)) return hud?.toast(`Kein ${recipeById(what)?.name ?? 'Essen'} mehr`);
+    if (energy() >= 100) return hud?.toast('Du bist satt');
+    const err = doAction({ kind: 'eat', item: what });
+    if (err) return hud?.toast(err);
+    setEnergy(energy() + dishEnergy(what));
+    sfx('eat');
+    floats.push({ x: player.x, y: player.y, h: 2.3, text: `+${dishEnergy(what)} Energie`, life: 1.3 });
+    return writeSave(save);
+  }
+  if (!(what in FOOD)) return;
+  const have = { raw: farm.turnips, cooked: farm.meals, apple: world.apples, berry: world.berries, grilled: world.grilled }[what as Food];
   const none = {
     raw: 'Keine Rüben – ernte erst welche',
     cooked: 'Keine Ofenrüben – brat Rüben am Lagerfeuer',
@@ -514,13 +533,14 @@ function eat(what: Food) {
     berry: 'Keine Beeren – pflück welche vom Beerenbusch',
     grilled: 'Kein Bratfisch – brat einen Fisch am Lagerfeuer',
   };
-  if (have <= 0) return hud?.toast(none[what]);
+  if (have <= 0) return hud?.toast(none[what as Food]);
   if (energy() >= 100) return hud?.toast('Du bist satt');
-  const err = doAction(what === 'apple' || what === 'berry' || what === 'grilled' ? { kind: 'eat', item: what } : { kind: 'eat', cooked: what === 'cooked' });
+  const f = what as Food;
+  const err = doAction(f === 'apple' || f === 'berry' || f === 'grilled' ? { kind: 'eat', item: f } : { kind: 'eat', cooked: f === 'cooked' });
   if (err) return hud?.toast(err);
-  setEnergy(energy() + FOOD[what]);
+  setEnergy(energy() + FOOD[f]);
   sfx('eat');
-  floats.push({ x: player.x, y: player.y, h: 2.3, text: `+${FOOD[what]} Energie`, life: 1.3 });
+  floats.push({ x: player.x, y: player.y, h: 2.3, text: `+${FOOD[f]} Energie`, life: 1.3 });
   writeSave(save);
 }
 
@@ -530,14 +550,13 @@ function useTool() {
   if (!spend(kind)) return;
   // nach Ernten/Auffüllen nicht gleich weitermachen – erst loslassen
   if (swingTool === 'harvest' || swingTool === 'refill' || swingTool === 'cook' || swingTool === 'rake' || swingTool === 'shake') actHeld = false;
-  const err = doAction({ kind, c, r, tree: chopTarget, ...(kind === 'cook' && cookableFish() ? { item: 'fish' } : {}) });
+  const err = doAction({ kind, c, r, tree: chopTarget });
   if (err) hud?.toast(err);
 }
 
 // ---------- Angeln ----------
 /** Pose im Wasser; bite = wann es zuckt; fish = was beißt (beim Auswerfen gewürfelt) */
 let fishing: { x: number; y: number; bite: number; bit: boolean; fish: Fish } | null = null;
-const cookableFish = () => FISH.some((f) => f.cook && (world.fish[f.id] ?? 0) > 0);
 function onDock() {
   const d = island.dock;
   return player.x > d.x - 2 && player.x < d.x + d.w + 2 && player.y > d.y - 4;
@@ -654,6 +673,7 @@ function invData(): InvData {
     food('apple', 'Apfel', icons.apple, world.apples, 'Frisch vom Baum – Pferde lieben Äpfel.'),
     food('berry', 'Beeren', icons.berry, world.berries, 'Süß und klein.'),
     food('grilled', 'Bratfisch', icons.grilled, world.grilled, 'Am Lagerfeuer gebraten.'),
+    ...DISH_IDS.map((id) => ({ id: `dish:${id}`, name: recipeById(id)!.name, img: icons[id], n: world.dishes[id] ?? 0, text: `${recipeById(id)!.text} +${dishEnergy(id)} Kraft.`, acts: [{ id: 'eat', label: 'Essen' }] })),
   ].filter((i) => i.n > 0);
   const fish = FISH.filter((f) => world.fish[f.id]).map((f) => ({
     id: `fish:${f.id}`,
@@ -683,7 +703,7 @@ function openInventory() {
   sfx('click');
   invUI = hud?.openInventory(invData(), (item, action) => {
     const [kind, id] = item.split(':');
-    if (action === 'eat') eat(id as Food);
+    if (action === 'eat') eat(id);
     else if (action === 'hold') {
       const t = (kind === 'mat' ? 'seeds' : id) as ToolId;
       tool = t;
@@ -696,6 +716,68 @@ function openInventory() {
     }
     invUI?.update(invData());
   }) ?? null;
+}
+
+// ---------- Kochen & Bestellbrett ----------
+const BOARD = boardSpot(island);
+let kitchenUI: { update(d: KitchenData): void } | null = null;
+let ordersUI: { update(d: OrdersData): void } | null = null;
+/** Bild zu einer Ware */
+const storeImg = (item: StoreItem): string =>
+  item === 'wood' ? icons.log : item === 'turnip' ? icons.turnip : item === 'fish' ? fishPhoto('hering') : item === 'meal' ? icons.meal : item === 'coins' ? icons.coin : icons[item];
+const needOf = (need: Partial<Record<StoreItem, number>>): Need[] => (Object.entries(need) as [StoreItem, number][]).map(([k, n]) => ({ name: STORE_NAMES[k], img: storeImg(k), n, have: storeHas(world, farm, k) }));
+function kitchenData(): KitchenData {
+  return {
+    list: COOK.map((r) => ({
+      id: r.id,
+      name: r.name,
+      text: r.text,
+      img: r.id === 'meal' ? icons.meal : r.id === 'grilled' ? icons.grilled : icons[r.id],
+      energy: r.energy,
+      price: r.price,
+      need: needOf(r.need),
+      known: knows(world, r.id),
+      have: storeHas(world, farm, r.id),
+    })),
+  };
+}
+function openKitchen() {
+  sfx('click');
+  kitchenUI =
+    hud?.openKitchen(kitchenData(), (id) => {
+      const err = doAction({ kind: 'cook', item: id });
+      if (err) hud?.toast(err);
+    }) ?? null;
+}
+function ordersData(): OrdersData {
+  const st = ordersToday(world, Date.now());
+  return {
+    day: `Tag ${tod?.day ?? 1}`,
+    list: st.list.map((o, i) => ({
+      who: CUSTOMERS[(st.day * 3 + i) % CUSTOMERS.length],
+      size: SIZES[i],
+      need: needOf(o.need),
+      coins: o.coins,
+      extra: o.recipe ? { img: icons[o.recipe], text: `Rezept „${recipeById(o.recipe)!.name}“` } : o.seeds ? { img: icons.seeds, text: `${o.seeds} Samen` } : undefined,
+      done: st.done.includes(i),
+    })),
+  };
+}
+function openOrders() {
+  sfx('click');
+  ordersUI =
+    hud?.openOrders(ordersData(), (i) => {
+      const o = ordersToday(world, Date.now()).list[i];
+      if (!o || !storeHasAll(world, farm, o.need)) return hud?.toast('Dafür fehlt noch etwas');
+      const err = doAction({ kind: 'order', n: i });
+      if (err) return hud?.toast(err);
+      sfx('coin');
+      floats.push({ x: player.x, y: player.y, h: 2.6, text: `+${o.coins} Münzen`, life: 1.8 });
+      if (o.recipe) {
+        const r = recipeById(o.recipe)!;
+        hud?.intro({ title: `Neues Rezept: ${r.name}!`, text: r.text, steps: [{ img: icons[o.recipe], text: `Am Lagerfeuer kochen: ${needOf(r.need).map((x) => `${x.n} ${x.name}`).join(', ')}. Gibt +${r.energy} Kraft.` }], ok: 'Lecker!' }, () => sfx('click'));
+      }
+    }) ?? null;
 }
 
 // ---------- Insel-Projekte ----------
@@ -850,6 +932,10 @@ function syncHud() {
   // erst nach dem eigenen Tutorial (sonst zu viel auf einmal)
   hud.setProject(cp && bag().tut >= TUTORIAL.length ? `Projekt: ${cp.name} · ${Math.round(projProgress(world.proj) * 100)} %` : null, projProgress(world.proj));
   projUI?.update(projData());
+  kitchenUI?.update(kitchenData());
+  const od = ordersData();
+  ordersUI?.update(od);
+  hud.setOrders(od.list.filter((o) => !o.done && o.need.every((x) => x.have >= x.n)).length);
   hud.setEnergy(energy());
   hud.setSlots(farm.seeds, farm.water, farm.capacity, farm.hasCan, farm.hay);
   hud.setCoins(world.coins);
@@ -1265,6 +1351,7 @@ function startPlay() {
       craft: openCraft,
       bag: openInventory,
       project: openProject,
+      orders: openOrders,
       place: (what, item) => startPlacing(what, item),
       eat,
       decoList: () =>
@@ -1707,7 +1794,7 @@ function frame(now: number) {
     // Werkzeug benutzen
     if (!placing) {
       const it = intent();
-      hud?.setAction(!!it.kind || !!fishing, fishing ? icons.rod : it.kind === 'trade' ? icons.coin : it.kind === 'project' ? icons.craft : it.kind === 'stable' ? icons.stable : it.kind === 'horse' || it.kind === 'dismount' ? horseIcon(world.horses[it.tree]?.breed ?? '', !!world.horses[it.tree] && isFoal(world.horses[it.tree], Date.now())) : it.kind && ROOM_ACTS.has(it.kind) ? icons.house : it.kind === 'cook' ? (cookableFish() ? icons.grilled : icons.meal) : it.kind === 'harvest' ? icons.turnip : it.kind === 'rake' ? icons.hay : it.kind === 'pick' ? (island.pickups[it.tree]?.kind === 'stone' ? icons.stone : icons.stick) : it.kind === 'shake' ? (island.decor[it.tree]?.kind === 'bush' ? icons.berry : icons.apple) : it.kind === 'fish' || fishing ? icons.rod : it.kind === 'refill' ? (farm.hasCan ? icons.can : icons.bucket) : icons[tool === 'water' ? (farm.hasCan ? 'can' : 'bucket') : tool]);
+      hud?.setAction(!!it.kind || !!fishing, fishing ? icons.rod : it.kind === 'trade' ? icons.coin : it.kind === 'project' ? icons.craft : it.kind === 'cook' ? icons.meal : it.kind === 'orders' ? icons.board : it.kind === 'stable' ? icons.stable : it.kind === 'horse' || it.kind === 'dismount' ? horseIcon(world.horses[it.tree]?.breed ?? '', !!world.horses[it.tree] && isFoal(world.horses[it.tree], Date.now())) : it.kind && ROOM_ACTS.has(it.kind) ? icons.house : it.kind === 'harvest' ? icons.turnip : it.kind === 'rake' ? icons.hay : it.kind === 'pick' ? (island.pickups[it.tree]?.kind === 'stone' ? icons.stone : icons.stick) : it.kind === 'shake' ? (island.decor[it.tree]?.kind === 'bush' ? icons.berry : icons.apple) : it.kind === 'fish' || fishing ? icons.rod : it.kind === 'refill' ? (farm.hasCan ? icons.can : icons.bucket) : icons[tool === 'water' ? (farm.hasCan ? 'can' : 'bucket') : tool]);
       if (actHeld && swing <= 0 && it.kind && ROOM_ACTS.has(it.kind)) {
         actHeld = false;
         roomAction(it.kind, it.tree);
@@ -1964,7 +2051,7 @@ function drawOverlay(t: number, dt: number, nowMs: number) {
 let tod: TimeOfDay | null = null;
 
 // ---------- Im Haus ----------
-const ROOM_ACTS = new Set<Intent>(['enter', 'exit', 'sleep', 'chest', 'furnish', 'stable', 'horse', 'dismount', 'trade', 'project']);
+const ROOM_ACTS = new Set<Intent>(['enter', 'exit', 'sleep', 'chest', 'furnish', 'stable', 'horse', 'dismount', 'trade', 'project', 'cook', 'orders']);
 function mount(i: number) {
   const p = horseAt(i);
   if (!p) return;
@@ -2145,6 +2232,8 @@ function roomAction(kind: Intent, slot: number) {
   if (kind === 'enter') return enterHouse(slot);
   if (kind === 'exit') return leaveHouse();
   if (kind === 'project') return openProject();
+  if (kind === 'cook') return openKitchen();
+  if (kind === 'orders') return openOrders();
   if (kind === 'chest')
     return hud?.openChest([
       ['Holz', world.wood],
@@ -2156,6 +2245,7 @@ function roomAction(kind: Intent, slot: number) {
       ['Äpfel', world.apples],
       ['Beeren', world.berries],
       ['Bratfisch', world.grilled],
+      ...DISH_IDS.filter((id) => world.dishes[id]).map((id) => [recipeById(id)!.name, world.dishes[id]] as [string, number]),
       ...FISH.filter((f) => world.fish[f.id]).map((f) => [f.name, world.fish[f.id]] as [string, number]),
     ]);
   if (kind === 'furnish')

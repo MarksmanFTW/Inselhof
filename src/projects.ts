@@ -6,7 +6,7 @@
  * Reine Logik.
  */
 import { Farm } from './farm';
-import { FISH } from './fish';
+import { storeHas, storeTake, type StoreItem } from './store';
 import type { World } from './world';
 
 export type ProjItem = 'wood' | 'stones' | 'sticks' | 'turnip' | 'apple' | 'berry' | 'hay' | 'fish' | 'meal' | 'grilled' | 'coins';
@@ -123,52 +123,10 @@ export function projProgress(p: ProjState) {
   return need ? got / need : 1;
 }
 
-/** Fische für Projekte und Braten: nur die häufigen (seltene sind zu schade) */
-export const plainFish = (w: World) => FISH.filter((f) => f.cook).reduce((s, f) => s + (w.fish[f.id] ?? 0), 0);
-
 /** Wie viel davon liegt im Insel-Vorrat? (Stöcke/Steine: im Rucksack, zählt das Gerät selbst) */
-export function islandHas(w: World, f: Farm, item: ProjItem) {
-  switch (item) {
-    case 'wood':
-      return w.wood;
-    case 'turnip':
-      return f.turnips;
-    case 'apple':
-      return w.apples;
-    case 'berry':
-      return w.berries;
-    case 'hay':
-      return f.hay;
-    case 'fish':
-      return plainFish(w);
-    case 'meal':
-      return f.meals;
-    case 'grilled':
-      return w.grilled;
-    case 'coins':
-      return w.coins;
-    default:
-      return 0;
-  }
-}
+export const islandHas = (w: World, f: Farm, item: ProjItem) => (PROJ_ITEMS[item].bag ? 0 : storeHas(w, f, item as StoreItem));
 /** aus dem Insel-Vorrat nehmen (vorher mit islandHas geprüft) */
-export function islandTake(w: World, f: Farm, item: ProjItem, n: number) {
-  if (item === 'wood') w.wood -= n;
-  else if (item === 'turnip') f.turnips -= n;
-  else if (item === 'apple') w.apples -= n;
-  else if (item === 'berry') w.berries -= n;
-  else if (item === 'hay') f.hay -= n;
-  else if (item === 'meal') f.meals -= n;
-  else if (item === 'grilled') w.grilled -= n;
-  else if (item === 'coins') w.coins -= n;
-  else if (item === 'fish')
-    for (const fi of FISH.filter((x) => x.cook))
-      while (n > 0 && (w.fish[fi.id] ?? 0) > 0) {
-        if (--w.fish[fi.id] <= 0) delete w.fish[fi.id];
-        n--;
-      }
-  f.version++;
-}
+export const islandTake = (w: World, f: Farm, item: ProjItem, n: number) => storeTake(w, f, item as StoreItem, n);
 
 /** Liegt ein Feld unter der Fläche? */
 function plotUnder(f: Farm, x: number, y: number, foot: Foot) {

@@ -2099,3 +2099,44 @@ img[src$='#foto'] {
 .actions .pbtn {
   pointer-events: auto;
 }
+
+/* ---------- Kochen & Bestellbrett ---------- */
+.boardbtn {
+  position: relative;
+  margin-left: 2px !important;
+}
+.boardbtn em {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 4px;
+  box-sizing: border-box;
+  border-radius: 9px;
+  background: #4fae4a;
+  color: #fff;
+  font: 700 12px/18px 'Fredoka', system-ui, sans-serif;
+  font-style: normal;
+  text-align: center;
+  box-shadow: 0 0 0 2px #fff;
+}
+.craft-row.locked {
+  opacity: 0.55;
+}
+.craft-row .cnt {
+  font-weight: 500;
+  color: #7a5a3a;
+}
+.craft-row .reward {
+  margin-top: 3px;
+  color: #3e7a34 !important;
+  font-weight: 600;
+}
+.craft-row .extra {
+  width: 38px !important;
+  height: 38px !important;
+}
+.costs {
+  flex-wrap: wrap;
+}

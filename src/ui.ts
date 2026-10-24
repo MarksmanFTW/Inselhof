@@ -390,6 +390,8 @@ export interface HudActions {
   bag: () => void;
   /** Insel-Projekt öffnen */
   project: () => void;
+  /** Bestellbrett öffnen */
+  orders: () => void;
   confirm: () => void;
   cancel: () => void;
 }
@@ -416,6 +418,7 @@ export interface HudIcons {
   stone: string;
   craft: string;
   bag: string;
+  board: string;
   apple: string;
   berry: string;
   rod: string;
@@ -438,6 +441,23 @@ export interface InvData {
   head: string;
   note?: string;
   sections: { title: string; empty?: string; items: InvItem[] }[];
+}
+
+/** Zutat/Ware mit Bild, gebraucht und vorhanden */
+export interface Need {
+  name: string;
+  img: string;
+  n: number;
+  have: number;
+}
+/** Koch-Fenster am Lagerfeuer */
+export interface KitchenData {
+  list: { id: string; name: string; text: string; img: string; energy: number; price: number; need: Need[]; known: boolean; have: number }[];
+}
+/** Bestellbrett */
+export interface OrdersData {
+  day: string;
+  list: { who: string; size: string; need: Need[]; coins: number; extra?: { img: string; text: string }; done: boolean }[];
 }
 
 /** Insel-Projekt-Fenster */
@@ -551,6 +571,12 @@ export interface Hud {
   /** Händler-Boot; update() zeichnet neu, solange offen */
   openTrade(d: TradeData, act: { sell: (id: string, n: number) => void; buy: (id: string) => void }, onClose: () => void): { update(d: TradeData): void };
   openAlbum(d: AlbumData): void;
+  /** Kochen am Lagerfeuer; update() zeichnet neu, solange offen */
+  openKitchen(d: KitchenData, cook: (id: string) => void): { update(d: KitchenData): void };
+  /** Bestellbrett; update() zeichnet neu, solange offen */
+  openOrders(d: OrdersData, deliver: (i: number) => void): { update(d: OrdersData): void };
+  /** Bestellbrett-Knopf: so viele könnte man gerade liefern */
+  setOrders(ready: number): void;
   /** Insel-Projekt-Anzeige unter der Aufgabe (null = keine) */
   setProject(text: string | null, progress: number): void;
   /** Insel-Projekt: abgeben, Baustelle zeigen */
@@ -587,6 +613,7 @@ export function showHud(on: HudActions, icons: HudIcons, costs: { house: number;
       <button class="r eat" data-eat="cooked" aria-label="Ofenrübe essen"><img class="meal" src="${icons.meal}" alt="" /><b class="n-meal">0</b></button>
       <span class="r" title="Münzen"><img class="coin" src="${icons.coin}" alt="" /><b class="n-coins">0</b></span>
       <button class="r bagbtn" data-act="bag" aria-label="Rucksack"><img src="${icons.bag}" alt="" /></button>
+      <button class="r bagbtn boardbtn" data-act="orders" aria-label="Bestellbrett"><img src="${icons.board}" alt="" /><em hidden></em></button>
     </div>
     <button class="goal" hidden aria-label="Aufgabe"></button>
     <button class="proj-chip" hidden aria-label="Insel-Projekt"><img src="${icons.craft}" alt="" /><span></span><i><b></b></i></button>
@@ -649,6 +676,7 @@ export function showHud(on: HudActions, icons: HudIcons, costs: { house: number;
   $('[data-act=craft]').addEventListener('click', on.craft);
   $('[data-act=bag]').addEventListener('click', on.bag);
   $('.proj-chip').addEventListener('click', on.project);
+  $('[data-act=orders]').addEventListener('click', on.orders);
   $('[data-act=call]').addEventListener('click', on.call);
   $('[data-act=cancel]').addEventListener('click', on.cancel);
   $('[data-act=confirm]').addEventListener('click', on.confirm);
@@ -758,6 +786,89 @@ export function showHud(on: HudActions, icons: HudIcons, costs: { house: number;
     },
     nudge(what) {
       $('[data-act=craft]').classList.toggle('nudge', what === 'craft');
+    },
+    setOrders(ready) {
+      const b = $('[data-act=orders] em');
+      b.hidden = ready <= 0;
+      b.textContent = String(ready);
+    },
+    openKitchen(d, cookIt) {
+      const modal = document.createElement('div');
+      modal.className = 'modal';
+      const need = (x: Need) => `<span class="cost${x.have < x.n ? ' miss' : ''}" title="${esc(x.name)}"><img src="${x.img}" alt="" />${x.n}</span>`;
+      const draw = (c: KitchenData) => {
+        modal.innerHTML = `<div class="panel build-panel craft-panel kitchen-panel">
+          <h2>Kochen</h2>
+          <p class="have">Am Lagerfeuer – Gerichte geben viel Kraft und bringen gutes Geld.</p>
+          <div class="craft-list">${c.list
+            .map((r) => {
+              if (!r.known)
+                return `<div class="craft-row locked"><img class="tool" src="${r.img}" alt="" /><div class="what"><b>???</b><small>Neues Rezept – gibt es am Bestellbrett.</small></div></div>`;
+              const can = r.need.every((x) => x.have >= x.n);
+              return `<div class="craft-row">
+                <img class="tool" src="${r.img}" alt="" />
+                <div class="what"><b>${esc(r.name)}${r.have ? ` <small class="cnt">(${r.have} da)</small>` : ''}</b><small>+${r.energy} Kraft · Händler ${r.price}</small>
+                  <div class="costs">${r.need.map(need).join('')}</div>
+                </div>
+                <button class="pbtn green small" data-k="${esc(r.id)}"${can ? '' : ' disabled'}>Kochen</button>
+              </div>`;
+            })
+            .join('')}</div>
+          <button class="pbtn small ghost" data-m="close">Zurück</button>
+        </div>`;
+      };
+      draw(d);
+      ui.appendChild(modal);
+      modal.addEventListener('click', (e) => {
+        const t = e.target as HTMLElement;
+        if (e.target === modal || t.closest('[data-m=close]')) return modal.remove();
+        const b = t.closest<HTMLButtonElement>('[data-k]');
+        if (b && !b.disabled) cookIt(b.dataset.k!);
+      });
+      return {
+        update: (c: KitchenData) => {
+          if (!modal.isConnected) return;
+          const p = modal.querySelector('.kitchen-panel');
+          const sc = p?.scrollTop ?? 0;
+          draw(c);
+          const p2 = modal.querySelector('.kitchen-panel');
+          if (p2) p2.scrollTop = sc;
+        },
+      };
+    },
+    openOrders(d, deliverIt) {
+      const modal = document.createElement('div');
+      modal.className = 'modal';
+      const need = (x: Need) => `<span class="cost${x.have < x.n ? ' miss' : ''}" title="${esc(x.name)}"><img src="${x.img}" alt="" />${x.have >= x.n ? x.n : `${x.have}/${x.n}`}</span>`;
+      const draw = (c: OrdersData) => {
+        modal.innerHTML = `<div class="panel build-panel craft-panel orders-panel">
+          <h2>Bestellbrett</h2>
+          <p class="have">${esc(c.day)} · jeden Morgen gibt es neue Bestellungen</p>
+          <div class="craft-list">${c.list
+            .map((o, i) => {
+              const can = !o.done && o.need.every((x) => x.have >= x.n);
+              return `<div class="craft-row order${o.done ? ' owned' : ''}">
+                <div class="what"><b>${esc(o.who)} <small class="cnt">· ${esc(o.size)}</small></b>
+                  <div class="costs">${o.need.map(need).join('')}</div>
+                  <small class="reward">Belohnung: ${o.coins} Münzen${o.extra ? ` + ${esc(o.extra.text)}` : ''}</small>
+                </div>
+                ${o.extra ? `<img class="tool extra" src="${o.extra.img}" alt="" />` : ''}
+                ${o.done ? '<span class="done">Geliefert ✓</span>' : `<button class="pbtn green small" data-o="${i}"${can ? '' : ' disabled'}>Liefern</button>`}
+              </div>`;
+            })
+            .join('')}</div>
+          <button class="pbtn small ghost" data-m="close">Zurück</button>
+        </div>`;
+      };
+      draw(d);
+      ui.appendChild(modal);
+      modal.addEventListener('click', (e) => {
+        const t = e.target as HTMLElement;
+        if (e.target === modal || t.closest('[data-m=close]')) return modal.remove();
+        const b = t.closest<HTMLButtonElement>('[data-o]');
+        if (b && !b.disabled) deliverIt(Number(b.dataset.o));
+      });
+      return { update: (c: OrdersData) => modal.isConnected && draw(c) };
     },
     setProject(text, progress) {
       const c = $('.proj-chip');

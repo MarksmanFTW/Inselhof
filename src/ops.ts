@@ -16,6 +16,8 @@ import { BUILDS, type BuildKind, type World } from './world';
 import { TUT_SEEDS, recipeOf, type ToolKind } from './craft';
 import { fishById } from './fish';
 import { FEST_COINS, PROJECTS, PROJ_ITEMS, islandHas, islandTake, pickSite, type ProjItem } from './projects';
+import { cook, isDish, recipeById } from './cooking';
+import { deliver, type Order } from './orders';
 import type { PickKind } from './island';
 
 /**
@@ -55,6 +57,9 @@ export interface OpResult {
   /** fürs Projekt abgegeben (so viel wurde genommen); finished = Projekt fertig */
   donated?: { item: ProjItem; n: number };
   finished?: string;
+  /** Bestellung geliefert / gekocht */
+  delivered?: Order;
+  cooked?: string;
 }
 
 /** Ackerbau kennt die Fähigkeiten der Insel-Stufe */
@@ -86,6 +91,7 @@ export function applyOp(world: World, farm: Farm, op: Op): OpResult {
     if (a.kind === 'pick' && res.picked) merge(gain(world.prog, res.picked === 'stick' ? 'sticks' : 'stones', 1, give));
     else if (a.kind === 'shake' && res.fruit) merge(gain(world.prog, 'fruit', res.fruit.apples + res.fruit.berries, give));
     else if (a.kind === 'donate' && res.finished) merge(gain(world.prog, 'projects', 1, give));
+    else if (a.kind === 'order' && res.delivered) merge(gain(world.prog, 'orders', 1, give));
     else if (a.kind === 'fish' && res.caught) {
       merge(gain(world.prog, 'fish', 1, give));
       if (res.caught.first) merge(gain(world.prog, 'species', 1, give));
@@ -155,6 +161,10 @@ function run(world: World, farm: Farm, op: Op): OpResult {
     const first = world.catchFish(a.item ?? '');
     return { err: first === null ? 'Unbekannter Fisch' : null, done: first !== null, caught: first === null ? undefined : { id: a.item!, first } };
   }
+  if (a.kind === 'order') {
+    const r = deliver(world, farm, Math.floor(a.n ?? -1), t);
+    return { err: r.err, done: !r.err, delivered: r.order };
+  }
   if (a.kind === 'donate') return donate(world, farm, a.item as ProjItem, Math.max(1, Math.floor(a.n ?? 1)));
   if (a.kind === 'tut') {
     // Tutorial geschafft: Rübensamen für die Insel
@@ -191,6 +201,16 @@ function run(world: World, farm: Farm, op: Op): OpResult {
     if (a.kind === 'sell') {
       const item = a.item as SellItem;
       const n = Math.max(1, Math.floor(a.n ?? 1));
+      if (item.startsWith('dish:')) {
+        // Gerichte: Preis aus dem Rezept
+        const r = recipeById(item.slice(5));
+        if (!r || !isDish(r.id)) return { err: 'Das kauft der Händler nicht', done: false };
+        if ((world.dishes[r.id] ?? 0) < n) return { err: 'So viel hast du nicht', done: false };
+        if ((world.dishes[r.id] -= n) <= 0) delete world.dishes[r.id];
+        world.coins += r.price * n;
+        world.version++;
+        return { err: null, done: true, coins: r.price * n };
+      }
       if (item.startsWith('fish:')) {
         // Fische: Preis je Art
         const f = fishById(item.slice(5));
@@ -249,6 +269,12 @@ function run(world: World, farm: Farm, op: Op): OpResult {
     world.clock.offset = night ? sleepOffset(world.clock, t) : napOffset(world.clock);
     world.version++;
     return { err: null, done: true, slept: night ? 'night' : 'nap' };
+  } else if (a.kind === 'eat' && isDish(a.item ?? '')) {
+    if (!((world.dishes[a.item!] ?? 0) > 0)) err = `Kein ${recipeById(a.item!)?.name ?? 'Essen'} mehr`;
+    else {
+      if (--world.dishes[a.item!] <= 0) delete world.dishes[a.item!];
+      world.version++;
+    }
   } else if (a.kind === 'eat' && a.item === 'grilled') {
     if (world.grilled <= 0) err = 'Kein Bratfisch mehr';
     else {
@@ -267,7 +293,11 @@ function run(world: World, farm: Farm, op: Op): OpResult {
     if (!farm.eat(!!a.cooked)) err = a.cooked ? 'Keine Ofenrüben mehr' : 'Keine Rüben mehr';
   } else if (a.kind === 'cook') {
     if (world.fireNear(actor.x, actor.y, 22) < 0) err = 'Kochen geht nur am Lagerfeuer';
-    else if (a.item === 'fish') {
+    else if (a.item && recipeById(a.item)) {
+      err = cook(world, farm, a.item);
+      if (!err) return { err: null, done: true, cooked: a.item };
+    } else if (a.item === 'fish') {
+      // ältere Aktion (vor den Rezepten)
       if (!world.takeCookable()) err = 'Kein Fisch zum Braten';
     } else if (!farm.cook()) err = 'Keine Rüben zum Kochen';
   } else if (a.kind === 'adopt') {

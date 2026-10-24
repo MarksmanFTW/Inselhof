@@ -9,6 +9,8 @@ import { cleanProgress, levelOf, newProgress, perks, type Progress } from './pro
 import { PICK_REGROW_MS, type ToolKind } from './craft';
 import { FISH, fishById } from './fish';
 import { PROJECTS, cleanProj, newProj, type Foot, type ProjState } from './projects';
+import { cleanOrders, newOrders, type OrderState } from './orders';
+import { DISH_IDS } from './store';
 import type { PickKind } from './island';
 import type { Clock } from './time';
 
@@ -91,6 +93,10 @@ export interface WorldSave {
   grilled?: number;
   /** Insel-Projekte (Brunnen, Marktstand …) */
   proj?: ProjState;
+  /** gekochte Gerichte, gelernte Rezepte, Bestellbrett */
+  dishes?: Record<string, number>;
+  recipes?: string[];
+  orders?: OrderState;
 }
 
 export type TreeStage = 'tree' | 'stump' | 'sapling';
@@ -128,6 +134,9 @@ export class World {
   fish: Record<string, number> = {};
   grilled = 0;
   proj: ProjState = newProj();
+  dishes: Record<string, number> = {};
+  recipes: string[] = [];
+  orders: OrderState = newOrders();
   /** Treffer am aktuellen Baum (nicht gespeichert) */
   private hits = new Map<number, number>();
   /** wird bei jeder Änderung hochgezählt (Schatten neu malen, speichern) */
@@ -156,6 +165,9 @@ export class World {
       for (const [k, v] of Object.entries(save.fish ?? {})) if (fishById(k) && typeof v === 'number' && v > 0) this.fish[k] = Math.floor(v);
       this.grilled = Math.max(0, Math.floor(save.grilled ?? 0));
       this.proj = cleanProj(save.proj);
+      for (const [k, v] of Object.entries(save.dishes ?? {})) if (DISH_IDS.includes(k as never) && typeof v === 'number' && v > 0) this.dishes[k] = Math.floor(v);
+      this.recipes = (save.recipes ?? []).filter((r) => DISH_IDS.includes(r as never));
+      this.orders = cleanOrders(save.orders);
       this.apples = Math.max(0, Math.floor(save.apples ?? 0));
       this.berries = Math.max(0, Math.floor(save.berries ?? 0));
       for (const [k, v] of Object.entries(save.shaken ?? {})) {
@@ -200,6 +212,9 @@ export class World {
     this.fish = w.fish;
     this.grilled = w.grilled;
     this.proj = w.proj;
+    this.dishes = w.dishes;
+    this.recipes = w.recipes;
+    this.orders = w.orders;
     this.version++;
   }
 
@@ -219,6 +234,9 @@ export class World {
       ...(this.picked.size ? { picked: Object.fromEntries(this.picked) } : {}),
       ...(this.apples || this.berries || this.shaken.size ? { apples: this.apples, berries: this.berries, shaken: Object.fromEntries(this.shaken) } : {}),
       ...(Object.keys(this.fish).length || this.grilled ? { fish: { ...this.fish }, grilled: this.grilled } : {}),
+      ...(Object.keys(this.dishes).length || this.recipes.length || this.orders.list
+        ? { dishes: { ...this.dishes }, recipes: [...this.recipes], orders: { day: this.orders.day, list: this.orders.list ? this.orders.list.map((o) => ({ ...o, need: { ...o.need } })) : null, done: [...this.orders.done] } }
+        : {}),
       ...(this.proj.n || this.proj.sites.length || Object.keys(this.proj.got).length ? { proj: { n: this.proj.n, got: { ...this.proj.got }, sites: this.proj.sites.map((s) => (s ? [s[0], s[1]] : null)) as ProjState['sites'] } } : {}),
     };
   }
