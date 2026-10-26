@@ -27,7 +27,7 @@ describe('Ackerbau', () => {
       expect(f.plot(c, r)!.crop!.stage).toBe(s + 1);
     }
     // ohne Gießen wächst nichts – ist aber reif
-    expect(f.harvest(c, r, () => 0.9)).toEqual({ seeds: 1, gotCan: false });
+    expect(f.harvest(c, r, () => 0.9)).toEqual({ seeds: 1, gotCan: false, kind: 'turnip', n: 1 });
     expect(f.turnips).toBe(START_TURNIPS + 1);
     expect(f.plot(c, r)!.crop).toBeUndefined();
   });

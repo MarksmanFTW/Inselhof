@@ -1,6 +1,6 @@
 /**
  * Kochen am Lagerfeuer: Rezepte verbinden Felder, Obst und Angeln. Drei kennt man
- * von Anfang an, drei weitere gibt es als Belohnung am Bestellbrett. Gerichte geben
+ * von Anfang an, sechs weitere gibt es als Belohnung am Bestellbrett. Gerichte geben
  * viel Kraft und bringen beim Händler mehr als die Zutaten. Reine Logik.
  */
 import type { Farm } from './farm';
@@ -25,6 +25,9 @@ export const COOK: Recipe[] = [
   { id: 'fischsuppe', name: 'Fischsuppe', text: 'Wärmt von innen – mit Rüben und Fisch.', need: { fish: 1, turnip: 2 }, energy: 60, price: 18 },
   { id: 'apfelkuchen', name: 'Apfelkuchen', text: 'Süß, saftig und duftet über die ganze Insel.', need: { apple: 4, berry: 1, turnip: 1 }, energy: 70, price: 22 },
   { id: 'marmelade', name: 'Beerenmarmelade', text: 'Ein ganzes Glas voller Sommer.', need: { berry: 6 }, energy: 25, price: 16 },
+  { id: 'karottenkuchen', name: 'Karottenkuchen', text: 'Saftig, mit Zuckerguss obendrauf.', need: { carrot: 3, apple: 2 }, energy: 50, price: 20 },
+  { id: 'erdbeertorte', name: 'Erdbeertorte', text: 'Rot, süß und ein bisschen festlich.', need: { strawberry: 6, apple: 1 }, energy: 60, price: 26 },
+  { id: 'kuerbissuppe', name: 'Kürbissuppe', text: 'Cremig und orange – wärmt an kalten Tagen.', need: { pumpkin: 1, turnip: 1 }, energy: 70, price: 30 },
 ];
 export const recipeById = (id: string) => COOK.find((r) => r.id === id);
 /** Rezepte, die man am Bestellbrett bekommt – in dieser Reihenfolge */

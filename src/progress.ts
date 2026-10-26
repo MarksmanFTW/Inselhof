@@ -43,7 +43,13 @@ export type Stat =
   // Strandgut, Flaschenpost, Fest-Fundstücke
   | 'shells'
   | 'letters'
-  | 'festfinds';
+  | 'festfinds'
+  // neue Pflanzen geerntet (Ernten, nicht Stück)
+  | 'carrots'
+  | 'strawberries'
+  | 'pumpkins'
+  // Insel-Sterne
+  | 'stars';
 
 export interface Progress {
   xp: number;
@@ -53,12 +59,13 @@ export interface Progress {
   /**
    * Version der Aufgabenliste: fehlt = ursprüngliche Liste, 2 = mit Tutorial am
    * Anfang (kurz im Oktober 2026), 3 = ausgebaut, Tutorial gehört jedem Spieler selbst,
-   * 4 = mit Angeln, 5 = mit Bewohnern, 6 = mit Verbesserungen
+   * 4 = mit Angeln, 5 = mit Bewohnern, 6 = mit Verbesserungen,
+   * 7 = mit Strandgut und neuen Pflanzen
    */
   v?: number;
 }
 
-export const QUEST_V = 6;
+export const QUEST_V = 7;
 export const newProgress = (): Progress => ({ xp: 0, stats: {}, quests: 0, v: QUEST_V });
 
 /**
@@ -89,6 +96,8 @@ export function cleanProgress(p: Partial<Progress> | undefined, legacy?: { fires
   if (v <= 4 && n > V4_LEN) n += 3;
   // v5 → v6: zwei Aufgaben zu Verbesserungen und Hochbeet, genauso hinten dran
   if (v <= 5 && n > V5_LEN) n += 2;
+  // v6 → v7: fünf Aufgaben zu Strandgut, Flaschenpost und den neuen Pflanzen
+  if (v <= 6 && n > V6_LEN) n += 5;
   out.quests = n;
   return out;
 }
@@ -126,6 +135,10 @@ export const XP: Record<Exclude<Stat, 'wood'>, number> = {
   shells: 2,
   letters: 3,
   festfinds: 2,
+  carrots: 3,
+  strawberries: 4,
+  pumpkins: 8,
+  stars: 0,
 };
 
 /** XP bis Stufe L: 30 · L(L-1)/2 → 30, 90, 180, 300 … */
@@ -205,6 +218,11 @@ const QUESTS: Quest[] = [
   { text: 'Hol 3 Bewohner auf die Insel', stat: 'villagers', goal: 3, xp: 80, wood: 10, hint: 'Jedes neue Bewohnerhaus bringt ein neues Tier – sechs gibt es.' },
   { text: 'Verbessere ein Werkzeug', stat: 'upgrades', goal: 1, xp: 30, coins: 10, hint: 'Unter „Basteln“ → „Verbessern“: Eisenaxt, Eisenhacke, Wanderschuhe und mehr – für Münzen und Steine.' },
   { text: 'Bau ein Hochbeet', stat: 'beets', goal: 1, xp: 30, seeds: 6, hint: 'Unter „Bauen“ – kostet 10 Holz. Im Hochbeet wachsen Rüben doppelt so schnell.' },
+  { text: 'Finde 5 Schätze am Strand', stat: 'shells', goal: 5, xp: 30, coins: 10, hint: 'Jeden Tag spült das Meer Muscheln und Seesterne an – es glitzert im Sand.' },
+  { text: 'Ernte 5 Karotten', stat: 'carrots', goal: 5, xp: 30, coins: 10, hint: 'Karottensamen gibt es beim Händler-Boot. Tipp zweimal auf die Samen, um die Sorte zu wählen.' },
+  { text: 'Lies 3 Flaschenposten', stat: 'letters', goal: 3, xp: 30, wood: 6, hint: 'Jeden Tag treibt eine Flasche an den Strand – mit einem Brief und einem kleinen Geschenk.' },
+  { text: 'Ernte 6-mal Erdbeeren', stat: 'strawberries', goal: 6, xp: 50, coins: 15, hint: 'Erdbeersamen gibt es ab Insel-Stufe 3 beim Händler-Boot. Jede Pflanze gibt gleich drei Beeren.' },
+  { text: 'Ernte einen Kürbis', stat: 'pumpkins', goal: 1, xp: 50, coins: 20, hint: 'Kürbissamen gibt es ab Insel-Stufe 5. Sie brauchen lange, aber der Händler zahlt viel.' },
 ];
 /** ursprüngliche Liste: Aufgabe Nr. n → Nummer in Liste v3 (danach weiter auf v4) */
 const OLD_TO_V3 = [0, 1, 2, 4, 6, 8, 9, 13, 14, 17, 19, 20];
@@ -213,6 +231,8 @@ const V3_LEN = 21;
 const V4_LEN = 24;
 /** so lang war Liste v5 */
 const V5_LEN = 27;
+/** so lang war Liste v6 */
+const V6_LEN = 29;
 /** Liste v2 hatte vorne drei Tutorial-Aufgaben */
 const V2_TUTORIAL = 3;
 /** n-te Aufgabe; nach der Liste geht es mit immer größeren Ernte-/Holz-Zielen weiter */

@@ -5,7 +5,7 @@ import '@fontsource/fredoka/latin-700.css';
 import './style.css';
 import { Dir, type Look } from './character';
 import { ACCESSORIES } from './horses';
-import { ALBUM_REWARDS, ALBUM_TOTAL, DECO, SEED_PACK, SELL, SELL_NAMES, albumCount, boatOut, decoById, horseOffers, merchantHere, type SellItem } from './shop';
+import { ALBUM_REWARDS, ALBUM_TOTAL, DECO, STAR_DECO, SEED_PACK, SELL, SELL_NAMES, albumCount, boatOut, decoById, horseOffers, merchantHere, type SellItem } from './shop';
 import { BREEDS, RARE_BREEDS, islandDay, STABLE_BREEDS, FOAL_GROW_MS, MAX_LOVE, PADDOCK_COST, STABLE_COST, STABLE_SPACE, TRUST, breedById, horsePose, isFoal, pasture, type HorsePose } from './horses';
 import { Ground, H, TILE, W, generate } from './island';
 import { setScene, sfx, unlockAudio } from './audio';
@@ -13,7 +13,7 @@ import { FURNITURE } from './furniture';
 import { ROOM_H, doorOf, nearSpot, roomFree } from './interior';
 import { Player } from './player';
 import { absorb, httpApi, newPid, opId, request, type Other, type PendingOp, type Presence, type Shared } from './cloud';
-import { CAN_GOAL, Farm, RIPE, key as plotKey } from './farm';
+import { CAN_GOAL, CROPS, Farm, RIPE, cropById, key as plotKey, type CropId } from './farm';
 import { applyOp, farmUnder as farmUnderOf, link, tileFree as tileFreeOf, type Op } from './ops';
 import { PERKS, levelProgress, questAt } from './progress';
 import { BITE_WINDOW, FISH, GRILLED_ENERGY, biteDelay, rollFish, type Fish } from './fish';
@@ -21,7 +21,7 @@ import { RECIPES, TOOL_NAME, TUTORIAL, TUT_SEEDS, bagCraft, bagPick, craftBlock,
 import { newClock, rainSince, timeOf, type TimeOfDay } from './time';
 import { MAX_SLOTS, activeSlot, addSlot, loadSave, removeSlot, writeSave, type Save, type Slot } from './save';
 import type { Action, Fx } from './net/types';
-import { showCoop, showCustomize, showHud, showMenu, showSettings, showSlots, textScale, type CraftData, type FestShopData, type Hud, type InvData, type KitchenData, type Need, type OrdersData, type ProjData, type ToolId, type TradeData, type VillagerData } from './ui';
+import { showCoop, showCustomize, showHud, showMenu, showSettings, showSlots, textScale, type CraftData, type FestShopData, type Hud, type InvData, type KitchenData, type Need, type OrdersData, type ProjData, type ToolId, type TradeData, type VillagerData, type AlbumTab } from './ui';
 import { PROJECTS, PROJ_ITEMS, islandHas, projProgress, siteOf, type ProjItem } from './projects';
 import { COOK, knows, recipeById, isDish } from './cooking';
 import { CUSTOMERS, SIZES, boardSpot, ordersToday } from './orders';
@@ -38,6 +38,8 @@ import { festFindLeft, festFinds, festVisited, stallSpot } from './fest';
 import { ALBUM_SHELLS, LETTERS, SHELLS, beachLeft, beachToday, shellById } from './beach';
 import { CALENDAR, cleanDaily, dailyDone, dailyIndex, weeklyDeco, type DailyGift } from './daily';
 import { warmHorse } from './three/horse';
+import { STAR_AT, STAR_REWARDS, starParts, starScore, starsOf, type StarReward } from './stars';
+import { ACHIEVEMENTS, TIERS, TIER_COINS, achievementById, goalText } from './achievements';
 
 const screen = document.querySelector<HTMLCanvasElement>('#screen')!;
 const ctx = screen.getContext('2d')!;
@@ -230,7 +232,8 @@ function perform(a: Action, actor: { x: number; y: number }): string | null {
     else if (a.kind === 'refill') emit({ k: 'refill', x: actor.x, y: actor.y + 6, text: 'Voll!' });
     else if (a.kind === 'water') emit({ k: 'water', x: cx, y: cy });
     else if (a.kind === 'harvest' && res.harvest) {
-      emit({ k: 'harvest', x: cx, y: cy, text: `+1 Rübe  +${res.harvest.seeds} Samen` });
+      const cd = cropById(res.harvest.kind)!;
+      emit({ k: 'harvest', x: cx, y: cy, text: `+${res.harvest.n} ${res.harvest.n === 1 ? cd.name : cd.plural}  +${res.harvest.seeds} Samen` });
       if (res.harvest.gotCan) emit({ k: 'can', x: actor.x, y: actor.y, text: 'Eisen-Gießkanne!' });
     } else if (a.kind === 'build') emit({ k: 'build', x: a.x ?? 0, y: a.y ?? 0, text: a.what === 'hut' ? `${villagerById(res.movedIn ?? '')?.name ?? 'Jemand'} zieht ein!` : a.what === 'beet' ? 'Hochbeet!' : a.what === 'coach' ? 'Kutschenhalt!' : a.what === 'fire' ? 'Lagerfeuer!' : a.what === 'stable' ? 'Pferdestall!' : a.what === 'paddock' ? 'Koppel!' : a.what === 'deco' ? `${decoById(a.item ?? '')?.name ?? 'Deko'} steht!` : 'Haus gebaut!' });
     else if (a.kind === 'adopt') {
@@ -250,7 +253,7 @@ function perform(a: Action, actor: { x: number; y: number }): string | null {
     else if (a.kind === 'buy') {
       const it = a.item ?? '';
       const h = world.horses[world.horses.length - 1];
-      const text = it.startsWith('horse:') && h ? `${h.name} zieht in den Stall!` : it === 'seeds' ? `+${SEED_PACK.n} Samen` : `${decoById(it.slice(5))?.name ?? 'Deko'} gekauft – im Bau-Menü aufstellen`;
+      const text = it.startsWith('horse:') && h ? `${h.name} zieht in den Stall!` : it === 'seeds' ? `+${SEED_PACK.n} Samen` : it.startsWith('seeds:') ? `+${cropById(it.slice(6))?.pack.n ?? 0} ${cropById(it.slice(6))?.seedName ?? 'Samen'}` : `${decoById(it.slice(5))?.name ?? 'Deko'} gekauft – im Bau-Menü aufstellen`;
       emit({ k: 'trade', x: actor.x, y: actor.y, text });
       if (it.startsWith('horse:')) emit({ k: 'horse', x: actor.x, y: actor.y });
     }
@@ -280,6 +283,11 @@ function perform(a: Action, actor: { x: number; y: number }): string | null {
   }
   for (const n of res.gain?.levels ?? []) emit({ k: 'level', x: actor.x, y: actor.y, n });
   for (const al of res.album ?? []) emit({ k: 'quest', x: actor.x, y: actor.y, text: `Sammelalbum: ${al.at} Einträge! +${al.coins} Münzen` });
+  // Erfolge: einzeln feiern, viele auf einmal (rückwirkend) zusammen
+  const ach = res.achieved ?? [];
+  if (ach.length > 3) emit({ k: 'quest', x: actor.x, y: actor.y, text: `${ach.length} Erfolge geschafft! +${ach.reduce((s, x) => s + TIER_COINS[x.tier - 1], 0)} Münzen – schau ins Album` });
+  else for (const x of ach) emit({ k: 'quest', x: actor.x, y: actor.y, text: `Erfolg „${achievementById(x.id)?.name}“ – ${TIERS[x.tier - 1]}! +${TIER_COINS[x.tier - 1]} Münzen` });
+  if (res.stars?.length) starCard(res.stars[res.stars.length - 1], res.stars);
   // gemeinsame Insel: Aktion fürs Protokoll merken (beim Fällen nur das Umfallen) und bald schicken
   if (cloudOn() && (a.kind === 'axe' ? res.felled : res.done)) {
     const sl = mySlot();
@@ -292,6 +300,23 @@ function perform(a: Action, actor: { x: number; y: number }): string | null {
   if (res.movedIn) folkWelcome(res.movedIn);
   if (res.festItem?.kind === 'hat') unlockHat(res.festItem.id);
   return res.err;
+}
+/** neuer Insel-Stern: feiern und zeigen, was es gibt */
+function starCard(n: number, all: number[]) {
+  const rw = all.map((k) => STAR_REWARDS[k - 1]);
+  const deco = rw.find((r) => r.deco)?.deco;
+  setTimeout(() => {
+    sfx('quest');
+    hud?.intro(
+      {
+        title: `${'★'.repeat(n)} Deine Insel hat ${n === 1 ? 'einen Stern' : `${n} Sterne`}!`,
+        text: n >= 5 ? 'Alle fünf Sterne – deine Insel ist ein Traum!' : 'Deine Insel wird immer schöner. Tipp auf die Sterne oben, um zu sehen, was noch fehlt.',
+        steps: [{ img: deco ? decoIcon(deco) : icons.coin, text: `Geschenk: ${rw.map(starRewardText).join(', ')}${deco ? ' – im Bau-Menü aufstellen' : ''}` }],
+        ok: 'Juhu!',
+      },
+      () => sfx('click'),
+    );
+  }, 900);
 }
 /** eigenes Tutorial weiterzählen; am Ende 3 Rübensamen für die Insel */
 function tutorialStep() {
@@ -403,15 +428,23 @@ function tradeData(): TradeData {
   const offers = horseOffers(islandDay(world.clock, now), world.album.horses.length);
   return {
     coins: world.coins,
-    have: { turnip: farm.turnips, meal: farm.meals, wood: world.wood, hay: farm.hay, apple: world.apples, berry: world.berries, ...Object.fromEntries(FISH.map((f) => [`fish:${f.id}`, world.fish[f.id] ?? 0])), ...Object.fromEntries(DISH_IDS.map((id) => [`dish:${id}`, world.dishes[id] ?? 0])), ...Object.fromEntries(SHELLS.map((x) => [`sea:${x.id}`, world.treasures[x.id] ?? 0])) },
+    have: { ...Object.fromEntries(CROPS.map((cd) => [`crop:${cd.id}`, farm.cropsOf(cd.id)])), turnip: farm.turnips, meal: farm.meals, wood: world.wood, hay: farm.hay, apple: world.apples, berry: world.berries, ...Object.fromEntries(FISH.map((f) => [`fish:${f.id}`, world.fish[f.id] ?? 0])), ...Object.fromEntries(DISH_IDS.map((id) => [`dish:${id}`, world.dishes[id] ?? 0])), ...Object.fromEntries(SHELLS.map((x) => [`sea:${x.id}`, world.treasures[x.id] ?? 0])) },
     sell: [
       ...(Object.keys(SELL) as SellItem[]).map((id) => ({ id, name: SELL_NAMES[id], price: SELL[id], img: id === 'wood' ? icons.log : id === 'meal' ? icons.meal : id === 'hay' ? icons.hay : id === 'apple' ? icons.apple : id === 'berry' ? icons.berry : icons.turnip })),
       // Fische und Gerichte nur, wenn man welche hat
       ...FISH.filter((f) => f.price && world.fish[f.id]).map((f) => ({ id: `fish:${f.id}`, name: f.name, price: f.price, img: fishPhoto(f.id) })),
       ...DISH_IDS.filter((id) => world.dishes[id]).map((id) => ({ id: `dish:${id}`, name: recipeById(id)!.name, price: recipeById(id)!.price, img: icons[id] })),
       ...SHELLS.filter((x) => x.price && world.treasures[x.id]).map((x) => ({ id: `sea:${x.id}`, name: x.name, price: x.price, img: seaPhoto(x.id) })),
+      ...CROPS.filter((cd) => cd.id !== 'turnip' && farm.cropsOf(cd.id)).map((cd) => ({ id: `crop:${cd.id}`, name: cd.name, price: cd.price, img: storeImg(cd.id as StoreItem) })),
     ],
-    seeds: { n: SEED_PACK.n, price: SEED_PACK.price, img: icons.seeds },
+    seeds: CROPS.map((cd) => ({
+      id: cd.id === 'turnip' ? 'seeds' : `seeds:${cd.id}`,
+      name: `${cd.pack.n} ${cd.seedName}`,
+      text: cd.id === 'turnip' ? 'Rüben – die gute alte Sorte.' : cropText(cd.id),
+      price: cd.id === 'turnip' ? SEED_PACK.price : cd.pack.price,
+      img: seedImg(cd.id),
+      block: world.level < cd.level ? `ab Insel-Stufe ${cd.level}` : null,
+    })),
     deco: DECO.map((d) => ({ id: d.id, name: d.name, price: d.price, img: decoIcon(d.id), owned: world.album.deco.includes(d.id) })),
     horses: offers.map((id) => {
       const b = breedById(id)!;
@@ -440,15 +473,43 @@ function openTrade() {
       () => (tradeUI = null),
     ) ?? null;
 }
-function openAlbum() {
+/** Bild zu einem Erfolg */
+const ACH_IMG: Record<string, () => string> = {
+  felled: () => icons.axe,
+  harvest: () => icons.turnip,
+  water: () => icons.can,
+  kinds: () => icons.carrot,
+  fruit: () => icons.apple,
+  hay: () => icons.hay,
+  fish: () => fishPhoto('hering'),
+  species: () => fishPhoto('goldfisch'),
+  cook: () => icons.meal,
+  orders: () => icons.board,
+  care: () => icons.horse,
+  wishes: () => villagerPhoto('hase'),
+  friends: () => villagerPhoto('baer'),
+  beach: () => seaPhoto('seestern'),
+  letters: () => icons.bottle,
+  projects: () => icons.craft,
+  album: () => icons.book,
+  fest: () => icons.candy,
+  stars: () => decoIcon('starstatue'),
+};
+function starRewardText(r: StarReward) {
+  return [`${r.coins} Münzen`, r.wood ? `${r.wood} Holz` : '', r.deco ? decoById(r.deco)?.name ?? '' : ''].filter(Boolean).join(' + ');
+}
+function openAlbum(tab?: AlbumTab) {
   const pic = (id: string) => horseIcon(id);
+  const score = starScore(world, farm);
+  const n = starsOf(score);
   hud?.openAlbum({
     sections: [
       { title: 'Pferderassen', items: STABLE_BREEDS.map((b) => ({ name: b.name, img: pic(b.id), has: world.album.horses.includes(b.id) })) },
       { title: 'Seltene Pferde', items: RARE_BREEDS.map((b) => ({ name: b.name, img: pic(b.id), has: world.album.horses.includes(b.id), rare: true })) },
-      { title: 'Deko', items: DECO.map((d) => ({ name: d.name, img: decoIcon(d.id), has: world.album.deco.includes(d.id) })) },
+      { title: 'Deko', items: [...DECO, ...STAR_DECO].map((d) => ({ name: d.name, img: decoIcon(d.id), has: world.album.deco.includes(d.id), rare: STAR_DECO.some((x) => x.id === d.id) })) },
       { title: 'Fische', items: FISH.map((f) => ({ name: f.name, img: fishPhoto(f.id), has: (world.album.fish ?? []).includes(f.id), rare: !f.cook && f.price > 0 })) },
       { title: 'Bewohner', items: VILLAGERS.map((v) => ({ name: v.name, img: villagerPhoto(v.id), has: (world.album.folk ?? []).includes(v.id) })) },
+      { title: 'Ernte', items: CROPS.map((cd) => ({ name: cd.name, img: storeImg(cd.id as StoreItem), has: (world.album.crops ?? []).includes(cd.id) })) },
       { title: 'Strandgut', items: ALBUM_SHELLS.map((x) => ({ name: x.name, img: seaPhoto(x.id), has: (world.album.sea ?? []).includes(x.id), rare: x.price >= 10 })) },
       ...FESTS.map((f) => ({
         title: f.name,
@@ -461,7 +522,18 @@ function openAlbum() {
     count: albumCount(world.album),
     total: ALBUM_TOTAL,
     rewards: ALBUM_REWARDS.map((r, i) => ({ ...r, got: i < world.albumClaimed })),
-  });
+    ach: ACHIEVEMENTS.map((a) => {
+      const tier = world.achieved[a.id] ?? 0;
+      return { name: a.name, text: goalText(a, tier), img: ACH_IMG[a.id]?.() ?? icons.book, tier, value: a.value(world, farm), goal: a.goals[Math.min(2, tier)] };
+    }),
+    stars: {
+      n,
+      score,
+      next: STAR_AT[n] ?? null,
+      parts: starParts(world, farm),
+      rewards: STAR_REWARDS.map((r, i) => ({ n: i + 1, text: starRewardText(r), img: r.deco ? decoIcon(r.deco) : icons.coin, got: i < world.starsClaimed })),
+    },
+  }, tab);
 }
 
 /** Stalltür vor der Figur? */
@@ -544,9 +616,32 @@ function intent(): { kind: Intent; tree: number; tile: [number, number] } {
     const grass = island.ground[(r * TILE + 4) * W + c * TILE + 4] === Ground.Grass;
     return { kind: grass && !p && !farm.meadow.has(plotKey(c, r)) && tileFree(c, r) ? 'scythe' : null, tree: -1, tile };
   }
-  if (tool === 'seeds') return { kind: p && !p.crop && farm.seeds > 0 ? 'seeds' : null, tree: -1, tile };
+  if (tool === 'seeds') return { kind: p && !p.crop && farm.seedsOf(seedKind) > 0 ? 'seeds' : null, tree: -1, tile };
   if (facingWater() && farm.water < farm.capacity) return { kind: 'refill', tree: -1, tile };
   return { kind: p && !p.wetAt && farm.water > 0 ? 'water' : null, tree: -1, tile };
+}
+// ---------- Samen-Sorten ----------
+/** welche Sorte gerade gesät wird (gehört dem Gerät) */
+let seedKind: CropId = 'turnip';
+const seedImg = (k: CropId) => (k === 'carrot' ? icons.seedsCarrot : k === 'strawberry' ? icons.seedsStrawberry : k === 'pumpkin' ? icons.seedsPumpkin : icons.seeds);
+/** kurz erklärt: wie schnell, wie viel */
+function cropText(k: CropId) {
+  const cd = cropById(k)!;
+  const speed = cd.grow < 0.9 ? 'Wächst schnell' : cd.grow > 1.4 ? 'Braucht lange' : 'Wächst normal';
+  return `${speed}${cd.yield > 1 ? `, gibt ${cd.yield} auf einmal` : ''} – Händler zahlt ${cd.price} Münzen${cd.yield > 1 ? ' pro Stück' : ''}.`;
+}
+/** Sorten, die man hat oder schon mal hatte */
+const seedKinds = () => CROPS.map((cd) => cd.id).filter((k) => k === 'turnip' || farm.seedsOf(k) > 0 || (world.album.crops ?? []).includes(k));
+function openSeeds() {
+  sfx('click');
+  hud?.openSeeds(
+    seedKinds().map((k) => ({ id: k, name: cropById(k)!.seedName, img: seedImg(k), n: farm.seedsOf(k), text: k === 'turnip' ? 'Die gute alte Rübe.' : cropText(k), on: k === seedKind })),
+    (id) => {
+      seedKind = id as CropId;
+      hud?.setTool('seeds');
+      syncHud();
+    },
+  );
 }
 const toolHint: Record<ToolId, string> = {
   axe: 'Geh näher an einen Baum',
@@ -562,7 +657,7 @@ const COST: Partial<Record<Action['kind'], number>> = { axe: 1, hoe: 2, seeds: 1
 const REST_STEP = 2;
 let restT = 0;
 let workAt = 0;
-const FOOD = { raw: 12, cooked: 40, apple: 8, berry: 4, grilled: GRILLED_ENERGY };
+const FOOD = { raw: 12, cooked: 40, apple: 8, berry: 4, grilled: GRILLED_ENERGY, carrot: cropById('carrot')!.energy, strawberry: cropById('strawberry')!.energy };
 type Food = keyof typeof FOOD;
 /** Kraft je Gericht (aus den Rezepten) */
 const dishEnergy = (id: string) => recipeById(id)?.energy ?? 20;
@@ -599,18 +694,20 @@ function eat(what: Food | string) {
     return writeSave(save);
   }
   if (!(what in FOOD)) return;
-  const have = { raw: farm.turnips, cooked: farm.meals, apple: world.apples, berry: world.berries, grilled: world.grilled }[what as Food];
+  const have = { raw: farm.turnips, cooked: farm.meals, apple: world.apples, berry: world.berries, grilled: world.grilled, carrot: farm.cropsOf('carrot'), strawberry: farm.cropsOf('strawberry') }[what as Food];
   const none = {
     raw: 'Keine Rüben – ernte erst welche',
     cooked: 'Keine Ofenrüben – brat Rüben am Lagerfeuer',
     apple: 'Keine Äpfel – rüttel an einem Obstbaum',
     berry: 'Keine Beeren – pflück welche vom Beerenbusch',
     grilled: 'Kein Bratfisch – brat einen Fisch am Lagerfeuer',
+    carrot: 'Keine Karotten – ernte erst welche',
+    strawberry: 'Keine Erdbeeren – ernte erst welche',
   };
   if (have <= 0) return hud?.toast(none[what as Food]);
   if (energy() >= 100) return hud?.toast('Du bist satt');
   const f = what as Food;
-  const err = doAction(f === 'apple' || f === 'berry' || f === 'grilled' ? { kind: 'eat', item: f } : { kind: 'eat', cooked: f === 'cooked' });
+  const err = doAction(f === 'raw' || f === 'cooked' ? { kind: 'eat', cooked: f === 'cooked' } : { kind: 'eat', item: f });
   if (err) return hud?.toast(err);
   setEnergy(energy() + FOOD[f]);
   sfx('eat');
@@ -630,7 +727,7 @@ function useTool() {
     return void doAction({ kind: 'festfind', item: curFest.id, n: chopTarget });
   }
   // Axt: ihre Stufe fällt schneller (wird beim Abgleich mitgeschickt)
-  const err = doAction({ kind, c, r, tree: chopTarget, ...(kind === 'axe' ? { n: upLevel(bag(), 'axe') } : {}) });
+  const err = doAction({ kind, c, r, tree: chopTarget, ...(kind === 'axe' ? { n: upLevel(bag(), 'axe') } : {}), ...(kind === 'seeds' && seedKind !== 'turnip' ? { item: seedKind } : {}) });
   if (err) return hud?.toast(err);
   // verbesserte Hacke, Brause und Sense schaffen mehrere Felder auf einmal
   for (const [ec, er] of extraTiles(kind, c, r)) {
@@ -771,7 +868,7 @@ function invData(): InvData {
     { id: 'mat:wood', name: 'Holz', img: icons.log, n: world.wood, text: 'Zum Bauen und Basteln.', acts: [] },
     { id: 'mat:sticks', name: 'Stöcke', img: icons.stick, n: b.sticks, text: 'Zum Basteln. Liegen auf der Wiese.', acts: [] },
     { id: 'mat:stones', name: 'Steine', img: icons.stone, n: b.stones, text: 'Zum Basteln. Liegen am Strand.', acts: [] },
-    { id: 'mat:seeds', name: 'Rübensamen', img: icons.seeds, n: farm.seeds, text: 'Auf gehackte Felder säen.', acts: [{ id: 'hold', label: 'In die Hand' }], on: tool === 'seeds' },
+    ...CROPS.map((cd) => ({ id: `seed:${cd.id}`, name: cd.seedName, img: seedImg(cd.id), n: farm.seedsOf(cd.id), text: `Auf gehackte Felder säen.${cd.id === 'turnip' ? '' : ` ${cropText(cd.id)}`}`, acts: [{ id: 'hold', label: tool === 'seeds' && seedKind === cd.id ? 'In der Hand' : 'In die Hand' }], on: tool === 'seeds' && seedKind === cd.id })),
     { id: 'mat:hay', name: 'Heu', img: icons.hay, n: farm.hay, text: 'Pferdefutter – von gemähter, getrockneter Wiese.', acts: [] },
   ].filter((i) => i.n > 0);
   const foods = [
@@ -780,6 +877,9 @@ function invData(): InvData {
     food('apple', 'Apfel', icons.apple, world.apples, 'Frisch vom Baum – Pferde lieben Äpfel.'),
     food('berry', 'Beeren', icons.berry, world.berries, 'Süß und klein.'),
     food('grilled', 'Bratfisch', icons.grilled, world.grilled, 'Am Lagerfeuer gebraten.'),
+    food('carrot', 'Karotten', icons.carrot, farm.cropsOf('carrot'), 'Knackig – roh essen oder zu Karottenkuchen backen.'),
+    food('strawberry', 'Erdbeeren', icons.strawberry, farm.cropsOf('strawberry'), 'Süß und rot – für die Erdbeertorte.'),
+    ...(farm.cropsOf('pumpkin') ? [{ id: 'crop:pumpkin', name: 'Kürbisse', img: icons.pumpkin, n: farm.cropsOf('pumpkin'), text: 'Zu groß zum Abbeißen – koch eine Kürbissuppe oder verkauf ihn teuer.', acts: [] }] : []),
     ...DISH_IDS.map((id) => ({ id: `dish:${id}`, name: recipeById(id)!.name, img: icons[id], n: world.dishes[id] ?? 0, text: `${recipeById(id)!.text} +${dishEnergy(id)} Kraft.`, acts: [{ id: 'eat', label: 'Essen' }] })),
   ].filter((i) => i.n > 0);
   const fish = FISH.filter((f) => world.fish[f.id]).map((f) => ({
@@ -825,7 +925,8 @@ function openInventory() {
     const [kind, id] = item.split(':');
     if (action === 'eat') eat(id);
     else if (action === 'hold') {
-      const t = (kind === 'mat' ? 'seeds' : id) as ToolId;
+      const t = (kind === 'seed' ? 'seeds' : id) as ToolId;
+      if (kind === 'seed') seedKind = id as CropId;
       tool = t;
       hud?.setTool(t);
       sfx('click');
@@ -1216,6 +1317,32 @@ function maybeDaily(next: () => void) {
     },
   );
 }
+/** „Was ist neu?“ – einmal pro Version (wer gerade erst anfängt, bekommt es nicht) */
+const NEWS = 'news-2026-10b';
+function maybeNews(next: () => void) {
+  if (!hud || (save.seen ?? []).includes(NEWS)) return next();
+  save.seen = [...(save.seen ?? []), NEWS];
+  writeSave(save);
+  if (bag().tut < TUTORIAL.length) return next();
+  sfx('quest');
+  hud.intro(
+    {
+      title: 'Neu auf deiner Insel!',
+      text: 'Es gibt jetzt noch mehr zu entdecken:',
+      steps: [
+        { img: icons.carrot, text: 'Karotten, Erdbeeren und Kürbisse – Samen beim Händler-Boot. Tipp zweimal auf die Samen, um die Sorte zu wählen.' },
+        { img: decoIcon('starstatue'), text: 'Insel-Sterne: Je schöner deine Insel, desto mehr Sterne – jeder bringt ein Geschenk. Tipp oben auf ★.' },
+        { img: icons.book, text: 'Erfolge in Bronze, Silber und Gold – im Album unter „Erfolge“.' },
+        { img: icons.bottle, text: 'Jeden Tag: Schätze und Flaschenpost am Strand und ein Tagesgeschenk. Dazu Feste zu Halloween und im Dezember.' },
+      ],
+      ok: 'Los geht’s!',
+    },
+    () => {
+      sfx('click');
+      next();
+    },
+  );
+}
 /** Fest beginnt: einmal pro Jahr begrüßen */
 function maybeFestHello() {
   const f = curFest;
@@ -1528,8 +1655,9 @@ function syncHud() {
   const fd = festShopData();
   if (fd) festUI?.update(fd);
   hud.setEnergy(energy());
-  hud.setSlots(farm.seeds, farm.water, farm.capacity, farm.hasCan, farm.hay);
+  hud.setSlots(farm.seedsOf(seedKind), farm.water, farm.capacity, farm.hasCan, farm.hay, seedImg(seedKind));
   hud.setCoins(world.coins);
+  hud.setStars(starsOf(starScore(world, farm)));
   tradeUI?.update(tradeData());
   hud.setOwned(bag().tools);
   craftUI?.update(craftData());
@@ -1934,7 +2062,9 @@ function startPlay() {
                 ? `${TOOL_NAME[tool as ToolKind]} hast du noch nicht – tipp auf „Basteln“`
                 : tool === 'water' && farm.water <= 0
                   ? 'Leer – am Wasser auffüllen'
-                  : toolHint[tool],
+                  : tool === 'seeds' && farm.seedsOf(seedKind) <= 0
+                    ? `Keine ${cropById(seedKind)!.seedName} mehr – ${seedKinds().length > 1 ? 'tipp nochmal auf die Samen für eine andere Sorte' : 'neue gibt es beim Händler-Boot'}`
+                    : toolHint[tool],
           );
       },
       tool: (t) => {
@@ -1942,6 +2072,9 @@ function startPlay() {
           sfx('nope');
           return hud?.toast(`${TOOL_NAME[t as ToolKind]} hast du noch nicht – tipp auf „Basteln“`);
         }
+        // Samen nochmal antippen: Sorte wählen (sobald es mehr als Rüben gibt)
+        if (t === 'seeds' && tool === 'seeds' && seedKinds().length > 1) return openSeeds();
+        if (t === 'seeds' && !farm.seedsOf(seedKind)) seedKind = seedKinds().find((k) => farm.seedsOf(k) > 0) ?? seedKind;
         tool = t;
         hud?.setTool(t);
       },
@@ -1962,7 +2095,8 @@ function startPlay() {
         Object.entries(world.decoInv)
           .filter(([, n]) => n > 0)
           .map(([id, n]) => ({ id, name: decoById(id)?.name ?? id, img: decoIcon(id), n })),
-      album: openAlbum,
+      album: () => openAlbum(),
+      stars: () => openAlbum('stars'),
       call: callFav,
       confirm: confirmBuild,
       cancel: () => {
@@ -2005,7 +2139,7 @@ function startPlay() {
   }
   hint.classList.remove('gone');
   setTimeout(() => hint.classList.add('gone'), 6000);
-  maybeDaily(maybeFestHello);
+  maybeNews(() => maybeDaily(maybeFestHello));
 }
 function startPlacing(what: BuildKind, item?: string) {
   placing = true;
@@ -2402,7 +2536,7 @@ function frame(now: number) {
     // Werkzeug benutzen
     if (!placing) {
       const it = intent();
-      hud?.setAction(!!it.kind || !!fishing, fishing ? icons.rod : it.kind === 'trade' ? icons.coin : it.kind === 'project' ? icons.craft : it.kind === 'cook' ? icons.meal : it.kind === 'orders' ? icons.board : it.kind === 'villager' ? villagerPhoto(world.villagers[it.tree]?.id ?? 'hase') : it.kind === 'coach' ? icons.coach : it.kind === 'fest' ? (curFest?.id === 'winter' ? icons.stallWinter : icons.stall) : it.kind === 'festfind' ? (curFest?.id === 'winter' ? icons.gift : icons.pumpkin) : it.kind === 'beach' ? beachImg(beachToday(island, islandDay(world.clock, Date.now()))[it.tree]?.id ?? 'muschel') : it.kind === 'stable' ? icons.stable : it.kind === 'horse' || it.kind === 'dismount' ? horseIcon(world.horses[it.tree]?.breed ?? '', !!world.horses[it.tree] && isFoal(world.horses[it.tree], Date.now())) : it.kind && ROOM_ACTS.has(it.kind) ? icons.house : it.kind === 'harvest' ? icons.turnip : it.kind === 'rake' ? icons.hay : it.kind === 'pick' ? (island.pickups[it.tree]?.kind === 'stone' ? icons.stone : icons.stick) : it.kind === 'shake' ? (island.decor[it.tree]?.kind === 'bush' ? icons.berry : icons.apple) : it.kind === 'fish' || fishing ? icons.rod : it.kind === 'refill' ? (farm.hasCan ? icons.can : icons.bucket) : icons[tool === 'water' ? (farm.hasCan ? 'can' : 'bucket') : tool]);
+      hud?.setAction(!!it.kind || !!fishing, fishing ? icons.rod : it.kind === 'trade' ? icons.coin : it.kind === 'project' ? icons.craft : it.kind === 'cook' ? icons.meal : it.kind === 'orders' ? icons.board : it.kind === 'villager' ? villagerPhoto(world.villagers[it.tree]?.id ?? 'hase') : it.kind === 'coach' ? icons.coach : it.kind === 'fest' ? (curFest?.id === 'winter' ? icons.stallWinter : icons.stall) : it.kind === 'festfind' ? (curFest?.id === 'winter' ? icons.gift : icons.pumpkin) : it.kind === 'beach' ? beachImg(beachToday(island, islandDay(world.clock, Date.now()))[it.tree]?.id ?? 'muschel') : it.kind === 'stable' ? icons.stable : it.kind === 'horse' || it.kind === 'dismount' ? horseIcon(world.horses[it.tree]?.breed ?? '', !!world.horses[it.tree] && isFoal(world.horses[it.tree], Date.now())) : it.kind && ROOM_ACTS.has(it.kind) ? icons.house : it.kind === 'harvest' ? storeImg((farm.plot(...it.tile)?.crop?.kind ?? 'turnip') as StoreItem) : it.kind === 'rake' ? icons.hay : it.kind === 'pick' ? (island.pickups[it.tree]?.kind === 'stone' ? icons.stone : icons.stick) : it.kind === 'shake' ? (island.decor[it.tree]?.kind === 'bush' ? icons.berry : icons.apple) : it.kind === 'fish' || fishing ? icons.rod : it.kind === 'refill' ? (farm.hasCan ? icons.can : icons.bucket) : tool === 'seeds' ? seedImg(seedKind) : icons[tool === 'water' ? (farm.hasCan ? 'can' : 'bucket') : tool]);
       if (actHeld && swing <= 0 && it.kind && ROOM_ACTS.has(it.kind)) {
         actHeld = false;
         roomAction(it.kind, it.tree);

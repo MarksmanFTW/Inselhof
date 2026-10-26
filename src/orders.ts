@@ -4,7 +4,7 @@
  * (sonst Samen). Was bestellt wird, richtet sich danach, was die Insel schon kann.
  * Auf jedem Gerät gleich (hängt nur vom Tag und vom Stand der Insel ab). Reine Logik.
  */
-import { LEARNABLE, knows } from './cooking';
+import { LEARNABLE, knows, recipeById } from './cooking';
 import type { Farm } from './farm';
 import { islandDay } from './horses';
 import { rng, type Island } from './island';
@@ -52,12 +52,16 @@ export function orderPool(w: World): StoreItem[] {
   const st = w.prog.stats;
   const p: StoreItem[] = ['wood', 'apple', 'berry'];
   if ((st.harvested ?? 0) > 0) p.push('turnip');
+  if ((st.carrots ?? 0) > 0) p.push('carrot');
+  if ((st.strawberries ?? 0) > 0) p.push('strawberry');
+  if ((st.pumpkins ?? 0) > 0) p.push('pumpkin');
   if ((st.fish ?? 0) > 0) p.push('fish');
   if ((st.hay ?? 0) > 0) p.push('hay');
   if ((st.cooked ?? 0) > 0) {
     p.push('meal', 'obstsalat');
     if ((st.fish ?? 0) > 0) p.push('grilled');
-    for (const d of LEARNABLE) if (knows(w, d)) p.push(d);
+    // gelernte Gerichte nur, wenn die Insel die Zutaten auch hat
+    for (const d of LEARNABLE) if (knows(w, d) && Object.keys(recipeById(d)!.need).every((k) => p.includes(k as StoreItem))) p.push(d);
   }
   return p;
 }
@@ -74,6 +78,12 @@ const AMOUNT: Partial<Record<StoreItem, [number, number]>> = {
   fischsuppe: [1, 1],
   apfelkuchen: [1, 1],
   marmelade: [1, 1],
+  carrot: [2, 5],
+  strawberry: [3, 8],
+  pumpkin: [1, 1],
+  karottenkuchen: [1, 1],
+  erdbeertorte: [1, 1],
+  kuerbissuppe: [1, 1],
 };
 
 /** die drei Bestellungen eines Tages */

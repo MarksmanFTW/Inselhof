@@ -629,6 +629,36 @@ export function deco(id: string) {
     b.add(roofGeo(1.4, 1.1, 0.5, 0.06), '#e0705a', { p: [0, 1.62, -0.25] });
     b.add(cyl(0.04, 0.04, 1.2, 6), '#6a4428', { p: [0, 1.4, -0.25], r: [0, 0, Math.PI / 2] });
     b.add(cyl(0.12, 0.1, 0.18, 10), '#9a6a40', { p: [0, 0.95, -0.25] });
+  } else if (id === 'flowerarch') {
+    // Blumenbogen (Belohnung für 3 Insel-Sterne)
+    const cols = ['#f48fc0', '#ffffff', '#ff7a6a', '#ffd84a', '#b48af0'];
+    for (const x of [-0.72, 0.72]) {
+      b.add(rbox(0.12, 1.6, 0.12, 0.03), '#f4efe6', { p: [x, 0.8, -0.2] });
+      for (let k = 0; k < 4; k++) b.add(sphere(0.09, 8), k % 2 ? '#4f9a44' : '#5fae4e', { p: [x + (k % 2 ? 0.06 : -0.06), 0.35 + k * 0.32, -0.12], s: [1, 0.8, 0.7] });
+    }
+    b.add(new THREE.TorusGeometry(0.72, 0.065, 6, 22, Math.PI), '#f4efe6', { p: [0, 1.6, -0.2] });
+    for (let k = 0; k <= 12; k++) {
+      const a = (k / 12) * Math.PI;
+      const x = Math.cos(a) * 0.72;
+      const y = 1.6 + Math.sin(a) * 0.72;
+      b.add(sphere(0.085, 8), '#58a64a', { p: [x * 1.02, y + 0.02, -0.1], s: [1, 0.8, 0.6] });
+      if (k % 2 === 0) {
+        b.add(sphere(0.075, 8), cols[(k / 2) % cols.length], { p: [x, y + 0.04, -0.04] });
+        b.add(sphere(0.03, 6), '#ffd84a', { p: [x, y + 0.05, 0.03] });
+      }
+    }
+  } else if (id === 'starstatue') {
+    // Sternen-Statue (Belohnung für 5 Insel-Sterne)
+    b.add(rbox(0.85, 0.22, 0.85, 0.05), '#b9b6c2', { p: [0, 0.11, -0.2] });
+    b.add(rbox(0.58, 0.72, 0.58, 0.05), '#d6d3de', { p: [0, 0.58, -0.2] });
+    b.add(rbox(0.74, 0.1, 0.74, 0.04), '#b9b6c2', { p: [0, 0.98, -0.2] });
+    const cy = 1.55;
+    b.add(sphere(0.21, 12), '#f6c83a', { p: [0, cy, -0.2], s: [1, 1, 0.5] });
+    for (let k = 0; k < 5; k++) {
+      const a = Math.PI / 2 + (k / 5) * Math.PI * 2;
+      b.add(cone(0.14, 0.4, 4), k % 2 ? '#f2be2a' : '#f8d050', { p: [Math.cos(a) * 0.3, cy + Math.sin(a) * 0.3, -0.2], r: [0, 0, a - Math.PI / 2], s: [1, 1, 0.45] });
+    }
+    b.add(cyl(0.05, 0.07, 0.3, 6), '#e0a820', { p: [0, 1.15, -0.2] });
   }
   else festDeco(id, b, g);
   if (!b.empty) g.add(meshOf(b.geometry(), 0.8));
@@ -1045,11 +1075,67 @@ export const soilGeo = () =>
     for (const z of [-0.25, 0.05, 0.35]) b.add(rbox(0.82, 0.06, 0.1, 0.03), '#dcdcdc', { p: [0, 0.08, z - 0.05] });
     return b.geometry();
   });
-export function cropGeo(stage: number) {
-  return cached(`crop${stage}`, () => {
+/** Pflanze auf dem Feld: Stufe 0 = Samen (für alle gleich), dann je Sorte eigene Blätter und Früchte */
+export function cropGeo(stage: number, kind: 'turnip' | 'carrot' | 'strawberry' | 'pumpkin' = 'turnip') {
+  return cached(stage === 0 ? 'crop0' : kind === 'turnip' ? `crop${stage}` : `crop-${kind}${stage}`, () => {
     const b = new Build();
     if (stage === 0) for (const [x, z] of [[-0.15, -0.1], [0.12, 0.05], [-0.02, 0.2]] as const) b.add(sphere(0.05, 6), '#e8c890', { p: [x, 0.1, z], s: [1, 0.5, 1] });
-    else {
+    else if (kind === 'carrot') {
+      // feines, gefiedertes Kraut, reif schaut oben die orange Rübe heraus
+      const n = stage === 1 ? 3 : stage === 2 ? 5 : 7;
+      const len = stage === 1 ? 0.16 : stage === 2 ? 0.28 : 0.36;
+      for (let k = 0; k < n; k++) {
+        const a = (k / n) * Math.PI * 2 + 0.3;
+        const tilt = 0.35 + (k % 2) * 0.15;
+        const top: [number, number, number] = [Math.cos(a) * len * 0.35, 0.1 + len, Math.sin(a) * len * 0.35];
+        b.add(cyl(0.012, 0.018, len, 4), '#4f9a44', { p: [top[0] * 0.5, 0.1 + len / 2, top[2] * 0.5], r: [Math.sin(a) * tilt, 0, -Math.cos(a) * tilt] });
+        for (let j = 0; j < 3; j++) b.add(sphere(0.045, 6), j % 2 ? '#6cbc52' : '#5aae48', { p: [top[0] * (0.6 + j * 0.2), 0.1 + len * (0.6 + j * 0.2), top[2] * (0.6 + j * 0.2)], s: [1.4, 0.5, 0.9] });
+      }
+      if (stage === 3) {
+        // nur die Schulter der Karotte schaut aus der Erde
+        b.add(cone(0.075, 0.26, 10), '#f08a26', { p: [0, 0.03, 0], r: [Math.PI, 0, 0] });
+        b.add(sphere(0.075, 10), '#f49a36', { p: [0, 0.16, 0], s: [1, 0.4, 1] });
+        b.add(sphere(0.12, 8), '#7a5236', { p: [0, 0.1, 0], s: [1, 0.25, 1] });
+      }
+    } else if (kind === 'strawberry') {
+      // niedriger Busch mit dreiteiligen Blättern, dann weiße Blüten, reif rote Beeren
+      const n = stage === 1 ? 2 : stage === 2 ? 4 : 5;
+      const len = stage === 1 ? 0.14 : 0.24;
+      for (let k = 0; k < n; k++) {
+        const a = (k / n) * Math.PI * 2 + 0.8;
+        const lx = Math.cos(a) * len;
+        const lz = Math.sin(a) * len;
+        for (const da of [-0.45, 0, 0.45]) b.add(sphere(0.07, 8), k % 2 ? '#4f9a44' : '#5aa84a', { p: [lx + Math.cos(a + da) * 0.06, 0.13 + (stage > 1 ? 0.04 : 0), lz + Math.sin(a + da) * 0.06], s: [1.2, 0.35, 1.2] });
+      }
+      if (stage === 2)
+        for (const [x, z] of [[0.05, 0.02], [-0.1, 0.12], [0.08, -0.14]] as const) {
+          for (let p = 0; p < 5; p++) b.add(sphere(0.026, 6), '#ffffff', { p: [x + Math.cos((p / 5) * Math.PI * 2) * 0.03, 0.24, z + Math.sin((p / 5) * Math.PI * 2) * 0.03], s: [1, 0.4, 1] });
+          b.add(sphere(0.02, 6), '#f4cc30', { p: [x, 0.25, z] });
+        }
+      if (stage === 3)
+        for (const [x, z, s] of [[0.14, 0.06, 1], [-0.12, 0.14, 0.9], [0.02, -0.16, 1.05], [-0.16, -0.08, 0.85]] as const) {
+          b.add(cone(0.065 * s, 0.13 * s, 8), '#e2303a', { p: [x, 0.12, z], r: [Math.PI, 0, 0] });
+          b.add(sphere(0.065 * s, 8), '#ea3a42', { p: [x, 0.18, z], s: [1, 0.6, 1] });
+          b.add(sphere(0.05 * s, 6), '#4f9a44', { p: [x, 0.215, z], s: [1.2, 0.3, 1.2] });
+        }
+    } else if (kind === 'pumpkin') {
+      // Ranke mit großen Blättern, ein kleiner grüner, reif ein großer orange Kürbis
+      const leaves = stage === 1 ? 2 : stage === 2 ? 3 : 4;
+      const len = stage === 1 ? 0.12 : 0.3;
+      for (let k = 0; k < leaves; k++) {
+        const a = (k / leaves) * Math.PI * 2 + 2.2;
+        b.add(sphere(0.12, 8), k % 2 ? '#4a9440' : '#58a64a', { p: [Math.cos(a) * len, 0.12 + (stage === 1 ? 0.06 : 0), Math.sin(a) * len], r: [0, -a, 0.25], s: [1.3, 0.25, 1.1] });
+      }
+      if (stage > 1) b.add(cyl(0.02, 0.02, 0.6, 5), '#5a8a32', { p: [0, 0.11, 0], r: [0, 0.6, Math.PI / 2] });
+      if (stage === 2) {
+        b.add(sphere(0.1, 8), '#7ab040', { p: [0.06, 0.15, 0.06], s: [1.1, 0.85, 1.1] });
+        b.add(sphere(0.03, 6), '#f4c030', { p: [-0.16, 0.2, -0.1] });
+      }
+      if (stage === 3) {
+        const g = new THREE.Group();
+        pumpkinInto(b, g, 0.02, 0.05, 0.04, 0.85, false);
+      }
+    } else {
       const n = stage === 1 ? 2 : stage === 2 ? 4 : 5;
       const len = stage === 1 ? 0.18 : stage === 2 ? 0.3 : 0.38;
       for (let k = 0; k < n; k++) {

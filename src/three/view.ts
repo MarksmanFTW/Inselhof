@@ -6,7 +6,7 @@
  */
 import * as THREE from 'three';
 import type { Look } from '../character';
-import type { Farm } from '../farm';
+import type { CropId, Farm } from '../farm';
 import { key as plotKey } from '../farm';
 import { BREEDS, PADDOCK_FOOT, breedById, isFoal, type HorsePose } from '../horses';
 import type { Island } from '../island';
@@ -165,7 +165,8 @@ export class View {
   private farmVer = -1;
   private farmT = 0;
   private soil!: THREE.InstancedMesh;
-  private crops: THREE.InstancedMesh[] = [];
+  /** Pflanzen je Sorte und Stufe (Stufe 0 = Samen, für alle Sorten gleich) */
+  private crops = new Map<string, THREE.InstancedMesh>();
   private hay: Record<'fresh' | 'dry' | 'stubble', THREE.InstancedMesh>;
   private boat = M.boat();
   private ghost: { key: string; o: THREE.Object3D; foot: THREE.Mesh; mat: THREE.MeshStandardMaterial } | null = null;
@@ -269,7 +270,6 @@ export class View {
 
     // Acker (instanziert)
     this.soil = this.inst(M.soilGeo(), 300, 0.95);
-    this.crops = [0, 1, 2, 3].map((k) => this.inst(M.cropGeo(k), 300, 0.7, true));
     this.hay = { fresh: this.inst(M.hayGeo('fresh'), 300, 0.95), dry: this.inst(M.hayGeo('dry'), 300, 0.95), stubble: this.inst(M.hayGeo('stubble'), 300, 0.95) };
     s.add(this.boat);
     this.boat.visible = false;
@@ -717,8 +717,16 @@ export class View {
     };
     this.soil = grow(this.soil, f.plots.size);
     let n = 0;
-    const cc = [0, 0, 0, 0];
-    for (const k of [0, 1, 2, 3]) this.crops[k] = grow(this.crops[k], f.plots.size);
+    const cc = new Map<string, number>();
+    const cropMesh = (kind: CropId, st: number) => {
+      const key = st === 0 ? 'seed' : `${kind}${st}`;
+      let m = this.crops.get(key);
+      if (!m) this.crops.set(key, (m = this.inst(M.cropGeo(st, kind), Math.max(40, f.plots.size), 0.7, true)));
+      else if (!cc.has(key)) this.crops.set(key, (m = grow(m, f.plots.size)));
+      const i = cc.get(key) ?? 0;
+      cc.set(key, i + 1);
+      return { m, i };
+    };
     for (const [k, p] of f.plots) {
       const [c, r] = k.split(',').map(Number);
       const x = c * TILE + 4;
@@ -737,16 +745,17 @@ export class View {
         d.position.y = h + 0.04 + (st >= 3 ? Math.abs(Math.sin(now / 400 + c)) * 0.03 : 0);
         d.rotation.y = (c * 1.7 + r) % 6;
         d.updateMatrix();
-        this.crops[st].setMatrixAt(cc[st]++, d.matrix);
+        const { m, i } = cropMesh(p.crop.kind ?? 'turnip', st);
+        m.setMatrixAt(i, d.matrix);
       }
     }
     this.soil.count = n;
     this.soil.instanceMatrix.needsUpdate = true;
     if (this.soil.instanceColor) this.soil.instanceColor.needsUpdate = true;
-    this.crops.forEach((m, k) => {
-      m.count = cc[k];
+    for (const [key, m] of this.crops) {
+      m.count = cc.get(key) ?? 0;
       m.instanceMatrix.needsUpdate = true;
-    });
+    }
     const hc = { fresh: 0, dry: 0, stubble: 0 };
     for (const s of ['fresh', 'dry', 'stubble'] as const) this.hay[s] = grow(this.hay[s], f.meadow.size);
     for (const k of f.meadow.keys()) {

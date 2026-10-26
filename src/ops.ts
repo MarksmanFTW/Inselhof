@@ -3,7 +3,7 @@
  * Spielen und beim Abgleich einer gemeinsamen Insel: Aktionen, die jemand allein
  * gemacht hat, werden auf den neuesten Stand aus der Cloud nochmal angewendet.
  */
-import { Farm } from './farm';
+import { Farm, cropById, type CropId, type NewCrop } from './farm';
 import { furnitureById, slotCount } from './furniture';
 import { FOAL_HAY } from './horses';
 import { SEED_PACK, SELL, SHELL_PRICE, decoById, horseOffers, merchantHere, type SellItem } from './shop';
@@ -18,6 +18,8 @@ import { upgradeById } from './upgrades';
 import { festBuy, festFind, festVisit } from './fest';
 import { beachPick, type BOTTLE_GIFTS } from './beach';
 import { CALENDAR } from './daily';
+import { claimStars } from './stars';
+import { claimAchievements } from './achievements';
 import { festById, type FestId } from './season';
 import { TUT_SEEDS, recipeOf, type ToolKind } from './craft';
 import { fishById } from './fish';
@@ -43,7 +45,7 @@ export interface OpResult {
   /** was passiert ist – für Effekte und Anzeigen */
   wood?: number;
   felled?: boolean;
-  harvest?: { seeds: number; gotCan: boolean };
+  harvest?: { seeds: number; gotCan: boolean; kind: CropId; n: number };
   built?: boolean;
   /** eingesammeltes Heu */
   hay?: number;
@@ -74,6 +76,9 @@ export interface OpResult {
   beach?: { id: string; letter?: number; gift?: (typeof BOTTLE_GIFTS)[number] };
   /** Festladen: was gekauft wurde (Hut schaltet das Gerät frei) */
   festItem?: { id: string; kind: 'deco' | 'hat' };
+  /** neue Insel-Sterne, neue Erfolgs-Stufen */
+  stars?: number[];
+  achieved?: { id: string; tier: number }[];
 }
 
 /** Ackerbau kennt die Fähigkeiten der Insel-Stufe */
@@ -83,6 +88,8 @@ export function link(world: World, farm: Farm) {
 }
 
 const STAT: Partial<Record<Action['kind'], Stat>> = { hoe: 'tilled', seeds: 'planted', water: 'watered', harvest: 'harvested', adopt: 'adopted', foal: 'adopted', mow: 'mowed', feed: 'cared', brush: 'cared', cook: 'cooked' };
+/** neue Pflanzen zählen zusätzlich für sich */
+const CROP_STAT: Partial<Record<CropId, Stat>> = { carrot: 'carrots', strawberry: 'strawberries', pumpkin: 'pumpkins' };
 /** Bauen: was zählt wofür (Deko und Koppel zählen nicht) */
 const BUILT: Partial<Record<BuildKind, Stat>> = { house: 'built', fire: 'fire', stable: 'stable', hut: 'villagers', beet: 'beets' };
 
@@ -111,6 +118,11 @@ export function applyOp(world: World, farm: Farm, op: Op): OpResult {
     else if (a.kind === 'upgrade') merge(gain(world.prog, 'upgrades', 1, give));
     else if (a.kind === 'beach' && res.beach) merge(gain(world.prog, res.beach.id === 'bottle' ? 'letters' : 'shells', 1, give));
     else if (a.kind === 'festfind') merge(gain(world.prog, 'festfinds', 1, give));
+    else if (a.kind === 'harvest' && res.harvest) {
+      merge(gain(world.prog, 'harvested', 1, give));
+      const extra = CROP_STAT[res.harvest.kind];
+      if (extra) merge(gain(world.prog, extra, 1, give));
+    }
     else if (a.kind === 'fish' && res.caught) {
       merge(gain(world.prog, 'fish', 1, give));
       if (res.caught.first) merge(gain(world.prog, 'species', 1, give));
@@ -129,6 +141,10 @@ export function applyOp(world: World, farm: Farm, op: Op): OpResult {
   }
   const album = world.claimAlbum();
   if (album.length) res.album = album;
+  const stars = claimStars(world, farm);
+  if (stars.length) res.stars = stars;
+  const ach = claimAchievements(world, farm);
+  if (ach.length) res.achieved = ach;
   if (res.gain && (res.gain.quests.length || res.gain.levels.length)) {
     world.version++;
     farm.version++;
@@ -268,7 +284,7 @@ function run(world: World, farm: Farm, op: Op): OpResult {
     const p = farm.plot(c, r);
     if (!err && p) p.dry = t;
   }
-  else if (a.kind === 'seeds') err = farm.plant(c, r);
+  else if (a.kind === 'seeds') err = farm.plant(c, r, cropById(a.item ?? '') ? (a.item as CropId) : 'turnip');
   else if (a.kind === 'refill') farm.refill();
   else if (a.kind === 'water') err = farm.pour(c, r, t);
   else if (a.kind === 'harvest') {
@@ -276,6 +292,7 @@ function run(world: World, farm: Farm, op: Op): OpResult {
     const res = farm.harvest(c, r, () => ((t * 9301 + 49297) % 233280) / 233280);
     const p = farm.plot(c, r);
     if (res && p) p.dry = t;
+    if (res) world.albumAdd('crops', res.kind);
     return { err: null, done: !!res, harvest: res ?? undefined };
   } else if (a.kind === 'sell' || a.kind === 'buy') {
     // Verkaufen geht auch am Marktstand (Projekt 2), Kaufen nur beim Boot
@@ -303,6 +320,15 @@ function run(world: World, farm: Farm, op: Op): OpResult {
         world.coins += price * n;
         world.version++;
         return { err: null, done: true, coins: price * n };
+      }
+      if (item.startsWith('crop:')) {
+        // neue Pflanzen: Preis je Sorte
+        const cd = cropById(item.slice(5));
+        if (!cd || cd.id === 'turnip') return { err: 'Das kauft der Händler nicht', done: false };
+        if (!farm.takeCrop(cd.id, n)) return { err: 'So viel hast du nicht', done: false };
+        world.coins += cd.price * n;
+        world.version++;
+        return { err: null, done: true, coins: cd.price * n };
       }
       if (item.startsWith('fish:')) {
         // Fische: Preis je Art
@@ -337,6 +363,17 @@ function run(world: World, farm: Farm, op: Op): OpResult {
         farm.seeds += SEED_PACK.n;
         world.version++;
         farm.version++;
+      }
+    } else if (item.startsWith('seeds:')) {
+      // Samen der neuen Sorten (ab einer Insel-Stufe)
+      const cd = cropById(item.slice(6));
+      if (!cd || cd.id === 'turnip') err = 'Gibt es nicht';
+      else if (world.level < cd.level) err = `Ab Insel-Stufe ${cd.level}`;
+      else if (world.coins < cd.pack.price) err = 'Zu wenig Münzen';
+      else {
+        world.coins -= cd.pack.price;
+        farm.addSeeds(cd.id, cd.pack.n);
+        world.version++;
       }
     } else if (item.startsWith('deco:')) err = world.buyDeco(item.slice(5));
     else if (item.startsWith('horse:')) {
@@ -394,6 +431,9 @@ function run(world: World, farm: Farm, op: Op): OpResult {
       else world.berries--;
       world.version++;
     }
+  } else if (a.kind === 'eat' && (a.item === 'carrot' || a.item === 'strawberry')) {
+    // roh essbare neue Pflanzen
+    if (!farm.takeCrop(a.item as NewCrop, 1)) err = a.item === 'carrot' ? 'Keine Karotten mehr' : 'Keine Erdbeeren mehr';
   } else if (a.kind === 'eat') {
     if (!farm.eat(!!a.cooked)) err = a.cooked ? 'Keine Ofenrüben mehr' : 'Keine Rüben mehr';
   } else if (a.kind === 'cook') {

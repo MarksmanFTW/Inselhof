@@ -2,6 +2,7 @@
  * Was sich auf der Insel verändert: gefällte Bäume (wachsen nach), Holz im
  * Rucksack, gebaute Häuser. Reine Logik ohne Zeichnen – lässt sich testen.
  */
+import { cleanAchieved } from './achievements';
 import { Ground, H, TILE, W, type Decor, type Island } from './island';
 import { accById, FOAL_HAY, FOAL_PAUSE_DAYS, GATE, MAX_LOVE, PADDOCK_COST, PADDOCK_FOOT, PADDOCK_REACH, STABLE_COST, STABLE_SPACE, breedById, cleanHorses, cleanName, isFoal, islandDay, type Care, type Horse, type Paddock, type Stable } from './horses';
 import { ALBUM_REWARDS, DECO_FOOT, albumCount, cleanAlbum, decoById, merchantDeco, type Album, type Deco } from './shop';
@@ -138,6 +139,9 @@ export interface WorldSave {
   beach?: BeachState;
   treasures?: Record<string, number>;
   letters?: number;
+  /** Insel-Sterne: so viele schon belohnt; Erfolge: erreichte Stufe je Erfolg */
+  starsClaimed?: number;
+  achieved?: Record<string, number>;
 }
 
 export type TreeStage = 'tree' | 'stump' | 'sapling';
@@ -185,6 +189,8 @@ export class World {
   beach: BeachState = newBeach();
   treasures: Record<string, number> = {};
   letters = 0;
+  starsClaimed = 0;
+  achieved: Record<string, number> = {};
   /** Treffer am aktuellen Baum (nicht gespeichert) */
   private hits = new Map<number, number>();
   /** wird bei jeder Änderung hochgezählt (Schatten neu malen, speichern) */
@@ -223,6 +229,8 @@ export class World {
       this.beach = cleanBeach(save.beach);
       for (const [k, v] of Object.entries(save.treasures ?? {})) if (shellById(k) && typeof v === 'number' && v > 0) this.treasures[k] = Math.floor(v);
       this.letters = Math.max(0, Math.floor(save.letters ?? 0));
+      this.starsClaimed = Math.max(0, Math.min(5, Math.floor(save.starsClaimed ?? 0)));
+      this.achieved = cleanAchieved(save.achieved);
       this.apples = Math.max(0, Math.floor(save.apples ?? 0));
       this.berries = Math.max(0, Math.floor(save.berries ?? 0));
       for (const [k, v] of Object.entries(save.shaken ?? {})) {
@@ -239,6 +247,8 @@ export class World {
       // ältere Spielstände: eigene Pferde stehen schon im Album
       for (const h of this.horses) if (!this.album.horses.includes(h.breed)) this.album.horses.push(h.breed);
       for (const v of this.villagers) this.albumAdd('folk', v.id);
+      // Rüben gab es schon immer – wer welche geerntet hat, hat sie im Album
+      if ((this.prog.stats.harvested ?? 0) > 0) this.albumAdd('crops', 'turnip');
       const c = save.clock;
       this.clock = c && typeof c.offset === 'number' && typeof c.day0 === 'number' ? { offset: c.offset, day0: c.day0 } : null;
     }
@@ -278,6 +288,8 @@ export class World {
     this.beach = w.beach;
     this.treasures = w.treasures;
     this.letters = w.letters;
+    this.starsClaimed = w.starsClaimed;
+    this.achieved = w.achieved;
     this.version++;
   }
 
@@ -290,7 +302,7 @@ export class World {
       ...(this.stables.length ? { stables: this.stables.map((f) => ({ ...f })), horses: this.horses.map((h) => ({ ...h })) } : {}),
       ...(this.paddocks.length ? { paddocks: this.paddocks.map((f) => ({ ...f })) } : {}),
       ...(this.coins || this.decos.length || albumCount(this.album) || Object.keys(this.decoInv).length
-        ? { coins: this.coins, decos: this.decos.map((d) => ({ ...d })), decoInv: { ...this.decoInv }, album: { horses: [...this.album.horses], deco: [...this.album.deco], ...(this.album.fish ? { fish: [...this.album.fish] } : {}), ...(this.album.folk ? { folk: [...this.album.folk] } : {}), ...(this.album.sea ? { sea: [...this.album.sea] } : {}) }, albumClaimed: this.albumClaimed }
+        ? { coins: this.coins, decos: this.decos.map((d) => ({ ...d })), decoInv: { ...this.decoInv }, album: { horses: [...this.album.horses], deco: [...this.album.deco], ...(this.album.fish ? { fish: [...this.album.fish] } : {}), ...(this.album.folk ? { folk: [...this.album.folk] } : {}), ...(this.album.sea ? { sea: [...this.album.sea] } : {}), ...(this.album.crops ? { crops: [...this.album.crops] } : {}) }, albumClaimed: this.albumClaimed }
         : {}),
       ...(this.clock ? { clock: { ...this.clock } } : {}),
       prog: { xp: this.prog.xp, stats: { ...this.prog.stats }, quests: this.prog.quests, v: this.prog.v },
@@ -307,6 +319,7 @@ export class World {
         ? { fest: { coins: { ...this.fest.coins }, found: { day: this.fest.found.day, list: [...this.fest.found.list] }, visits: { day: this.fest.visits.day, list: [...this.fest.visits.list] } } }
         : {}),
       ...(this.beach.day >= 0 || Object.keys(this.treasures).length || this.letters ? { beach: { day: this.beach.day, got: [...this.beach.got] }, treasures: { ...this.treasures }, letters: this.letters } : {}),
+      ...(this.starsClaimed || Object.keys(this.achieved).length ? { starsClaimed: this.starsClaimed, achieved: { ...this.achieved } } : {}),
       ...(this.proj.n || this.proj.sites.length || Object.keys(this.proj.got).length ? { proj: { n: this.proj.n, got: { ...this.proj.got }, sites: this.proj.sites.map((s) => (s ? [s[0], s[1]] : null)) as ProjState['sites'] } } : {}),
     };
   }

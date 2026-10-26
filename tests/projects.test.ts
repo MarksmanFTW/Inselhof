@@ -5,6 +5,8 @@ import { applyOp, link } from '../src/ops';
 import { FEST_COINS, PROJECTS, pickSite, projProgress, siteOf } from '../src/projects';
 import { DAY_MS, newClock } from '../src/time';
 import { World } from '../src/world';
+import { TIER_COINS } from '../src/achievements';
+import { STAR_REWARDS } from '../src/stars';
 
 const isl = generate();
 function setup() {
@@ -99,9 +101,13 @@ describe('Insel-Projekte', () => {
     expect(f.plot(22, 21)?.crop?.stage).toBe(1);
     expect(finish(w, f, 3).finished).toBe('lighthouse');
     const coins = w.coins;
-    expect(finish(w, f, 4).finished).toBe('pavilion');
+    const res = finish(w, f, 4);
+    expect(res.finished).toBe('pavilion');
     // stock() legt die Münzen fürs Projekt dazu, abgegeben werden sie wieder – übrig bleibt die Fest-Belohnung
-    expect(w.coins - coins).toBe(FEST_COINS);
+    // (und was es für neue Erfolge und Sterne gibt)
+    const extra = (res.achieved ?? []).reduce((a, x) => a + TIER_COINS[x.tier - 1], 0) + (res.stars ?? []).reduce((a, s) => a + STAR_REWARDS[s - 1].coins, 0);
+    expect(res.achieved).toContainEqual({ id: 'projects', tier: 3 });
+    expect(w.coins - coins).toBe(FEST_COINS + extra);
     expect(w.proj.n).toBe(PROJECTS.length);
     expect(op(w, f, { kind: 'donate', item: 'wood', n: 1 }).err).toMatch(/Alle Projekte/);
     expect(projProgress(w.proj)).toBe(1);

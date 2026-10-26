@@ -2436,3 +2436,154 @@ img[src$='#foto'] {
     opacity: 1;
   }
 }
+
+/* Samen-Sorte wählen */
+.seed-pick {
+  width: 100%;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  margin-bottom: 6px;
+}
+.seed-pick.on {
+  border-color: #6fb04a;
+  background: #eaf8d8;
+}
+.seed-pick:disabled {
+  opacity: 0.55;
+}
+.trade-row.locked > img {
+  filter: grayscale(0.8);
+  opacity: 0.6;
+}
+
+/* Insel-Sterne neben der Stufe */
+.lvl .stars-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 0 6px;
+  border: none;
+  border-radius: 10px;
+  background: #fff3c4;
+  color: #8a6418;
+  font: inherit;
+  font-size: calc(12px * var(--fs));
+  font-weight: 600;
+  line-height: 1.5;
+  cursor: pointer;
+}
+.lvl .stars-btn i {
+  font-style: normal;
+  color: #f2b520;
+}
+/* Album: Erfolge und Sterne */
+.album-panel .tabs {
+  margin-bottom: 8px;
+}
+.ach-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.ach-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 9px;
+  background: #fff6dc;
+  border: 3px solid #e8d6a8;
+  border-radius: 14px;
+  text-align: left;
+}
+.ach-row.done {
+  background: #f1f9e4;
+  border-color: #b8dc98;
+}
+.ach-row > img {
+  width: 38px;
+  height: 38px;
+  object-fit: contain;
+  flex: none;
+}
+.ach-row > span {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.ach-row b {
+  font-size: calc(14px * var(--fs));
+}
+.ach-row small {
+  font-size: calc(12px * var(--fs));
+  color: #6a4a2a;
+  overflow-wrap: anywhere;
+}
+.ach-row .xpbar {
+  display: block;
+  height: 6px;
+  margin: 3px 0 0;
+}
+.ach-row .num {
+  font-size: calc(11px * var(--fs));
+}
+.medals {
+  display: flex;
+  gap: 3px;
+  flex: none;
+}
+.medals i {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #e8e2d4;
+  box-shadow: inset 0 -2px 0 rgba(0, 0, 0, 0.08);
+}
+.medals i.m0.on {
+  background: radial-gradient(circle at 35% 30%, #f4c89a, #c07a3a);
+}
+.medals i.m1.on {
+  background: radial-gradient(circle at 35% 30%, #ffffff, #a8b0bc);
+}
+.medals i.m2.on {
+  background: radial-gradient(circle at 35% 30%, #fff2a8, #e0a820);
+}
+.star-row i {
+  font-style: normal;
+  color: #e4dcc8;
+  font-size: 1.1em;
+}
+.star-row i.on {
+  color: #f2b520;
+  text-shadow: 0 1px 0 #c88a10;
+}
+.star-head {
+  text-align: center;
+  margin: 2px 0 4px;
+}
+.star-head .star-row {
+  font-size: 34px;
+  letter-spacing: 2px;
+}
+.star-head p {
+  margin: 0;
+}
+.tick {
+  font-style: normal;
+  color: #4a9a3a;
+  font-weight: 700;
+  font-size: 20px;
+}
+.tabs.tabs3 {
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 6px;
+}
+.tabs.tabs3 .pbtn {
+  min-width: 0;
+  padding-left: 4px;
+  padding-right: 4px;
+  font-size: calc(14px * var(--fs));
+}

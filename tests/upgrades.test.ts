@@ -145,9 +145,9 @@ describe('Haus ausbauen und Kutschenhalt', () => {
   it('neue Aufgaben hinten dran, ältere Stände rechnen richtig um', () => {
     expect([questAt(27).stat, questAt(28).stat]).toEqual(['upgrades', 'beets']);
     expect(cleanProgress({ xp: 0, stats: {}, quests: 27, v: 5 }).quests).toBe(27);
-    expect(cleanProgress({ xp: 0, stats: {}, quests: 28, v: 5 }).quests).toBe(30);
+    expect(cleanProgress({ xp: 0, stats: {}, quests: 28, v: 5 }).quests).toBe(35);
     // v4 mitten in den endlosen Aufgaben: beide Umrechnungen
-    expect(cleanProgress({ xp: 0, stats: {}, quests: 25, v: 4 }).quests).toBe(30);
+    expect(cleanProgress({ xp: 0, stats: {}, quests: 25, v: 4 }).quests).toBe(35);
     expect(cleanProgress({ xp: 0, stats: {}, quests: 24, v: 4 }).quests).toBe(24);
   });
 });

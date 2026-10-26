@@ -21,6 +21,36 @@ export const CAPACITY_BIG = { bucket: 6, can: 20 } as const;
 export const HAY_DRY_MS = 45_000;
 export const MEADOW_REGROW_MS = 120_000;
 export const HAY_PER_TILE = 2;
+/** Pflanzen: Rübe (wie immer), Karotte (schnell), Erdbeere (drei auf einmal), Kürbis (langsam, wertvoll) */
+export type CropId = 'turnip' | 'carrot' | 'strawberry' | 'pumpkin';
+export interface CropDef {
+  id: CropId;
+  name: string;
+  plural: string;
+  seedName: string;
+  /** Wachstumszeit (× Grundzeit) */
+  grow: number;
+  /** so viele pro Ernte */
+  yield: number;
+  /** Händler zahlt pro Stück */
+  price: number;
+  /** Samen beim Händler ab dieser Insel-Stufe */
+  level: number;
+  pack: { n: number; price: number };
+  /** roh essen: so viel Kraft (0 = nicht roh essbar) */
+  energy: number;
+}
+export const CROPS: CropDef[] = [
+  { id: 'turnip', name: 'Rübe', plural: 'Rüben', seedName: 'Rübensamen', grow: 1, yield: 1, price: 4, level: 1, pack: { n: 5, price: 8 }, energy: 12 },
+  { id: 'carrot', name: 'Karotte', plural: 'Karotten', seedName: 'Karottensamen', grow: 0.7, yield: 1, price: 3, level: 1, pack: { n: 6, price: 8 }, energy: 8 },
+  { id: 'strawberry', name: 'Erdbeere', plural: 'Erdbeeren', seedName: 'Erdbeersamen', grow: 1.1, yield: 3, price: 2, level: 3, pack: { n: 5, price: 12 }, energy: 5 },
+  { id: 'pumpkin', name: 'Kürbis', plural: 'Kürbisse', seedName: 'Kürbissamen', grow: 1.7, yield: 1, price: 16, level: 5, pack: { n: 3, price: 15 }, energy: 0 },
+];
+export const cropById = (id: string) => CROPS.find((c) => c.id === id);
+/** neue Sorten (nicht Rübe): Samen und Ernte liegen in eigenen Fächern */
+export type NewCrop = Exclude<CropId, 'turnip'>;
+const isNewCrop = (id: string): id is NewCrop => id !== 'turnip' && !!cropById(id);
+
 /** gemähte Wiesen-Kachel */
 export interface Mown {
   /** gemäht um */
@@ -41,7 +71,8 @@ const NO_PERKS: FarmPerks = { bigWater: false, growMul: 1, twoSeeds: false };
 export interface Plot {
   /** gegossen seit (0 = trocken) */
   wetAt: number;
-  crop?: { stage: number };
+  /** was wächst (kind fehlt = Rübe) */
+  crop?: { stage: number; kind?: NewCrop };
   /** seit wann trocken (für Regen – damit alle Geräte gleich rechnen) */
   dry?: number;
 }
@@ -57,6 +88,9 @@ export interface FarmSave {
   harvested: number;
   hay?: number;
   meadow?: Record<string, Mown>;
+  /** Samen und Ernte der neuen Sorten */
+  seedBag?: Partial<Record<NewCrop, number>>;
+  produce?: Partial<Record<NewCrop, number>>;
 }
 
 export type Tool = 'axe' | 'hoe' | 'seeds' | 'water' | 'scythe';
@@ -73,6 +107,8 @@ export class Farm {
   harvested = 0;
   hay = 0;
   meadow = new Map<string, Mown>();
+  seedBag: Partial<Record<NewCrop, number>> = {};
+  produce: Partial<Record<NewCrop, number>> = {};
   version = 0;
   /** Fähigkeiten der Insel-Stufe (wird mit der World verbunden) */
   perks: () => FarmPerks = () => NO_PERKS;
@@ -86,7 +122,13 @@ export class Farm {
     if (!save) return;
     for (const [k, p] of Object.entries(save.plots ?? {}))
       if (/^\d+,\d+$/.test(k) && p && typeof p.wetAt === 'number')
-        this.plots.set(k, { wetAt: p.wetAt, crop: p.crop ? { stage: Math.max(0, Math.min(RIPE, Math.floor(p.crop.stage))) } : undefined, ...(typeof p.dry === 'number' ? { dry: p.dry } : {}) });
+        this.plots.set(k, {
+          wetAt: p.wetAt,
+          crop: p.crop ? { stage: Math.max(0, Math.min(RIPE, Math.floor(p.crop.stage))), ...(p.crop.kind && isNewCrop(p.crop.kind) ? { kind: p.crop.kind } : {}) } : undefined,
+          ...(typeof p.dry === 'number' ? { dry: p.dry } : {}),
+        });
+    for (const [k, v] of Object.entries(save.seedBag ?? {})) if (isNewCrop(k) && typeof v === 'number' && v > 0) this.seedBag[k] = Math.floor(v);
+    for (const [k, v] of Object.entries(save.produce ?? {})) if (isNewCrop(k) && typeof v === 'number' && v > 0) this.produce[k] = Math.floor(v);
     this.seeds = Math.max(0, Math.floor(save.seeds ?? START_SEEDS));
     this.turnips = Math.max(0, Math.floor(save.turnips ?? START_TURNIPS));
     this.meals = Math.max(0, Math.floor(save.meals ?? 0));
@@ -117,6 +159,8 @@ export class Farm {
     this.harvested = f.harvested;
     this.hay = f.hay;
     this.meadow = f.meadow;
+    this.seedBag = f.seedBag;
+    this.produce = f.produce;
     this.version++;
   }
 
@@ -130,6 +174,7 @@ export class Farm {
       hasCan: this.hasCan,
       harvested: this.harvested,
       ...(this.hay || this.meadow.size ? { hay: this.hay, meadow: Object.fromEntries([...this.meadow].map(([k, m]) => [k, { ...m }])) } : {}),
+      ...(Object.keys(this.seedBag).length || Object.keys(this.produce).length ? { seedBag: { ...this.seedBag }, produce: { ...this.produce } } : {}),
     };
   }
 
@@ -198,7 +243,7 @@ export class Farm {
         }
         if (!p.wetAt) break;
         if (p.crop && p.crop.stage < RIPE) {
-          const at = p.wetAt + grow;
+          const at = p.wetAt + grow * (cropById(p.crop.kind ?? 'turnip')?.grow ?? 1);
           if (now < at) break;
           p.crop.stage++;
           p.wetAt = 0;
@@ -227,13 +272,41 @@ export class Farm {
     return null;
   }
 
-  plant(c: number, r: number): string | null {
+  /** Samen einer Sorte */
+  seedsOf(kind: CropId) {
+    return kind === 'turnip' ? this.seeds : (this.seedBag[kind] ?? 0);
+  }
+  addSeeds(kind: CropId, n: number) {
+    if (kind === 'turnip') this.seeds += n;
+    else this.seedBag[kind] = (this.seedBag[kind] ?? 0) + n;
+    this.version++;
+  }
+  /** Ernte einer Sorte im Vorrat */
+  cropsOf(kind: CropId) {
+    return kind === 'turnip' ? this.turnips : (this.produce[kind] ?? 0);
+  }
+  takeCrop(kind: CropId, n: number) {
+    if (this.cropsOf(kind) < n) return false;
+    if (kind === 'turnip') this.turnips -= n;
+    else if ((this.produce[kind]! -= n) <= 0) delete this.produce[kind];
+    this.version++;
+    return true;
+  }
+  addCrop(kind: CropId, n: number) {
+    if (kind === 'turnip') this.turnips += n;
+    else this.produce[kind] = (this.produce[kind] ?? 0) + n;
+    this.version++;
+  }
+
+  plant(c: number, r: number, kind: CropId = 'turnip'): string | null {
     const p = this.plot(c, r);
     if (!p) return 'Erst mit der Hacke ein Feld machen';
     if (p.crop) return 'Hier wächst schon etwas';
-    if (this.seeds <= 0) return 'Keine Samen mehr';
-    this.seeds--;
-    p.crop = { stage: 0 };
+    if (!cropById(kind)) return 'Unbekannte Samen';
+    if (this.seedsOf(kind) <= 0) return `Keine ${cropById(kind)!.seedName} mehr`;
+    if (kind === 'turnip') this.seeds--;
+    else if (--this.seedBag[kind]! <= 0) delete this.seedBag[kind];
+    p.crop = kind === 'turnip' ? { stage: 0 } : { stage: 0, kind };
     this.version++;
     return null;
   }
@@ -274,15 +347,17 @@ export class Farm {
     this.version++;
   }
 
-  /** Ernte: Rübe + 1–2 Samen; ab CAN_GOAL Ernten gibt es die Eisen-Gießkanne */
-  harvest(c: number, r: number, rand = Math.random): { seeds: number; gotCan: boolean } | null {
+  /** Ernte: Frucht + 1–2 Samen derselben Sorte; ab CAN_GOAL Ernten gibt es die Eisen-Gießkanne */
+  harvest(c: number, r: number, rand = Math.random): { seeds: number; gotCan: boolean; kind: CropId; n: number } | null {
     const p = this.plot(c, r);
     if (!p?.crop || p.crop.stage < RIPE) return null;
+    const kind: CropId = p.crop.kind ?? 'turnip';
+    const def = cropById(kind)!;
     p.crop = undefined;
     p.wetAt = 0;
-    this.turnips++;
+    this.addCrop(kind, def.yield);
     const seeds = this.perks().twoSeeds ? 2 : 1 + (rand() < 0.5 ? 1 : 0);
-    this.seeds += seeds;
+    this.addSeeds(kind, seeds);
     this.harvested++;
     let gotCan = false;
     if (!this.hasCan && this.harvested >= CAN_GOAL) {
@@ -291,6 +366,6 @@ export class Farm {
       gotCan = true;
     }
     this.version++;
-    return { seeds, gotCan };
+    return { seeds, gotCan, kind, n: def.yield };
   }
 }

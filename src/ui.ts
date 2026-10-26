@@ -390,6 +390,8 @@ export interface HudActions {
   /** gekaufte Deko zum Aufstellen */
   decoList: () => { id: string; name: string; img: string; n: number }[];
   album: () => void;
+  /** Sterne-Anzeige angetippt */
+  stars: () => void;
   /** Lieblingspferd rufen */
   call: () => void;
   /** essen: Rübe (roh), Ofenrübe, Apfel, Beeren */
@@ -544,7 +546,8 @@ export interface TradeData {
   coins: number;
   have: Record<string, number>;
   sell: { id: string; name: string; price: number; img: string }[];
-  seeds: { n: number; price: number; img: string };
+  /** Samen-Päckchen je Sorte; block = noch gesperrt (warum) */
+  seeds: { id: string; name: string; text: string; price: number; img: string; block: string | null }[];
   deco: { id: string; name: string; price: number; img: string; owned: boolean }[];
   horses: { id: string; name: string; text: string; price: number; img: string }[];
   /** Grund, warum kein Pferd geht (kein Stall/voll) */
@@ -555,7 +558,12 @@ export interface AlbumData {
   count: number;
   total: number;
   rewards: { at: number; coins: number; got: boolean }[];
+  /** Erfolge: tier = erreichte Medaillen (0–3), value/goal = Fortschritt zur nächsten */
+  ach: { name: string; text: string; img: string; tier: number; value: number; goal: number }[];
+  /** Insel-Sterne */
+  stars: { n: number; score: number; next: number | null; parts: { name: string; tip: string; pts: number; max: number }[]; rewards: { n: number; text: string; img: string; got: boolean }[] };
 }
+export type AlbumTab = 'album' | 'ach' | 'stars';
 
 /** Eintrag im Stall: Rasse zum Aufnehmen */
 export interface BreedCard {
@@ -599,7 +607,9 @@ export interface Hud {
   /** Energie 0..100 */
   setEnergy(v: number): void;
   setTool(t: ToolId): void;
-  setSlots(seeds: number, water: number, cap: number, hasCan: boolean, hay: number): void;
+  setSlots(seeds: number, water: number, cap: number, hasCan: boolean, hay: number, seedImg?: string): void;
+  /** Samen-Sorte wählen */
+  openSeeds(list: { id: string; name: string; img: string; n: number; text: string; on: boolean }[], pick: (id: string) => void): void;
   /** Aktions-Knopf: aktiv? und welches Bild (z. B. Rübe zum Ernten) */
   setAction(on: boolean, icon?: string): void;
   setGoal(text: string | null): void;
@@ -631,7 +641,9 @@ export interface Hud {
   setCoins(n: number): void;
   /** Händler-Boot; update() zeichnet neu, solange offen */
   openTrade(d: TradeData, act: { sell: (id: string, n: number) => void; buy: (id: string) => void }, onClose: () => void): { update(d: TradeData): void };
-  openAlbum(d: AlbumData): void;
+  openAlbum(d: AlbumData, tab?: AlbumTab): void;
+  /** Insel-Sterne neben der Stufe */
+  setStars(n: number): void;
   /** Kochen am Lagerfeuer; update() zeichnet neu, solange offen */
   openKitchen(d: KitchenData, cook: (id: string) => void): { update(d: KitchenData): void };
   /** Bestellbrett; update() zeichnet neu, solange offen */
@@ -680,7 +692,7 @@ export function showHud(
   ui.innerHTML = `
     <button class="pbtn icon" data-act="menu" aria-label="Menü"><i></i><i></i><i></i></button>
     <div class="panel lvl">
-      <div class="st-row"><b>Stufe 1</b><small class="clock"></small></div>
+      <div class="st-row"><b>Stufe 1</b><button class="stars-btn" data-act="stars" aria-label="Insel-Sterne"><i>★</i><span>0</span></button><small class="clock"></small></div>
       <div class="st-bar"><small>EP</small><div class="xpbar"><i></i></div></div>
       <div class="st-bar"><small>Kraft</small><div class="enbar" title="Energie"><i></i></div></div>
     </div>
@@ -751,6 +763,7 @@ export function showHud(
   });
   $('[data-act=build]').addEventListener('click', () => hud.openBuild(wood));
   $('[data-act=album]').addEventListener('click', on.album);
+  $('[data-act=stars]').addEventListener('click', on.stars);
   $('[data-act=craft]').addEventListener('click', on.craft);
   $('[data-act=bag]').addEventListener('click', on.bag);
   $('.proj-chip').addEventListener('click', on.project);
@@ -787,8 +800,10 @@ export function showHud(
     setTool(t) {
       for (const b of ui.querySelectorAll<HTMLElement>('[data-tool]')) b.classList.toggle('on', b.dataset.tool === t);
     },
-    setSlots(seeds, water, cap, hasCan, hay) {
+    setSlots(seeds, water, cap, hasCan, hay, seedImg) {
       $('[data-tool=seeds] small').textContent = String(seeds);
+      const si = $<HTMLImageElement>('[data-tool=seeds] img');
+      if (seedImg && si.getAttribute('src') !== seedImg) si.src = seedImg;
       $('[data-tool=scythe] small').textContent = String(hay);
       $('[data-tool=water] small').textContent = `${water}/${cap}`;
       const img = $<HTMLImageElement>('[data-tool=water] img');
@@ -1632,6 +1647,27 @@ export function showHud(
     setCoins(n) {
       bump($('.n-coins'), String(n));
     },
+    openSeeds(list, pick) {
+      const modal = document.createElement('div');
+      modal.className = 'modal';
+      modal.innerHTML = `<div class="panel build-panel seeds-panel">
+          <h2>Was willst du säen?</h2>
+          <div class="trade-list">${list
+            .map(
+              (x) => `<button class="trade-row seed-pick${x.on ? ' on' : ''}" data-seed="${x.id}"${x.n < 1 ? ' disabled' : ''}><img src="${x.img}" alt="" /><span><b>${esc(x.name)} · ${x.n}</b><small>${esc(x.n < 1 ? 'Keine mehr – beim Händler-Boot gibt es neue.' : x.text)}</small></span></button>`,
+            )
+            .join('')}</div>
+          <button class="pbtn small ghost" data-m="close">Fertig</button>
+        </div>`;
+      ui.appendChild(modal);
+      modal.addEventListener('click', (e) => {
+        const t = e.target as HTMLElement;
+        const b = t.closest<HTMLButtonElement>('[data-seed]');
+        if (b && !b.disabled) pick(b.dataset.seed!);
+        if (b?.disabled) return;
+        if (b || e.target === modal || t.closest('[data-m=close]')) modal.remove();
+      });
+    },
     openTrade(d0, act, onClose) {
       const modal = document.createElement('div');
       modal.className = 'modal';
@@ -1649,7 +1685,9 @@ export function showHud(
         const buyBtn = (id: string, price: number, extra = false) =>
           `<button class="pbtn small green" data-buy="${id}"${d.coins < price || extra ? ' disabled' : ''}>${price}${coin}</button>`;
         const buy = `
-          <div class="trade-row"><img src="${d.seeds.img}" alt="" /><span><b>${d.seeds.n} Samen</b><small>Rüben-Samen im Päckchen</small></span>${buyBtn('seeds', d.seeds.price)}</div>
+          ${d.seeds
+            .map((x) => `<div class="trade-row${x.block ? ' locked' : ''}"><img src="${x.img}" alt="" /><span><b>${esc(x.name)}</b><small>${esc(x.block ? `Gibt es ${x.block}` : x.text)}</small></span>${buyBtn(x.id, x.price, !!x.block)}</div>`)
+            .join('')}
           <h3 class="sub">Seltene Pferde – heute an Bord</h3>
           ${d.horses
             .map(
@@ -1699,11 +1737,19 @@ export function showHud(
         },
       };
     },
-    openAlbum(d) {
+    setStars(n) {
+      const sp = $('.stars-btn span');
+      if (sp.textContent !== String(n)) sp.textContent = String(n);
+    },
+    openAlbum(d, tab0 = 'album') {
       const modal = document.createElement('div');
       modal.className = 'modal';
-      modal.innerHTML = `<div class="panel build-panel stable-panel album-panel">
-          <h2>Sammelalbum</h2>
+      let tab: AlbumTab = tab0;
+      const stars = (n: number) => `<span class="star-row">${[0, 1, 2, 3, 4].map((k) => `<i class="${k < n ? 'on' : ''}">★</i>`).join('')}</span>`;
+      const medals = (t: number) => `<div class="medals">${[0, 1, 2].map((k) => `<i class="m${k}${k < t ? ' on' : ''}"></i>`).join('')}</div>`;
+      const medalCount = d.ach.reduce((a, x) => a + x.tier, 0);
+      const render = () => {
+        const album = `
           <p class="have"><b>${d.count}</b> von ${d.total} gesammelt</p>
           <div class="xpbar album-bar"><i style="width:${Math.round((d.count / d.total) * 100)}%"></i></div>
           <div class="rewards">${d.rewards.map((r) => `<span class="${r.got ? 'got' : ''}">${r.at}: ${r.coins}<img src="${icons.coin}" alt="" /></span>`).join('')}</div>
@@ -1714,12 +1760,48 @@ export function showHud(
               .map((i) => `<div class="furn${i.has ? '' : ' missing'}${i.rare ? ' rare' : ''}"><img src="${i.img}" alt="" /><b>${i.has ? esc(i.name) : '???'}</b></div>`)
               .join('')}</div>`,
             )
-            .join('')}
-          <button class="pbtn small ghost" data-m="close">Zurück</button>
-        </div>`;
+            .join('')}`;
+        const ach = `
+          <p class="have"><b>${medalCount}</b> von ${d.ach.length * 3} Medaillen · Bronze, Silber und Gold bringen Münzen</p>
+          <div class="ach-list">${d.ach
+            .map(
+              (a) => `<div class="ach-row${a.tier >= 3 ? ' done' : ''}"><img src="${a.img}" alt="" /><span><b>${esc(a.name)}</b><small>${esc(a.text)}</small>
+                <i class="xpbar"><i style="width:${a.tier >= 3 ? 100 : Math.round(Math.min(1, a.value / a.goal) * 100)}%"></i></i><small class="num">${a.tier >= 3 ? 'Alles geschafft!' : `${Math.min(a.value, a.goal)} / ${a.goal}`}</small></span>${medals(a.tier)}</div>`,
+            )
+            .join('')}</div>`;
+        const st = d.stars;
+        const sta = `
+          <div class="star-head">${stars(st.n)}<p><b>${st.score}</b> Punkte${st.next !== null ? ` · nächster Stern bei ${st.next}` : ' · alle Sterne!'}</p></div>
+          <p class="have">So schön ist deine Insel. Mehr Häuser, Bewohner, Deko und Sammeln bringen Punkte.</p>
+          <div class="ach-list">${st.parts
+            .map(
+              (p) => `<div class="ach-row star-part"><span><b>${esc(p.name)} · ${p.pts}/${p.max}</b><small>${esc(p.pts >= p.max ? 'Voll – super!' : p.tip)}</small>
+                <i class="xpbar"><i style="width:${Math.round((p.pts / p.max) * 100)}%"></i></i></span></div>`,
+            )
+            .join('')}</div>
+          <h3 class="sub">Belohnungen</h3>
+          <div class="ach-list">${st.rewards
+            .map((r) => `<div class="ach-row${r.got ? ' done' : ''}"><img src="${r.img}" alt="" /><span><b>${stars(r.n)}</b><small>${esc(r.text)}</small></span>${r.got ? '<em class="tick">✓</em>' : ''}</div>`)
+            .join('')}</div>`;
+        modal.innerHTML = `<div class="panel build-panel stable-panel album-panel">
+            <h2>${tab === 'album' ? 'Sammelalbum' : tab === 'ach' ? 'Erfolge' : 'Insel-Sterne'}</h2>
+            <div class="tabs tabs3"><button class="pbtn small${tab === 'album' ? ' green' : ''}" data-tab="album">Album</button><button class="pbtn small${tab === 'ach' ? ' green' : ''}" data-tab="ach">Erfolge</button><button class="pbtn small${tab === 'stars' ? ' green' : ''}" data-tab="stars">Sterne</button></div>
+            ${tab === 'album' ? album : tab === 'ach' ? ach : sta}
+            <button class="pbtn small ghost" data-m="close">Zurück</button>
+          </div>`;
+      };
+      render();
       ui.appendChild(modal);
       modal.addEventListener('click', (e) => {
-        if (e.target === modal || (e.target as HTMLElement).closest('[data-m=close]')) modal.remove();
+        const t = e.target as HTMLElement;
+        const tb = t.closest<HTMLElement>('[data-tab]');
+        if (tb) {
+          tab = tb.dataset.tab as AlbumTab;
+          render();
+          modal.querySelector('.album-panel')!.scrollTop = 0;
+          return;
+        }
+        if (e.target === modal || t.closest('[data-m=close]')) modal.remove();
       });
     },
     toast(text) {

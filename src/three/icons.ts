@@ -198,6 +198,67 @@ function horseshoe() {
   }
   return meshOf(b.geometry());
 }
+/** Karotte mit Grün */
+function carrot() {
+  const b = new Build();
+  b.add(cone(0.2, 0.95, 14), '#ff8a2a', { p: [0, -0.05, 0], r: [0, 0, Math.PI - 0.5] });
+  for (let k = 0; k < 4; k++) b.add(rbox(0.3, 0.025, 0.02, 0.01), '#d8661a', { p: [0.08 - k * 0.12, 0.12 - k * 0.2 + 0.2, 0.17], r: [0, 0, -0.5] });
+  for (const a of [-0.5, -0.1, 0.3]) b.add(sphere(0.1, 8), '#5fae4e', { p: [-0.32 + Math.sin(a) * 0.12, 0.5 + Math.cos(a) * 0.12, 0], s: [0.5, 2.2, 0.4], r: [0, 0, a + 0.5] });
+  return meshOf(b.geometry());
+}
+/** Erdbeere mit Kernchen */
+function strawberry() {
+  const b = new Build();
+  b.add(sphere(0.38, 18), '#e83a4a', { p: [0, -0.05, 0], s: [1, 1.15, 1] });
+  b.add(cone(0.34, 0.5, 16), '#e83a4a', { p: [0, -0.32, 0], r: [Math.PI, 0, 0] });
+  for (let k = 0; k < 14; k++) {
+    const a = k * 2.4;
+    const y = -0.4 + (k % 5) * 0.14;
+    const r = 0.36 - Math.abs(y + 0.05) * 0.4;
+    b.add(sphere(0.025, 5), '#ffe080', { p: [Math.cos(a) * r, y, Math.sin(a) * r + 0.05] });
+  }
+  for (let k = 0; k < 5; k++) {
+    const a = (k / 5) * Math.PI * 2;
+    b.add(sphere(0.1, 8), '#4f9a44', { p: [Math.cos(a) * 0.14, 0.38, Math.sin(a) * 0.14], s: [1.4, 0.35, 0.7], r: [0, -a, 0] });
+  }
+  b.add(cyl(0.025, 0.03, 0.14, 6), '#4f9a44', { p: [0, 0.48, 0] });
+  return meshOf(b.geometry());
+}
+/** Samentüte einer Sorte (mit Bild der Frucht) */
+function seedPack(kind: 'carrot' | 'strawberry' | 'pumpkin') {
+  const paper = { carrot: '#e4f2d0', strawberry: '#fde2e8', pumpkin: '#fbe8c8' }[kind];
+  const band = { carrot: '#8cc06a', strawberry: '#e88a9a', pumpkin: '#e0a050' }[kind];
+  const b = new Build();
+  b.add(rbox(0.7, 0.9, 0.12, 0.06), paper, { p: [0, 0, 0] });
+  b.add(rbox(0.72, 0.16, 0.13, 0.05), band, { p: [0, 0.45, 0] });
+  // kleines Bild der Frucht vorne drauf
+  if (kind === 'carrot') {
+    b.add(cone(0.11, 0.42, 10), '#ff8a2a', { p: [0, -0.1, 0.08], r: [Math.PI, 0, 0.35], s: [1, 1, 0.4] });
+    for (const a of [-0.4, 0, 0.4]) b.add(sphere(0.05, 6), '#4f9a44', { p: [0.07 + a * 0.12, 0.16, 0.09], s: [0.6, 1.6, 0.4] });
+  } else if (kind === 'strawberry') {
+    b.add(cone(0.17, 0.32, 10), '#e83a4a', { p: [0, -0.14, 0.08], r: [Math.PI, 0, 0], s: [1, 1, 0.35] });
+    b.add(sphere(0.17, 12), '#ea3a42', { p: [0, 0, 0.08], s: [1, 0.55, 0.35] });
+    for (const [x, y] of [[-0.07, -0.08], [0.06, -0.06], [0, -0.17], [-0.02, -0.02]] as const) b.add(sphere(0.02, 5), '#ffe08a', { p: [x, y, 0.13] });
+    b.add(sphere(0.09, 8), '#4f9a44', { p: [0, 0.08, 0.1], s: [1.4, 0.35, 0.4] });
+  } else {
+    for (const [x, sx] of [[-0.1, 0.75], [0.1, 0.75], [0, 0.95]] as const) b.add(sphere(0.18, 12), x ? '#e8781e' : '#f08a30', { p: [x, -0.06, 0.08 + (x ? 0 : 0.01)], s: [sx, 0.8, 0.35] });
+    b.add(cyl(0.025, 0.03, 0.1, 6), '#5a7a2a', { p: [0.01, 0.12, 0.1] });
+  }
+  return meshOf(b.geometry());
+}
+/** Karottenkuchen, Erdbeertorte */
+function cake(top: string, deco: string) {
+  const b = new Build();
+  b.add(cyl(0.66, 0.56, 0.1, 24), '#f4f0e6', { p: [0, -0.3, 0] });
+  b.add(cyl(0.48, 0.48, 0.42, 24), '#d89a58', { p: [0, -0.04, 0] });
+  b.add(cyl(0.5, 0.5, 0.1, 24), top, { p: [0, 0.2, 0] });
+  for (let k = 0; k < 8; k++) {
+    const a = (k / 8) * Math.PI * 2;
+    b.add(sphere(0.07, 8), deco, { p: [Math.cos(a) * 0.36, 0.28, Math.sin(a) * 0.36] });
+  }
+  b.add(sphere(0.1, 10), deco, { p: [0, 0.3, 0] });
+  return meshOf(b.geometry());
+}
 /** Bonbon im Papier */
 function candy() {
   const b = new Build();
@@ -289,6 +350,24 @@ const MAKERS = {
   shoes: () => photo('i:shoes', shoe, { yaw: 0.5, tilt: 0.2 }),
   hooves: () => photo('i:hooves', horseshoe, { yaw: 0, tilt: 0.1, fill: 0.5 }),
   candy: () => photo('i:candy', candy, { yaw: 0, tilt: 0.1, fill: 0.5 }),
+  carrot: () => photo('i:carrot', carrot, { yaw: 0, tilt: 0.1, fill: 0.5 }),
+  strawberry: () => photo('i:strawberry', strawberry, { yaw: 0.2, tilt: 0.15, fill: 0.5 }),
+  seedsCarrot: () => photo('i:seeds-carrot', () => seedPack('carrot'), { yaw: 0.2, tilt: 0.1, fill: 0.52 }),
+  seedsStrawberry: () => photo('i:seeds-strawberry', () => seedPack('strawberry'), { yaw: 0.2, tilt: 0.1, fill: 0.52 }),
+  seedsPumpkin: () => photo('i:seeds-pumpkin', () => seedPack('pumpkin'), { yaw: 0.2, tilt: 0.1, fill: 0.52 }),
+  karottenkuchen: () => photo('i:karottenkuchen', () => cake('#fff4e8', '#ff8a2a'), { yaw: 0.3, tilt: 0.5 }),
+  erdbeertorte: () => photo('i:erdbeertorte', () => cake('#ffd8e4', '#e83a4a'), { yaw: 0.3, tilt: 0.5 }),
+  kuerbissuppe: () =>
+    photo(
+      'i:kuerbissuppe',
+      () =>
+        bowl((b) => {
+          b.add(cyl(0.5, 0.5, 0.04, 20), '#f0962a', { p: [0, 0.0, 0] });
+          b.add(sphere(0.08, 8), '#fff4e8', { p: [0.05, 0.04, 0.05], s: [2.2, 0.4, 1.4] });
+          for (const [x, z] of [[-0.2, 0.15], [0.22, -0.12], [-0.05, -0.25]] as const) b.add(sphere(0.04, 6), '#5fae4e', { p: [x, 0.05, z] });
+        }),
+      { yaw: 0, tilt: 0.6 },
+    ),
   cookie: () => photo('i:cookie', cookie, { yaw: 0, tilt: 0.05, fill: 0.5 }),
   pumpkin: () => photo('i:pumpkin', () => festFind('halloween'), { yaw: 0.2, tilt: 0.35 }),
   gift: () => photo('i:gift', () => festFind('winter'), { yaw: 0.5, tilt: 0.4 }),

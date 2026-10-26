@@ -21,10 +21,10 @@ function setup() {
 const at = (w: World, f: Farm, a: object, t = 1000) => applyOp(w, f, { a: a as never, x: 100, y: 108, t });
 
 describe('Kochen', () => {
-  it('drei Rezepte kennt man, drei muss man sich verdienen', () => {
+  it('drei Rezepte kennt man, sechs muss man sich verdienen', () => {
     const { w } = setup();
     expect(COOK.filter((r) => knows(w, r.id)).map((r) => r.id)).toEqual(['meal', 'grilled', 'obstsalat']);
-    expect(LEARNABLE).toEqual(['fischsuppe', 'apfelkuchen', 'marmelade']);
+    expect(LEARNABLE).toEqual(['fischsuppe', 'apfelkuchen', 'marmelade', 'karottenkuchen', 'erdbeertorte', 'kuerbissuppe']);
   });
 
   it('Zutaten werden verbraucht, das Gericht kommt in den Vorrat', () => {
