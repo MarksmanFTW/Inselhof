@@ -6,7 +6,7 @@
 import { Farm } from './farm';
 import { furnitureById, slotCount } from './furniture';
 import { FOAL_HAY } from './horses';
-import { SEED_PACK, SELL, decoById, horseOffers, merchantHere, type SellItem } from './shop';
+import { SEED_PACK, SELL, SHELL_PRICE, decoById, horseOffers, merchantHere, type SellItem } from './shop';
 import { islandDay } from './horses';
 import { gain, type Gain, type Stat } from './progress';
 import { napOffset, newClock, sleepOffset, sleepyHour, timeOf } from './time';
@@ -15,6 +15,10 @@ import type { Action } from './net/types';
 import { BEET_GROW, BUILDS, beetSnap, beetTiles, type BuildKind, type World } from './world';
 import { key as plotKey } from './farm';
 import { upgradeById } from './upgrades';
+import { festBuy, festFind, festVisit } from './fest';
+import { beachPick, type BOTTLE_GIFTS } from './beach';
+import { CALENDAR } from './daily';
+import { festById, type FestId } from './season';
 import { TUT_SEEDS, recipeOf, type ToolKind } from './craft';
 import { fishById } from './fish';
 import { FEST_COINS, PROJECTS, PROJ_ITEMS, islandHas, islandTake, pickSite, type ProjItem } from './projects';
@@ -66,6 +70,10 @@ export interface OpResult {
   /** Bewohner eingezogen (id) / Wunsch erfüllt */
   movedIn?: string;
   wish?: WishResult;
+  /** Strandgut: was gefunden wurde; Flaschenpost: Brief und Geschenk */
+  beach?: { id: string; letter?: number; gift?: (typeof BOTTLE_GIFTS)[number] };
+  /** Festladen: was gekauft wurde (Hut schaltet das Gerät frei) */
+  festItem?: { id: string; kind: 'deco' | 'hat' };
 }
 
 /** Ackerbau kennt die Fähigkeiten der Insel-Stufe */
@@ -101,6 +109,8 @@ export function applyOp(world: World, farm: Farm, op: Op): OpResult {
     else if (a.kind === 'order' && res.delivered) merge(gain(world.prog, 'orders', 1, give));
     else if (a.kind === 'wish' && res.wish) merge(gain(world.prog, 'wishes', 1, give));
     else if (a.kind === 'upgrade') merge(gain(world.prog, 'upgrades', 1, give));
+    else if (a.kind === 'beach' && res.beach) merge(gain(world.prog, res.beach.id === 'bottle' ? 'letters' : 'shells', 1, give));
+    else if (a.kind === 'festfind') merge(gain(world.prog, 'festfinds', 1, give));
     else if (a.kind === 'fish' && res.caught) {
       merge(gain(world.prog, 'fish', 1, give));
       if (res.caught.first) merge(gain(world.prog, 'species', 1, give));
@@ -165,6 +175,42 @@ function run(world: World, farm: Farm, op: Op): OpResult {
     world.coins -= lv.coins;
     world.wood -= lv.wood;
     world.version++;
+    return { err: null, done: true };
+  }
+  if (a.kind === 'festfind' || a.kind === 'festvisit' || a.kind === 'festbuy') {
+    // welches Fest gerade ist, weiß das Gerät (Datum) und schickt es mit
+    const fest = a.item as FestId;
+    if (!festById(fest)) return { err: 'Gerade ist kein Fest', done: false };
+    if (a.kind === 'festfind') {
+      const e = festFind(world, fest, Math.floor(a.n ?? -1), t);
+      return { err: e, done: !e };
+    }
+    if (a.kind === 'festvisit') {
+      const e = festVisit(world, fest, a.arg ?? '', t);
+      return { err: e, done: !e };
+    }
+    const r = festBuy(world, fest, a.arg ?? '');
+    return { err: r.err, done: !r.err, ...(r.kind ? { festItem: { id: a.arg!, kind: r.kind } } : {}) };
+  }
+  if (a.kind === 'beach') {
+    const r = beachPick(world, farm, Math.floor(a.n ?? -1), t);
+    return { err: r.err, done: !r.err, ...(r.id ? { beach: { id: r.id, letter: r.letter, gift: r.gift } } : {}) };
+  }
+  if (a.kind === 'daily') {
+    // Tagesgeschenk (ob heute schon abgeholt, weiß das Gerät)
+    const g = CALENDAR[Math.floor(a.n ?? -1)];
+    if (!g) return { err: 'Gibt es nicht', done: false };
+    if (g.coins) world.coins += g.coins;
+    if (g.wood) world.wood += g.wood;
+    if (g.apples) world.apples += g.apples;
+    if (g.seeds) farm.seeds += g.seeds;
+    if (g.dish && isDish(g.dish)) world.dishes[g.dish] = (world.dishes[g.dish] ?? 0) + 1;
+    if (g.deco && a.arg && decoById(a.arg)) {
+      world.decoInv[a.arg] = (world.decoInv[a.arg] ?? 0) + 1;
+      world.albumAdd('deco', a.arg);
+    }
+    world.version++;
+    farm.version++;
     return { err: null, done: true };
   }
   if (a.kind === 'enlarge') {
@@ -246,6 +292,17 @@ function run(world: World, farm: Farm, op: Op): OpResult {
         world.coins += r.price * n;
         world.version++;
         return { err: null, done: true, coins: r.price * n };
+      }
+      if (item.startsWith('sea:')) {
+        // Strandgut: Preis je Schatz
+        const id = item.slice(4);
+        const price = SHELL_PRICE[id];
+        if (!price) return { err: 'Das kauft der Händler nicht', done: false };
+        if ((world.treasures[id] ?? 0) < n) return { err: 'So viel hast du nicht', done: false };
+        if ((world.treasures[id] -= n) <= 0) delete world.treasures[id];
+        world.coins += price * n;
+        world.version++;
+        return { err: null, done: true, coins: price * n };
       }
       if (item.startsWith('fish:')) {
         // Fische: Preis je Art

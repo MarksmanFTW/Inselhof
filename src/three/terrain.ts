@@ -6,6 +6,7 @@
  */
 import * as THREE from 'three';
 import { Ground, H, W, hash, type Island } from '../island';
+import type { Season } from '../season';
 import { Build, CURVE, FOCUS, U, cone, cyl, dot, rbox, seeded, vcMat } from './engine';
 
 export const WATER_Y = -0.35;
@@ -72,7 +73,14 @@ export interface Terrain {
   hideDetails(covered: (x: number, y: number) => boolean): void;
 }
 
-export function buildTerrain(isl: Island): Terrain {
+/** Wiese je Jahreszeit: drei Töne + Rand */
+const GRASS: Record<Season, [string, string, string, string]> = {
+  spring: ['#82d46c', '#6ec45a', '#a0e27e', '#5cae50'],
+  summer: ['#7ccf6a', '#68bd58', '#93dc78', '#5aa84e'],
+  autumn: ['#a6c25c', '#92ac4c', '#c2c86a', '#84a048'],
+  winter: ['#eef4fa', '#e2eaf3', '#f9fbfe', '#c9d6e4'],
+};
+export function buildTerrain(isl: Island, season: Season = 'summer'): Terrain {
   const g = isl.ground;
   const land = new Uint8Array(W * H);
   const sea = new Uint8Array(W * H);
@@ -174,10 +182,7 @@ export function buildTerrain(isl: Island): Terrain {
   const sand = new THREE.Color('#f4dcaa');
   const sandDark = new THREE.Color('#e6c48e');
   const wet = new THREE.Color('#d2b47e');
-  const g1 = new THREE.Color('#7ccf6a');
-  const g2 = new THREE.Color('#68bd58');
-  const g3 = new THREE.Color('#93dc78');
-  const rim = new THREE.Color('#5aa84e');
+  const [g1, g2, g3, rim] = GRASS[season].map((h) => new THREE.Color(h));
   const c = new THREE.Color();
   const tc = new THREE.Color();
   for (let r = 0; r < rows; r++)

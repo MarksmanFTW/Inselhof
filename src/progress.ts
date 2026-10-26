@@ -39,7 +39,11 @@ export type Stat =
   | 'wishes'
   // Verbesserungen gekauft, Hochbeete gebaut
   | 'upgrades'
-  | 'beets';
+  | 'beets'
+  // Strandgut, Flaschenpost, Fest-Fundstücke
+  | 'shells'
+  | 'letters'
+  | 'festfinds';
 
 export interface Progress {
   xp: number;
@@ -119,6 +123,9 @@ export const XP: Record<Exclude<Stat, 'wood'>, number> = {
   wishes: 8,
   upgrades: 15,
   beets: 15,
+  shells: 2,
+  letters: 3,
+  festfinds: 2,
 };
 
 /** XP bis Stufe L: 30 · L(L-1)/2 → 30, 90, 180, 300 … */

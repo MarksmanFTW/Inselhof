@@ -4,7 +4,7 @@
  */
 import { Ground, H, TILE, W, type Decor, type Island } from './island';
 import { accById, FOAL_HAY, FOAL_PAUSE_DAYS, GATE, MAX_LOVE, PADDOCK_COST, PADDOCK_FOOT, PADDOCK_REACH, STABLE_COST, STABLE_SPACE, breedById, cleanHorses, cleanName, isFoal, islandDay, type Care, type Horse, type Paddock, type Stable } from './horses';
-import { ALBUM_REWARDS, DECO_FOOT, albumCount, cleanAlbum, decoById, type Album, type Deco } from './shop';
+import { ALBUM_REWARDS, DECO_FOOT, albumCount, cleanAlbum, decoById, merchantDeco, type Album, type Deco } from './shop';
 import { cleanProgress, levelOf, newProgress, perks, type Progress } from './progress';
 import { PICK_REGROW_MS, type ToolKind } from './craft';
 import { FISH, fishById } from './fish';
@@ -12,6 +12,8 @@ import { PROJECTS, cleanProj, newProj, type Foot, type ProjState } from './proje
 import { cleanOrders, newOrders, type OrderState } from './orders';
 import { DISH_IDS } from './store';
 import { cleanVillagers, nextVillager, type Villager } from './villagers';
+import { cleanFest, newFest, type FestState } from './fest';
+import { cleanBeach, newBeach, shellById, type BeachState } from './beach';
 import type { PickKind } from './island';
 import type { Clock } from './time';
 
@@ -131,6 +133,11 @@ export interface WorldSave {
   /** Hochbeete und Kutschenhalte */
   beets?: { x: number; y: number }[];
   coaches?: { x: number; y: number }[];
+  /** Feste (Währung, heute gefunden/besucht), Strandgut, Schätze, gelesene Flaschenpost */
+  fest?: FestState;
+  beach?: BeachState;
+  treasures?: Record<string, number>;
+  letters?: number;
 }
 
 export type TreeStage = 'tree' | 'stump' | 'sapling';
@@ -174,6 +181,10 @@ export class World {
   villagers: Villager[] = [];
   beets: { x: number; y: number }[] = [];
   coaches: { x: number; y: number }[] = [];
+  fest: FestState = newFest();
+  beach: BeachState = newBeach();
+  treasures: Record<string, number> = {};
+  letters = 0;
   /** Treffer am aktuellen Baum (nicht gespeichert) */
   private hits = new Map<number, number>();
   /** wird bei jeder Änderung hochgezählt (Schatten neu malen, speichern) */
@@ -208,6 +219,10 @@ export class World {
       this.villagers = cleanVillagers(save.villagers);
       this.beets = (save.beets ?? []).filter((h) => typeof h?.x === 'number' && typeof h?.y === 'number').map((h) => ({ x: h.x, y: h.y }));
       this.coaches = (save.coaches ?? []).filter((h) => typeof h?.x === 'number' && typeof h?.y === 'number').map((h) => ({ x: h.x, y: h.y }));
+      this.fest = cleanFest(save.fest);
+      this.beach = cleanBeach(save.beach);
+      for (const [k, v] of Object.entries(save.treasures ?? {})) if (shellById(k) && typeof v === 'number' && v > 0) this.treasures[k] = Math.floor(v);
+      this.letters = Math.max(0, Math.floor(save.letters ?? 0));
       this.apples = Math.max(0, Math.floor(save.apples ?? 0));
       this.berries = Math.max(0, Math.floor(save.berries ?? 0));
       for (const [k, v] of Object.entries(save.shaken ?? {})) {
@@ -259,6 +274,10 @@ export class World {
     this.villagers = w.villagers;
     this.beets = w.beets;
     this.coaches = w.coaches;
+    this.fest = w.fest;
+    this.beach = w.beach;
+    this.treasures = w.treasures;
+    this.letters = w.letters;
     this.version++;
   }
 
@@ -271,7 +290,7 @@ export class World {
       ...(this.stables.length ? { stables: this.stables.map((f) => ({ ...f })), horses: this.horses.map((h) => ({ ...h })) } : {}),
       ...(this.paddocks.length ? { paddocks: this.paddocks.map((f) => ({ ...f })) } : {}),
       ...(this.coins || this.decos.length || albumCount(this.album) || Object.keys(this.decoInv).length
-        ? { coins: this.coins, decos: this.decos.map((d) => ({ ...d })), decoInv: { ...this.decoInv }, album: { horses: [...this.album.horses], deco: [...this.album.deco], ...(this.album.fish ? { fish: [...this.album.fish] } : {}), ...(this.album.folk ? { folk: [...this.album.folk] } : {}) }, albumClaimed: this.albumClaimed }
+        ? { coins: this.coins, decos: this.decos.map((d) => ({ ...d })), decoInv: { ...this.decoInv }, album: { horses: [...this.album.horses], deco: [...this.album.deco], ...(this.album.fish ? { fish: [...this.album.fish] } : {}), ...(this.album.folk ? { folk: [...this.album.folk] } : {}), ...(this.album.sea ? { sea: [...this.album.sea] } : {}) }, albumClaimed: this.albumClaimed }
         : {}),
       ...(this.clock ? { clock: { ...this.clock } } : {}),
       prog: { xp: this.prog.xp, stats: { ...this.prog.stats }, quests: this.prog.quests, v: this.prog.v },
@@ -284,6 +303,10 @@ export class World {
       ...(this.villagers.length ? { villagers: this.villagers.map((v) => ({ ...v })) } : {}),
       ...(this.beets.length ? { beets: this.beets.map((v) => ({ ...v })) } : {}),
       ...(this.coaches.length ? { coaches: this.coaches.map((v) => ({ ...v })) } : {}),
+      ...(Object.keys(this.fest.coins).length || this.fest.found.day >= 0 || this.fest.visits.day >= 0
+        ? { fest: { coins: { ...this.fest.coins }, found: { day: this.fest.found.day, list: [...this.fest.found.list] }, visits: { day: this.fest.visits.day, list: [...this.fest.visits.list] } } }
+        : {}),
+      ...(this.beach.day >= 0 || Object.keys(this.treasures).length || this.letters ? { beach: { day: this.beach.day, got: [...this.beach.got] }, treasures: { ...this.treasures }, letters: this.letters } : {}),
       ...(this.proj.n || this.proj.sites.length || Object.keys(this.proj.got).length ? { proj: { n: this.proj.n, got: { ...this.proj.got }, sites: this.proj.sites.map((s) => (s ? [s[0], s[1]] : null)) as ProjState['sites'] } } : {}),
     };
   }
@@ -626,7 +649,8 @@ export class World {
   }
 
   buyDeco(id: string) {
-    const d = decoById(id);
+    // beim Händler nur seine Deko (Fest-Deko gibt es im Festladen)
+    const d = merchantDeco(id);
     if (!d) return 'Gibt es nicht';
     if (this.coins < d.price) return 'Zu wenig Münzen';
     this.coins -= d.price;

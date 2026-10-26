@@ -21,7 +21,7 @@ import { RECIPES, TOOL_NAME, TUTORIAL, TUT_SEEDS, bagCraft, bagPick, craftBlock,
 import { newClock, rainSince, timeOf, type TimeOfDay } from './time';
 import { MAX_SLOTS, activeSlot, addSlot, loadSave, removeSlot, writeSave, type Save, type Slot } from './save';
 import type { Action, Fx } from './net/types';
-import { showCoop, showCustomize, showHud, showMenu, showSettings, showSlots, textScale, type CraftData, type Hud, type InvData, type KitchenData, type Need, type OrdersData, type ProjData, type ToolId, type TradeData, type VillagerData } from './ui';
+import { showCoop, showCustomize, showHud, showMenu, showSettings, showSlots, textScale, type CraftData, type FestShopData, type Hud, type InvData, type KitchenData, type Need, type OrdersData, type ProjData, type ToolId, type TradeData, type VillagerData } from './ui';
 import { PROJECTS, PROJ_ITEMS, islandHas, projProgress, siteOf, type ProjItem } from './projects';
 import { COOK, knows, recipeById, isDish } from './cooking';
 import { CUSTOMERS, SIZES, boardSpot, ordersToday } from './orders';
@@ -31,7 +31,12 @@ import { HOOF_SPEED, ROD_DELAY, ROD_WINDOW, SHOE_SPEED, UPGRADES, bagUpgrade, ne
 import { BEST_FRIEND_COINS, MAX_HEARTS, SURPRISE, VILLAGERS, nextVillager, villagerById, wishOf, type Villager } from './villagers';
 import { View } from './three/view';
 import { horsePhoto } from './three/portrait';
-import { decoPhoto, fishPhoto, furniturePhoto, heartUrl, lazyIcons, villagerPhoto } from './three/icons';
+import { decoPhoto, fishPhoto, furniturePhoto, hatPhoto, heartUrl, lazyIcons, seaPhoto, villagerPhoto } from './three/icons';
+import { FEST_HAT, HATS } from './character';
+import { FESTS, dayKey, festAt, seasonAt, today, type Fest } from './season';
+import { festFindLeft, festFinds, festVisited, stallSpot } from './fest';
+import { ALBUM_SHELLS, LETTERS, SHELLS, beachLeft, beachToday, shellById } from './beach';
+import { CALENDAR, cleanDaily, dailyDone, dailyIndex, weeklyDeco, type DailyGift } from './daily';
 import { warmHorse } from './three/horse';
 
 const screen = document.querySelector<HTMLCanvasElement>('#screen')!;
@@ -50,7 +55,11 @@ const world = new World(island, mySlot().world);
 const farm = new Farm(island, mySlot().farm);
 link(world, farm);
 /** 3D-Ansicht (liegt unter der Schrift-Ebene) */
-const view = new View(island, world, farm, document.body);
+/** Jahreszeit (Aussehen der Insel) und Fest – nach dem Datum des Geräts */
+const SEASON = seasonAt(today());
+let curFest: Fest | null = festAt(today());
+setInterval(() => (curFest = festAt(today())), 60_000);
+const view = new View(island, world, farm, document.body, SEASON);
 const START = { x: 176, y: 172 };
 const player = new Player(island, world, START.x, START.y);
 /** neue/alte Insel ohne Uhr: es ist 7 Uhr morgens */
@@ -119,7 +128,7 @@ let tool: ToolId = 'axe';
 /** Schwung (Sekunden, läuft rückwärts); swingTool = was gerade benutzt wird */
 let swing = 0;
 const SWING = 0.34;
-let swingTool: ToolId | 'harvest' | 'refill' | 'cook' | 'rake' | 'pick' | 'shake' = 'axe';
+let swingTool: ToolId | 'harvest' | 'refill' | 'cook' | 'rake' | 'pick' | 'shake' | 'beach' | 'festfind' = 'axe';
 let swingTile: [number, number] = [0, 0];
 const shake = new Map<number, number>();
 /** schwebende Texte („+4 Holz“): Welt-Pixel + Höhe (Einheiten) */
@@ -250,7 +259,16 @@ function perform(a: Action, actor: { x: number; y: number }): string | null {
       const p = island.pickups[a.tree ?? -1];
       if (p) emit({ k: 'pick', x: p.x, y: p.y, text: res.picked === 'stick' ? '+1 Stock' : '+1 Stein' });
     } else if (a.kind === 'craft' && res.crafted) emit({ k: 'craft', x: actor.x, y: actor.y, text: `${recipeOf(res.crafted)?.name ?? 'Werkzeug'} gebastelt!` });
-    else if (a.kind === 'shake' && res.fruit) {
+    else if (a.kind === 'beach' && res.beach) {
+      const b = beachToday(island, islandDay(world.clock, op.t))[a.n ?? -1];
+      const sh = shellById(res.beach.id);
+      if (b) emit({ k: 'pick', x: b.x, y: b.y, text: res.beach.id === 'bottle' ? 'Flaschenpost!' : sh?.wood ? `+${sh.wood} Holz` : `${sh?.name ?? 'Schatz'}!` });
+      if (res.beach.id === 'bottle' && res.beach.letter !== undefined) showLetter(res.beach.letter, res.beach.gift);
+      else if (sh && !sh.wood && (world.treasures[sh.id] ?? 0) === 1 && sh.price >= 5) hud?.toast(`Neu im Album: ${sh.name}!`);
+    } else if (a.kind === 'festfind' && curFest) {
+      const p = festFinds(island, curFest.id, islandDay(world.clock, op.t))[a.n ?? -1];
+      if (p) emit({ k: 'fruit', x: p.x, y: p.y, text: `+${curFest.find.gives} ${curFest.find.gives === 1 ? curFest.coin.one : curFest.coin.name}` });
+    } else if (a.kind === 'shake' && res.fruit) {
       const d = island.decor[a.tree ?? -1];
       if (d) emit({ k: 'fruit', x: d.x, y: d.y, tree: a.tree, text: res.fruit.apples ? `+${res.fruit.apples} Äpfel` : `+${res.fruit.berries} Beeren` });
     }
@@ -272,6 +290,7 @@ function perform(a: Action, actor: { x: number; y: number }): string | null {
   persist();
   if (res.picked || res.crafted) tutorialStep();
   if (res.movedIn) folkWelcome(res.movedIn);
+  if (res.festItem?.kind === 'hat') unlockHat(res.festItem.id);
   return res.err;
 }
 /** eigenes Tutorial weiterzählen; am Ende 3 Rübensamen für die Insel */
@@ -326,8 +345,35 @@ function facingWater() {
   }
   return false;
 }
-type Intent = ToolId | 'harvest' | 'refill' | 'cook' | 'rake' | 'pick' | 'shake' | 'fish' | 'project' | 'orders' | 'villager' | 'coach' | 'trade' | 'enter' | 'exit' | 'sleep' | 'chest' | 'furnish' | 'stable' | 'horse' | 'dismount' | null;
+type Intent = ToolId | 'harvest' | 'refill' | 'cook' | 'rake' | 'pick' | 'shake' | 'beach' | 'festfind' | 'fest' | 'fish' | 'project' | 'orders' | 'villager' | 'coach' | 'trade' | 'enter' | 'exit' | 'sleep' | 'chest' | 'furnish' | 'stable' | 'horse' | 'dismount' | null;
 /** Stock/Stein direkt bei der Figur (Nummer in island.pickups) */
+/** Strandgut direkt bei der Figur (Nummer des Tages, -1 = nichts) */
+function beachNear() {
+  const day = islandDay(world.clock, Date.now());
+  let best = -1;
+  let bestD = 12;
+  beachToday(island, day).forEach((b, i) => {
+    const d = Math.hypot(b.x - player.x, (b.y - player.y) * 1.4);
+    if (d >= bestD || !beachLeft(world, i, day) || world.builtAt(b.x, b.y, 2, 2)) return;
+    bestD = d;
+    best = i;
+  });
+  return best;
+}
+/** Kürbis/Geschenk direkt bei der Figur */
+function festNear() {
+  if (!curFest) return -1;
+  const day = islandDay(world.clock, Date.now());
+  let best = -1;
+  let bestD = 13;
+  festFinds(island, curFest.id, day).forEach((p, i) => {
+    const d = Math.hypot(p.x - player.x, (p.y - player.y) * 1.4);
+    if (d >= bestD || !festFindLeft(world, curFest!.id, i, day) || world.builtAt(p.x, p.y, 2, 2)) return;
+    bestD = d;
+    best = i;
+  });
+  return best;
+}
 function pickNear() {
   let best = -1;
   let bestD = 11;
@@ -357,12 +403,13 @@ function tradeData(): TradeData {
   const offers = horseOffers(islandDay(world.clock, now), world.album.horses.length);
   return {
     coins: world.coins,
-    have: { turnip: farm.turnips, meal: farm.meals, wood: world.wood, hay: farm.hay, apple: world.apples, berry: world.berries, ...Object.fromEntries(FISH.map((f) => [`fish:${f.id}`, world.fish[f.id] ?? 0])), ...Object.fromEntries(DISH_IDS.map((id) => [`dish:${id}`, world.dishes[id] ?? 0])) },
+    have: { turnip: farm.turnips, meal: farm.meals, wood: world.wood, hay: farm.hay, apple: world.apples, berry: world.berries, ...Object.fromEntries(FISH.map((f) => [`fish:${f.id}`, world.fish[f.id] ?? 0])), ...Object.fromEntries(DISH_IDS.map((id) => [`dish:${id}`, world.dishes[id] ?? 0])), ...Object.fromEntries(SHELLS.map((x) => [`sea:${x.id}`, world.treasures[x.id] ?? 0])) },
     sell: [
       ...(Object.keys(SELL) as SellItem[]).map((id) => ({ id, name: SELL_NAMES[id], price: SELL[id], img: id === 'wood' ? icons.log : id === 'meal' ? icons.meal : id === 'hay' ? icons.hay : id === 'apple' ? icons.apple : id === 'berry' ? icons.berry : icons.turnip })),
       // Fische und Gerichte nur, wenn man welche hat
       ...FISH.filter((f) => f.price && world.fish[f.id]).map((f) => ({ id: `fish:${f.id}`, name: f.name, price: f.price, img: fishPhoto(f.id) })),
       ...DISH_IDS.filter((id) => world.dishes[id]).map((id) => ({ id: `dish:${id}`, name: recipeById(id)!.name, price: recipeById(id)!.price, img: icons[id] })),
+      ...SHELLS.filter((x) => x.price && world.treasures[x.id]).map((x) => ({ id: `sea:${x.id}`, name: x.name, price: x.price, img: seaPhoto(x.id) })),
     ],
     seeds: { n: SEED_PACK.n, price: SEED_PACK.price, img: icons.seeds },
     deco: DECO.map((d) => ({ id: d.id, name: d.name, price: d.price, img: decoIcon(d.id), owned: world.album.deco.includes(d.id) })),
@@ -402,6 +449,14 @@ function openAlbum() {
       { title: 'Deko', items: DECO.map((d) => ({ name: d.name, img: decoIcon(d.id), has: world.album.deco.includes(d.id) })) },
       { title: 'Fische', items: FISH.map((f) => ({ name: f.name, img: fishPhoto(f.id), has: (world.album.fish ?? []).includes(f.id), rare: !f.cook && f.price > 0 })) },
       { title: 'Bewohner', items: VILLAGERS.map((v) => ({ name: v.name, img: villagerPhoto(v.id), has: (world.album.folk ?? []).includes(v.id) })) },
+      { title: 'Strandgut', items: ALBUM_SHELLS.map((x) => ({ name: x.name, img: seaPhoto(x.id), has: (world.album.sea ?? []).includes(x.id), rare: x.price >= 10 })) },
+      ...FESTS.map((f) => ({
+        title: f.name,
+        items: f.shop.map((it) => {
+          const no = Number(Object.entries(FEST_HAT).find(([, h]) => h === it.id)?.[0] ?? -1);
+          return { name: it.name, img: it.kind === 'hat' ? hatPhoto(no) : decoIcon(it.id), has: world.album.deco.includes(it.id), rare: it.kind === 'hat' };
+        }),
+      })),
     ],
     count: albumCount(world.album),
     total: ALBUM_TOTAL,
@@ -460,6 +515,16 @@ function intent(): { kind: Intent; tree: number; tile: [number, number] } {
   if (world.fireNear(player.x, player.y, 20) >= 0) return { kind: 'cook', tree: -1, tile };
   // am Bestellbrett
   if (Math.hypot(BOARD.x - player.x, (BOARD.y - player.y) * 1.3) < 14) return { kind: 'orders', tree: -1, tile };
+  // Festladen am Steg
+  if (curFest) {
+    const sp = stallSpot(island);
+    if (Math.hypot(sp.x - player.x, (sp.y - player.y) * 1.2) < 19) return { kind: 'fest', tree: -1, tile };
+  }
+  // Strandgut und Fest-Fundstücke vor den Füßen
+  const bn = beachNear();
+  if (bn >= 0) return { kind: 'beach', tree: bn, tile };
+  const fn = festNear();
+  if (fn >= 0) return { kind: 'festfind', tree: fn, tile };
   // Stock oder Stein vor den Füßen: aufheben
   const pk = pickNear();
   if (pk >= 0) return { kind: 'pick', tree: pk, tile };
@@ -558,7 +623,12 @@ function useTool() {
   const kind = swingTool === 'scythe' ? 'mow' : swingTool;
   if (!spend(kind)) return;
   // nach Ernten/Auffüllen nicht gleich weitermachen – erst loslassen
-  if (swingTool === 'harvest' || swingTool === 'refill' || swingTool === 'cook' || swingTool === 'rake' || swingTool === 'shake') actHeld = false;
+  if (swingTool === 'harvest' || swingTool === 'refill' || swingTool === 'cook' || swingTool === 'rake' || swingTool === 'shake' || swingTool === 'beach' || swingTool === 'festfind') actHeld = false;
+  if (kind === 'beach') return void doAction({ kind: 'beach', n: chopTarget });
+  if (kind === 'festfind') {
+    if (!curFest) return;
+    return void doAction({ kind: 'festfind', item: curFest.id, n: chopTarget });
+  }
   // Axt: ihre Stufe fällt schneller (wird beim Abgleich mitgeschickt)
   const err = doAction({ kind, c, r, tree: chopTarget, ...(kind === 'axe' ? { n: upLevel(bag(), 'axe') } : {}) });
   if (err) return hud?.toast(err);
@@ -720,6 +790,18 @@ function invData(): InvData {
     text: `${f.text}${f.cook ? ' Am Lagerfeuer braten.' : ''}${f.price ? ` Händler zahlt ${f.price} Münzen.` : ''}`,
     acts: [],
   }));
+  const sea = SHELLS.filter((x) => world.treasures[x.id]).map((x) => ({
+    id: `sea:${x.id}`,
+    name: x.name,
+    img: seaPhoto(x.id),
+    n: world.treasures[x.id],
+    text: `${x.text} Händler zahlt ${x.price} Münzen.`,
+    acts: [],
+  }));
+  // Fest-Währung (Bonbons, Plätzchen) – auch nach dem Fest
+  for (const f of FESTS)
+    if (world.fest.coins[f.id])
+      sea.push({ id: `fest:${f.id}`, name: f.coin.name, img: f.id === 'winter' ? icons.cookie : icons.candy, n: world.fest.coins[f.id]!, text: `Zum Eintauschen am Stand beim Steg (${f.name}).`, acts: [] });
   const decos = Object.entries(world.decoInv)
     .filter(([, n]) => n > 0)
     .map(([id, n]) => ({ id: `deco:${id}`, name: decoById(id)?.name ?? id, img: decoIcon(id), n, text: 'Gekauft beim Händler – stell es auf deiner Insel auf.', acts: [{ id: 'place', label: 'Aufstellen' }] }));
@@ -732,6 +814,7 @@ function invData(): InvData {
       { title: 'Essen', empty: 'Nichts zu essen – rüttel an Obstbäumen oder pflück Beeren.', items: foods },
       { title: 'Material', empty: 'Noch nichts gesammelt.', items: mat },
       ...(fish.length ? [{ title: 'Fische', items: fish }] : []),
+      ...(sea.length ? [{ title: 'Strandgut', items: sea }] : []),
       ...(decos.length ? [{ title: 'Deko', items: decos }] : []),
     ],
   };
@@ -951,13 +1034,22 @@ function villagerData(i: number): VillagerData {
       { at: MAX_HEARTS, text: `beste Freunde (+${BEST_FRIEND_COINS} Münzen)`, got: v.hearts >= MAX_HEARTS },
     ],
     night: !!tod?.night,
+    fest: curFest
+      ? {
+          title: curFest.visit.say,
+          text: `${def.name} schenkt dir ${curFest.visit.gives} ${curFest.coin.name}.`,
+          img: curFest.id === 'winter' ? icons.cookie : icons.candy,
+          can: !festVisited(world, v.id, day) && (!curFest.visit.night || !!tod?.night),
+          why: festVisited(world, v.id, day) ? 'Heute warst du schon da – morgen wieder!' : 'Komm wieder, wenn es dunkel ist!',
+        }
+      : undefined,
   };
 }
 function openVillager(i: number) {
   if (!world.villagers[i]) return;
   sfx('click');
   folkOpen = i;
-  folkUI = hud?.openVillager(villagerData(i), hearts, { give: () => giveWish(i), present: () => takeGift(i) }) ?? null;
+  folkUI = hud?.openVillager(villagerData(i), hearts, { give: () => giveWish(i), present: () => takeGift(i), fest: () => festKnock(i) }) ?? null;
 }
 /** sich freuen: Herzchen und ein Hüpfer */
 function folkCheer(id: string, n: number) {
@@ -1013,6 +1105,136 @@ function folkWelcome(id: string) {
         { img: hearts[0], text: '3 Herzen: eine Überraschung · 6 Herzen: jeden Tag ein Geschenk · 10 Herzen: beste Freunde!' },
       ],
       ok: 'Willkommen!',
+    },
+    () => sfx('click'),
+  );
+}
+
+// ---------- Feste, Strandgut, Tagesgeschenk ----------
+/** Bild zu einem Strandgut */
+const beachImg = (id: string) => (id === 'bottle' ? icons.bottle : seaPhoto(id));
+const festCoinImg = () => (curFest?.id === 'winter' ? icons.cookie : icons.candy);
+/** Süßes oder Saures beim Bewohner */
+function festKnock(i: number) {
+  const v = world.villagers[i];
+  if (!curFest || !v) return;
+  const err = doAction({ kind: 'festvisit', item: curFest.id, arg: v.id });
+  if (err) return hud?.toast(err);
+  sfx('coin');
+  folkCheer(v.id, 2);
+  const s = walkers.get(v.id);
+  floats.push({ x: s?.x ?? v.x, y: s?.y ?? v.y + 7, h: 2.2, text: `+${curFest.visit.gives} ${curFest.coin.name}`, life: 1.8 });
+  hud?.toast(`${villagerById(v.id)?.name}: „${curFest.visit.say}“`);
+  folkUI?.update(villagerData(i));
+}
+let festUI: { update(d: FestShopData): void } | null = null;
+function festShopData(): FestShopData | null {
+  const f = curFest;
+  if (!f) return null;
+  return {
+    title: f.id === 'winter' ? 'Festtagsstand' : 'Kürbisstand',
+    text: f.hello,
+    coin: { name: f.coin.name, img: festCoinImg(), n: world.fest.coins[f.id] ?? 0 },
+    items: f.shop.map((it) => {
+      const hatNo = Number(Object.entries(FEST_HAT).find(([, id]) => id === it.id)?.[0] ?? -1);
+      return { id: it.id, name: it.name, text: it.text, img: it.kind === 'hat' ? hatPhoto(hatNo) : decoIcon(it.id), price: it.price, have: world.decoInv[it.id] ?? 0, hat: it.kind === 'hat', owned: (save.hats ?? []).includes(it.id) };
+    }),
+  };
+}
+function openFestShop() {
+  const d = festShopData();
+  if (!d || !curFest) return;
+  sfx('coin');
+  const fest = curFest;
+  festUI =
+    hud?.openFestShop(d, (id) => {
+      const err = doAction({ kind: 'festbuy', item: fest.id, arg: id });
+      if (err) return hud?.toast(err);
+      sfx('quest');
+      const it = fest.shop.find((x) => x.id === id);
+      if (it?.kind === 'deco') hud?.toast(`${it.name} gekauft – im Bau-Menü aufstellen`);
+      const nd = festShopData();
+      if (nd) festUI?.update(nd);
+    }) ?? null;
+}
+/** Fest-Hut gekauft: für die Figur freischalten und gleich aufsetzen? */
+function unlockHat(id: string) {
+  const no = Number(Object.entries(FEST_HAT).find(([, h]) => h === id)?.[0] ?? -1);
+  if (no < 0) return;
+  save.hats = [...new Set([...(save.hats ?? []), id])];
+  writeSave(save);
+  hud?.intro(
+    { title: `${HATS[no]} freigeschaltet!`, text: 'Du findest ihn jetzt auch im Menü unter „Aussehen“.', steps: [{ img: hatPhoto(no), text: 'Soll deine Figur ihn gleich aufsetzen?' }], ok: 'Aufsetzen!' },
+    () => {
+      save.look = { ...save.look, hat: no };
+      writeSave(save);
+      sfx('quest');
+    },
+  );
+}
+/** Brief aus der Flaschenpost zeigen */
+function showLetter(n: number, gift?: { coins?: number; seeds?: number; wood?: number }) {
+  const L = LETTERS[n % LETTERS.length];
+  const g = gift ? [gift.coins ? `${gift.coins} Münzen` : '', gift.seeds ? `${gift.seeds} Samen` : '', gift.wood ? `${gift.wood} Holz` : ''].filter(Boolean).join(', ') : '';
+  setTimeout(() => {
+    sfx('quest');
+    hud?.openLetter({ from: L.from, text: L.text, gift: g, img: icons.bottle }, () => sfx('click'));
+  }, 450);
+}
+/** Bild und Text zu einem Feld im Tageskalender */
+function dailyCell(g: DailyGift, deco: string): { img: string; label: string } {
+  if (g.deco) return { img: decoIcon(deco), label: `${g.coins} Münzen + ${decoById(deco)?.name ?? 'Deko'}` };
+  if (g.coins) return { img: icons.coin, label: `${g.coins} Münzen` };
+  if (g.seeds) return { img: icons.seeds, label: `${g.seeds} Samen` };
+  if (g.wood) return { img: icons.log, label: `${g.wood} Holz` };
+  if (g.dish) return { img: icons[g.dish as 'apfelkuchen'], label: recipeById(g.dish)?.name ?? 'Leckerei' };
+  return { img: icons.apple, label: `${g.apples} Äpfel` };
+}
+/** einmal am Tag: Tagesgeschenk anbieten (danach weiter mit next) */
+function maybeDaily(next: () => void) {
+  const d = cleanDaily(save.daily);
+  const key = dayKey(today());
+  if (!hud || dailyDone(d, key) || bag().tut < TUTORIAL.length) return next();
+  const idx = dailyIndex(d);
+  const deco = weeklyDeco(d);
+  hud.openDaily(
+    {
+      note: d.total ? `Schön, dass du wieder da bist! Schon ${d.total} Geschenke abgeholt.` : 'Jeden Tag, an dem du spielst, wartet ein Geschenk. Am 7. Tag gibt es etwas ganz Besonderes!',
+      cells: CALENDAR.map((g, i) => ({ ...dailyCell(g, deco), state: i < idx ? 'got' : i === idx ? 'today' : 'next' })),
+    },
+    () => {
+      const g = CALENDAR[idx];
+      const err = doAction({ kind: 'daily', n: idx, ...(g.deco ? { arg: deco } : {}) });
+      if (err) return hud?.toast(err);
+      save.daily = { last: key, total: d.total + 1 };
+      writeSave(save);
+      sfx('quest');
+      const c = dailyCell(g, deco);
+      floats.push({ x: player.x, y: player.y, h: 2.6, text: `+${c.label}`, life: 2.2 });
+      if (g.deco) hud?.toast(`${decoById(deco)?.name} liegt im Bau-Menü zum Aufstellen bereit`);
+      setTimeout(next, 1000);
+    },
+  );
+}
+/** Fest beginnt: einmal pro Jahr begrüßen */
+function maybeFestHello() {
+  const f = curFest;
+  if (!hud || !f || bag().tut < TUTORIAL.length) return;
+  const key = `${f.id}-${today().getFullYear()}`;
+  if ((save.seen ?? []).includes(key)) return;
+  save.seen = [...(save.seen ?? []), key];
+  writeSave(save);
+  sfx('quest');
+  hud.intro(
+    {
+      title: f.id === 'winter' ? 'Das Winterfest ist da!' : 'Halloween auf der Insel!',
+      text: f.hello,
+      steps: [
+        { img: f.id === 'winter' ? icons.gift : icons.pumpkin, text: `Jeden Tag liegen ${f.find.perDay} ${f.id === 'winter' ? 'Geschenke' : 'Kürbisse'} auf der Insel – je ${f.find.gives} ${f.coin.one}.` },
+        { img: festCoinImg(), text: `${f.visit.night ? 'Nachts' : 'Jeden Tag'} bei deinen Bewohnern klopfen: „${f.visit.say}“` },
+        { img: f.id === 'winter' ? icons.stallWinter : icons.stall, text: `Am Stand beim Steg tauschst du ${f.coin.name} gegen Deko und einen Hut.` },
+      ],
+      ok: 'Juhu!',
     },
     () => sfx('click'),
   );
@@ -1302,6 +1524,9 @@ function syncHud() {
   ordersUI?.update(od);
   if (folkUI && world.villagers[folkOpen]) folkUI.update(villagerData(folkOpen));
   hud.setOrders(od.list.filter((o) => !o.done && o.need.every((x) => x.have >= x.n)).length);
+  hud.setFest(curFest && bag().tut >= TUTORIAL.length ? `${curFest.name} · ${world.fest.coins[curFest.id] ?? 0} ${curFest.coin.name}` : null, festCoinImg());
+  const fd = festShopData();
+  if (fd) festUI?.update(fd);
   hud.setEnergy(energy());
   hud.setSlots(farm.seeds, farm.water, farm.capacity, farm.hasCan, farm.hay);
   hud.setCoins(world.coins);
@@ -1724,6 +1949,7 @@ function startPlay() {
       bag: openInventory,
       project: openProject,
       orders: openOrders,
+      fest: openFestShop,
       place: (what, item) => startPlacing(what, item),
       houses: () => ({ small: world.houses.filter((h) => !h.big).length, total: world.houses.length, coins: world.coins }),
       enlarge: enlargeHouse,
@@ -1779,6 +2005,7 @@ function startPlay() {
   }
   hint.classList.remove('gone');
   setTimeout(() => hint.classList.add('gone'), 6000);
+  maybeDaily(maybeFestHello);
 }
 function startPlacing(what: BuildKind, item?: string) {
   placing = true;
@@ -2175,14 +2402,14 @@ function frame(now: number) {
     // Werkzeug benutzen
     if (!placing) {
       const it = intent();
-      hud?.setAction(!!it.kind || !!fishing, fishing ? icons.rod : it.kind === 'trade' ? icons.coin : it.kind === 'project' ? icons.craft : it.kind === 'cook' ? icons.meal : it.kind === 'orders' ? icons.board : it.kind === 'villager' ? villagerPhoto(world.villagers[it.tree]?.id ?? 'hase') : it.kind === 'coach' ? icons.coach : it.kind === 'stable' ? icons.stable : it.kind === 'horse' || it.kind === 'dismount' ? horseIcon(world.horses[it.tree]?.breed ?? '', !!world.horses[it.tree] && isFoal(world.horses[it.tree], Date.now())) : it.kind && ROOM_ACTS.has(it.kind) ? icons.house : it.kind === 'harvest' ? icons.turnip : it.kind === 'rake' ? icons.hay : it.kind === 'pick' ? (island.pickups[it.tree]?.kind === 'stone' ? icons.stone : icons.stick) : it.kind === 'shake' ? (island.decor[it.tree]?.kind === 'bush' ? icons.berry : icons.apple) : it.kind === 'fish' || fishing ? icons.rod : it.kind === 'refill' ? (farm.hasCan ? icons.can : icons.bucket) : icons[tool === 'water' ? (farm.hasCan ? 'can' : 'bucket') : tool]);
+      hud?.setAction(!!it.kind || !!fishing, fishing ? icons.rod : it.kind === 'trade' ? icons.coin : it.kind === 'project' ? icons.craft : it.kind === 'cook' ? icons.meal : it.kind === 'orders' ? icons.board : it.kind === 'villager' ? villagerPhoto(world.villagers[it.tree]?.id ?? 'hase') : it.kind === 'coach' ? icons.coach : it.kind === 'fest' ? (curFest?.id === 'winter' ? icons.stallWinter : icons.stall) : it.kind === 'festfind' ? (curFest?.id === 'winter' ? icons.gift : icons.pumpkin) : it.kind === 'beach' ? beachImg(beachToday(island, islandDay(world.clock, Date.now()))[it.tree]?.id ?? 'muschel') : it.kind === 'stable' ? icons.stable : it.kind === 'horse' || it.kind === 'dismount' ? horseIcon(world.horses[it.tree]?.breed ?? '', !!world.horses[it.tree] && isFoal(world.horses[it.tree], Date.now())) : it.kind && ROOM_ACTS.has(it.kind) ? icons.house : it.kind === 'harvest' ? icons.turnip : it.kind === 'rake' ? icons.hay : it.kind === 'pick' ? (island.pickups[it.tree]?.kind === 'stone' ? icons.stone : icons.stick) : it.kind === 'shake' ? (island.decor[it.tree]?.kind === 'bush' ? icons.berry : icons.apple) : it.kind === 'fish' || fishing ? icons.rod : it.kind === 'refill' ? (farm.hasCan ? icons.can : icons.bucket) : icons[tool === 'water' ? (farm.hasCan ? 'can' : 'bucket') : tool]);
       if (actHeld && swing <= 0 && it.kind && ROOM_ACTS.has(it.kind)) {
         actHeld = false;
         roomAction(it.kind, it.tree);
       } else if (actHeld && swing <= 0 && it.kind) {
         swingTool = it.kind as typeof swingTool;
         swingTile = it.tile;
-        if (it.kind === 'pick' || it.kind === 'shake') chopTarget = it.tree;
+        if (it.kind === 'pick' || it.kind === 'shake' || it.kind === 'beach' || it.kind === 'festfind') chopTarget = it.tree;
         if (it.kind === 'axe') {
           chopTarget = it.tree;
           const d = island.decor[it.tree];
@@ -2191,7 +2418,7 @@ function frame(now: number) {
           const dy = d.y - player.y;
           player.dir = Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? Dir.Right : Dir.Left) : dy > 0 ? Dir.Down : Dir.Up;
         }
-        swing = it.kind === 'seeds' || it.kind === 'harvest' || it.kind === 'rake' || it.kind === 'pick' || it.kind === 'shake' ? SWING * 0.7 : SWING;
+        swing = it.kind === 'seeds' || it.kind === 'harvest' || it.kind === 'rake' || it.kind === 'pick' || it.kind === 'shake' || it.kind === 'beach' || it.kind === 'festfind' ? SWING * 0.7 : SWING;
         swingAt = Date.now();
         swingTl = it.kind;
       }
@@ -2283,6 +2510,8 @@ function frame(now: number) {
     guide: play && !placing ? guideTarget() : null,
     fishing: play && fishing ? { x: fishing.x, y: fishing.y, bite: fishing.bit } : null,
     folk: play ? folkFrame(nowMs) : [],
+    day: islandDay(world.clock, nowMs),
+    fest: curFest?.id ?? null,
     inside,
   });
   drawOverlay(t, dt, nowMs);
@@ -2462,7 +2691,7 @@ function drawOverlay(t: number, dt: number, nowMs: number) {
 let tod: TimeOfDay | null = null;
 
 // ---------- Im Haus ----------
-const ROOM_ACTS = new Set<Intent>(['enter', 'exit', 'sleep', 'chest', 'furnish', 'stable', 'horse', 'dismount', 'trade', 'project', 'cook', 'orders', 'villager', 'coach']);
+const ROOM_ACTS = new Set<Intent>(['enter', 'exit', 'sleep', 'chest', 'furnish', 'stable', 'horse', 'dismount', 'trade', 'project', 'cook', 'orders', 'villager', 'coach', 'fest']);
 function mount(i: number) {
   const p = horseAt(i);
   if (!p) return;
@@ -2647,6 +2876,7 @@ function roomAction(kind: Intent, slot: number) {
   if (kind === 'orders') return openOrders();
   if (kind === 'villager') return openVillager(slot);
   if (kind === 'coach') return openCoach(slot);
+  if (kind === 'fest') return openFestShop();
   if (kind === 'chest')
     return hud?.openChest([
       ['Holz', world.wood],
@@ -2698,4 +2928,8 @@ function roomAction(kind: Intent, slot: number) {
   swingNow: (tl: typeof swingTool) => ((swingTool = tl), (swing = SWING * 0.5)),
   fishing: () => fishing,
   folk: () => walkers,
+  debugFinds: () => {
+    const day = islandDay(world.clock, Date.now());
+    return { beach: beachToday(island, day), fest: curFest ? festFinds(island, curFest.id, day) : [] };
+  },
   doAction, get mode() { return mode; }, get mates() { return mates; }, cloudSync, pid, horsePos: (i: number) => horseAt(i), get riding() { return riding; } };

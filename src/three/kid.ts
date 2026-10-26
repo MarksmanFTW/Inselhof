@@ -50,7 +50,7 @@ function headGeo(look: Look) {
   const cap = (s = 1.07, len = 0.52) => new THREE.SphereGeometry(0.4 * s, 22, 12, 0, Math.PI * 2, 0, Math.PI * len);
   const style = look.hair;
   // Mütze und Kopftuch bedecken den Haaransatz: dann keine Fransen und Locken obendrauf
-  const covered = look.hat === 2 || look.hat === 3;
+  const covered = look.hat === 2 || look.hat === 3 || look.hat === 6;
   if (style !== 5) {
     b.add(cap(), hair, { p: [0, 0.02, -0.03], r: [-0.25, 0, 0] });
     // Stirnfransen
@@ -89,6 +89,19 @@ function headGeo(look: Look) {
     for (const [x, y, z] of [[-0.2, 0.3, 0.2], [0.15, 0.35, 0.18], [0, 0.4, -0.1], [-0.25, 0.2, -0.25], [0.28, 0.22, -0.2]] as const) b.add(sphere(0.035, 6), '#f4f0e6', { p: [x, y, z] });
     b.add(sphere(0.1, 8), '#e0564a', { p: [0, -0.05, -0.43] });
     for (const x of [-1, 1]) b.add(cone(0.06, 0.2, 6), '#e0564a', { p: [x * 0.07, -0.18, -0.45], r: [0.3, 0, x * 0.4] });
+  } else if (hat === 5) {
+    // Hexenhut: breite Krempe, spitz und etwas geknickt, mit Band und Schnalle
+    b.add(cyl(0.7, 0.7, 0.05, 28), '#3a2e52', { p: [0, 0.3, 0], r: [-0.12, 0, 0] });
+    b.add(cone(0.36, 0.55, 20), '#3a2e52', { p: [0, 0.6, -0.05], r: [-0.12, 0, 0] });
+    b.add(cone(0.16, 0.32, 14), '#3a2e52', { p: [0.06, 0.95, -0.12], r: [-0.3, 0, -0.5] });
+    b.add(cyl(0.355, 0.36, 0.08, 22), '#8a5ad0', { p: [0, 0.37, -0.01], r: [-0.12, 0, 0] });
+    b.add(rbox(0.12, 0.1, 0.04, 0.02), '#ffd23f', { p: [0, 0.37, 0.35], r: [-0.12, 0, 0] });
+  } else if (hat === 6) {
+    // Zipfelmütze mit weißem Rand und Bommel
+    b.add(new THREE.SphereGeometry(0.43, 20, 10, 0, Math.PI * 2, 0, Math.PI * 0.5), '#e0485a', { p: [0, 0.06, -0.02], r: [-0.15, 0, 0] });
+    b.add(cone(0.3, 0.5, 16), '#e0485a', { p: [0.08, 0.55, -0.12], r: [-0.4, 0, -0.45] });
+    b.add(new THREE.TorusGeometry(0.41, 0.08, 8, 24), '#f8f4f0', { p: [0, 0.1, 0.0], r: [Math.PI / 2 - 0.15, 0, 0] });
+    b.add(sphere(0.11, 10), '#f8f4f0', { p: [0.24, 0.76, -0.24] });
   } else if (hat === 4) {
     for (let k = 0; k < 5; k++) {
       const a = (k / 5) * Math.PI * 2;

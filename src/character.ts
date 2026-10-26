@@ -19,7 +19,10 @@ export const HAIR_COLORS = ['#5a3a22', '#2a2026', '#e8c25a', '#c8582c', '#eae4dc
 export const SHIRTS = ['#e0564a', '#4a8ad0', '#f2c14e', '#5fae63', '#f4f0e6', '#9a6ad0', '#f08ab0', '#3a3a4a'];
 export const PANTS = ['#4a6a9a', '#6a4a32', '#3a3a44', '#7a8a52', '#c8b088', '#8a3a3a'];
 export const HAIRS = ['Kurz', 'Wuschel', 'Lang', 'Zopf', 'Glatt', 'Glatze'];
-export const HATS = ['Keiner', 'Strohhut', 'Mütze', 'Kopftuch', 'Blume'];
+export const HATS = ['Keiner', 'Strohhut', 'Mütze', 'Kopftuch', 'Blume', 'Hexenhut', 'Zipfelmütze'];
+/** Hüte aus den Festläden: erst nach dem Kauf wählbar (Nummer → Kennung) */
+export const FEST_HAT: Record<number, string> = { 5: 'witch', 6: 'santa' };
+const BASE_HATS = 5;
 export const PARTS = [
   { key: 'skin', label: 'Haut', count: SKINS.length },
   { key: 'hair', label: 'Frisur', count: HAIRS.length, names: HAIRS },
@@ -39,7 +42,7 @@ export function randomLook(r = Math.random): Look {
     hairColor: pick(HAIR_COLORS.length),
     shirt: pick(SHIRTS.length),
     pants: pick(PANTS.length),
-    hat: r() < 0.5 ? 0 : 1 + pick(HATS.length - 1),
+    hat: r() < 0.5 ? 0 : 1 + pick(BASE_HATS - 1),
   };
 }
 

@@ -4,7 +4,8 @@
  * Gemeinsame Inseln (Koop) haben bei beiden Spielern dieselbe id und werden über
  * island.php abgeglichen (Aktions-Protokoll, siehe cloud.ts) – allein, nacheinander oder gleichzeitig.
  */
-import { DEFAULT_LOOK, PARTS, type Look } from './character';
+import { DEFAULT_LOOK, FEST_HAT, PARTS, type Look } from './character';
+import { cleanDaily } from './daily';
 import type { FarmSave } from './farm';
 import type { IslandState } from './net/types';
 import type { Op } from './ops';
@@ -45,6 +46,12 @@ export interface Save {
   created: boolean;
   slots: Slot[];
   active: string;
+  /** Hüte aus Festläden, die schon gekauft sind ('witch', 'santa') */
+  hats?: string[];
+  /** Tagesgeschenk (gehört dem Spieler, nicht der Insel) */
+  daily?: { last: string; total: number };
+  /** schon begrüßte Feste (z. B. 'halloween-2026') und gesehene Neuigkeiten */
+  seen?: string[];
 }
 
 const KEY = 'cozyisland.save';
@@ -91,6 +98,14 @@ export function loadSave(): Save {
       // Werte außerhalb der Auswahl (ältere Versionen) zurücksetzen
       for (const p of PARTS) if (!(look[p.key] >= 0 && look[p.key] < p.count)) look[p.key] = DEFAULT_LOOK[p.key];
       out = { look, name: String(raw.name ?? '').slice(0, 12), created: !!raw.created, slots: [], active: String(raw.active ?? '') };
+      const strs = (l: unknown) => (Array.isArray(l) ? l.filter((x): x is string => typeof x === 'string').slice(0, 100) : []);
+      const hats = strs(raw.hats);
+      if (hats.length) out.hats = hats;
+      // Fest-Hut ohne Kauf (oder kaputt) → Strohhut
+      if (FEST_HAT[look.hat] && !hats.includes(FEST_HAT[look.hat])) look.hat = DEFAULT_LOOK.hat;
+      if (raw.daily && typeof raw.daily === 'object') out.daily = cleanDaily(raw.daily);
+      const seen = strs(raw.seen);
+      if (seen.length) out.seen = seen;
       if (Array.isArray(raw.slots)) {
         out.slots = raw.slots
           .filter((x) => x && typeof x.id === 'string')

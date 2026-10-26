@@ -6,10 +6,14 @@
 import { RARE_BREEDS, STABLE_BREEDS } from './horses';
 import { FISH } from './fish';
 import { VILLAGERS } from './villagers';
+import { ALBUM_SHELLS, SHELLS } from './beach';
+import { FEST_DECO, FEST_HATS } from './season';
 import { timeOf, type Clock } from './time';
 
 /** Verkaufspreise in Münzen pro Stück */
 export const SELL = { turnip: 4, meal: 10, wood: 1, hay: 2, apple: 1, berry: 1 } as const;
+/** Strandgut beim Händler (Preis je Stück) */
+export const SHELL_PRICE: Record<string, number> = Object.fromEntries(SHELLS.filter((s) => s.price).map((s) => [s.id, s.price]));
 export type SellItem = keyof typeof SELL;
 export const SELL_NAMES: Record<SellItem, string> = { turnip: 'Rübe', meal: 'Ofenrübe', wood: 'Holz', hay: 'Heu', apple: 'Apfel', berry: 'Beeren' };
 /** Samen gibt es im Päckchen */
@@ -25,7 +29,10 @@ export const DECO = [
   { id: 'well', name: 'Brunnen', price: 60 },
 ] as const;
 export type DecoId = (typeof DECO)[number]['id'];
-export const decoById = (id: string) => DECO.find((d) => d.id === id);
+/** Deko vom Händler oder aus einem Festladen */
+export const decoById = (id: string): { id: string; name: string } | undefined => DECO.find((d) => d.id === id) ?? FEST_DECO.find((d) => d.id === id);
+/** nur was der Händler verkauft */
+export const merchantDeco = (id: string) => DECO.find((d) => d.id === id);
 export interface Deco {
   x: number;
   y: number;
@@ -70,8 +77,10 @@ export interface Album {
   fish?: string[];
   /** eingezogene Bewohner */
   folk?: string[];
+  /** Strandgut */
+  sea?: string[];
 }
-export const ALBUM_TOTAL = STABLE_BREEDS.length + RARE_BREEDS.length + DECO.length + FISH.length + VILLAGERS.length;
+export const ALBUM_TOTAL = STABLE_BREEDS.length + RARE_BREEDS.length + DECO.length + FISH.length + VILLAGERS.length + ALBUM_SHELLS.length + FEST_DECO.length + FEST_HATS.length;
 /** Belohnungen: ab so vielen Einträgen gibt es Münzen */
 export const ALBUM_REWARDS = [
   { at: 5, coins: 20 },
@@ -80,10 +89,11 @@ export const ALBUM_REWARDS = [
   { at: 20, coins: 100 },
   { at: ALBUM_TOTAL, coins: 250 },
 ];
-export const albumCount = (a: Album) => a.horses.length + a.deco.length + (a.fish?.length ?? 0) + (a.folk?.length ?? 0);
+export const albumCount = (a: Album) => a.horses.length + a.deco.length + (a.fish?.length ?? 0) + (a.folk?.length ?? 0) + (a.sea?.length ?? 0);
 export function cleanAlbum(a: Partial<Album> | undefined): Album {
   const ok = (l: unknown) => (Array.isArray(l) ? [...new Set(l.filter((x): x is string => typeof x === 'string'))] : []);
   const fish = ok(a?.fish).filter((id) => FISH.some((f) => f.id === id));
   const folk = ok(a?.folk).filter((id) => VILLAGERS.some((v) => v.id === id));
-  return { horses: ok(a?.horses), deco: ok(a?.deco), ...(fish.length ? { fish } : {}), ...(folk.length ? { folk } : {}) };
+  const sea = ok(a?.sea).filter((id) => ALBUM_SHELLS.some((s) => s.id === id));
+  return { horses: ok(a?.horses), deco: ok(a?.deco), ...(fish.length ? { fish } : {}), ...(folk.length ? { folk } : {}), ...(sea.length ? { sea } : {}) };
 }

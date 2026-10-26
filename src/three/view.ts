@@ -21,6 +21,10 @@ import { makeHorse, type HorseModel } from './horse';
 import { Interior } from './interior3d';
 import { makeKid, type Kid } from './kid';
 import { hut, makeAnimal, type Animal } from './folk';
+import { bat, beachItem, festFind, festStall } from './festart';
+import { BOTTLE, beachLeft, beachToday } from '../beach';
+import { festFindLeft, festFinds, stallSpot } from '../fest';
+import type { FestId, Season } from '../season';
 import * as M from './models';
 import { WATER_Y, buildTerrain, type Terrain } from './terrain';
 
@@ -67,6 +71,9 @@ export interface Frame {
   fishing: { x: number; y: number; bite: boolean } | null;
   /** Bewohner: wo sie gerade sind; wish = „!“ (wünscht sich heute etwas), happy = freut sich (s) */
   folk: { id: string; x: number; y: number; yaw: number; moving: boolean; wish: boolean; happy: number; hidden: boolean }[];
+  /** Inseltag (Strandgut) und laufendes Fest */
+  day: number;
+  fest: FestId | null;
   inside: number;
 }
 
@@ -142,6 +149,18 @@ export class View {
   private kids = new Map<string, KidSlot>();
   private folk = new Map<string, FolkSlot>();
   private bubbleTex: THREE.Texture;
+  private sparkTex: THREE.Texture;
+  /** Strandgut und Fest-Fundstücke (Schlüssel: Art:Tag:Nummer) */
+  private finds = new Map<string, { o: THREE.Object3D; spark: THREE.Sprite; x: number; y: number; ph: number; check: () => boolean }>();
+  private findsKey = '';
+  private stall: THREE.Object3D | null = null;
+  private stallFest: FestId | null = null;
+  private bats: { g: THREE.Group; wings: THREE.Mesh[]; ph: number; r: number; h: number }[] = [];
+  /** Halloween: Laternen vor Häusern und Hütten */
+  private lanterns = new THREE.Group();
+  private lanternKey = '';
+  private snow: THREE.Points | null = null;
+  private hovers: THREE.Object3D[] = [];
   private worldVer = -1;
   private farmVer = -1;
   private farmT = 0;
@@ -188,7 +207,9 @@ export class View {
     readonly world: World,
     readonly farm: Farm,
     host: HTMLElement,
+    readonly season: Season = 'summer',
   ) {
+    M.setSeason(season);
     const r = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
     r.outputColorSpace = THREE.SRGBColorSpace;
     r.toneMapping = THREE.ACESFilmicToneMapping;
@@ -208,7 +229,7 @@ export class View {
     s.add(this.sun, this.sun.target, this.lampLight, this.fireLight);
 
     // Gelände und Natur
-    this.terrain = buildTerrain(isl);
+    this.terrain = buildTerrain(isl, season);
     s.add(this.terrain.group);
     isl.decor.forEach((d, i) => this.decor.push(this.makeDecor(d.kind, d.variant, d.x, d.y, d.flip, i)));
     for (const p of isl.pickups) {
@@ -282,6 +303,43 @@ export class View {
       x.arc(22, 22, 6, 0, 7);
       x.fill();
     });
+    // Glitzern über Strandgut und Fundstücken
+    this.sparkTex = this.canvasTex(64, (x) => {
+      const g = x.createRadialGradient(32, 32, 0, 32, 32, 30);
+      g.addColorStop(0, 'rgba(255,255,255,1)');
+      g.addColorStop(0.25, 'rgba(255,250,210,0.7)');
+      g.addColorStop(1, 'rgba(255,240,180,0)');
+      x.fillStyle = g;
+      x.fillRect(0, 0, 64, 64);
+      x.fillStyle = 'rgba(255,255,255,0.95)';
+      x.beginPath();
+      for (let k = 0; k < 8; k++) {
+        const a = (k / 8) * Math.PI * 2;
+        const r = k % 2 ? 6 : 30;
+        x.lineTo(32 + Math.cos(a) * r, 32 + Math.sin(a) * r);
+      }
+      x.fill();
+    });
+    s.add(this.lanterns);
+    // Winter: es schneit leise
+    if (season === 'winter') {
+      const n = 500;
+      const pos = new Float32Array(n * 3);
+      for (let i = 0; i < n; i++) pos.set([Math.random() * 40 - 20, Math.random() * 16, Math.random() * 36 - 18], i * 3);
+      const g = new THREE.BufferGeometry();
+      g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+      const flake = this.canvasTex(32, (x) => {
+        const gr = x.createRadialGradient(16, 16, 0, 16, 16, 15);
+        gr.addColorStop(0, 'rgba(255,255,255,1)');
+        gr.addColorStop(0.5, 'rgba(255,255,255,0.8)');
+        gr.addColorStop(1, 'rgba(255,255,255,0)');
+        x.fillStyle = gr;
+        x.fillRect(0, 0, 32, 32);
+      });
+      this.snow = new THREE.Points(g, new THREE.PointsMaterial({ map: flake, size: 0.22, transparent: true, depthWrite: false, opacity: 0.9 }));
+      this.snow.frustumCulled = false;
+      s.add(this.snow);
+    }
     // Sprechblase mit „!“ über Bewohnern, die sich heute etwas wünschen
     this.bubbleTex = this.canvasTex(64, (x) => {
       x.fillStyle = '#ffffff';
@@ -592,7 +650,12 @@ export class View {
     for (const [k, make] of want) if (!this.built.has(k)) this.built.set(k, make());
     this.beam = null;
     this.fest = null;
+    this.hovers = [];
     for (const [k, o] of this.built) {
+      if (k.startsWith('deco:ghost')) {
+        o.userData.baseY ??= o.position.y;
+        this.hovers.push(o);
+      }
       if (k.startsWith('proj:lighthouse')) this.beam = o.userData.beam as THREE.Object3D;
       if (k.startsWith('proj:pavilion')) this.fest = { x: o.position.x / U, y: o.position.z / U };
     }
@@ -822,6 +885,97 @@ export class View {
         this.folk.delete(id);
       }
   }
+  /** Strandgut und Fest-Fundstücke des Tages, mit Glitzern */
+  private syncFinds(fr: Frame) {
+    const key = `${fr.day}|${fr.fest ?? ''}`;
+    if (key !== this.findsKey) {
+      this.findsKey = key;
+      for (const f of this.finds.values()) this.scene.remove(f.o);
+      this.finds.clear();
+      beachToday(this.isl, fr.day).forEach((b, i) => {
+        const o = beachItem(b.id);
+        this.addFind(`beach:${i}`, o, b.x, b.y, i === BOTTLE ? 0.5 : 0.3, () => beachLeft(this.world, i, fr.day));
+        o.rotation.y = (i * 1.7) % 6;
+      });
+      if (fr.fest) {
+        const fest = fr.fest;
+        festFinds(this.isl, fest, fr.day).forEach((p, i) => {
+          const o = festFind(fest);
+          o.rotation.y = (i * 2.3) % 6;
+          this.addFind(`fest:${i}`, o, p.x, p.y, 0.7, () => festFindLeft(this.world, fest, i, fr.day));
+        });
+      }
+    }
+    const show = fr.mode === 'play' && fr.inside < 0;
+    for (const f of this.finds.values()) {
+      const on = show && f.check() && !this.world.builtAt(f.x, f.y, 2, 2);
+      f.o.visible = on;
+      if (!on) continue;
+      const k = Math.sin(fr.t * 2.6 + f.ph);
+      f.spark.material.opacity = Math.max(0, k) * 0.9;
+      f.spark.scale.setScalar(0.35 + Math.max(0, k) * 0.35);
+    }
+  }
+  private addFind(key: string, o: THREE.Object3D, x: number, y: number, h: number, check: () => boolean) {
+    this.pos(o, x, y);
+    const spark = new THREE.Sprite(new THREE.SpriteMaterial({ map: this.sparkTex, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending }));
+    spark.position.set(0.15, h, 0.1);
+    o.add(spark);
+    this.scene.add(o);
+    this.finds.set(key, { o, spark, x, y, ph: x * 0.37 + y * 0.11, check });
+  }
+  /** Fest: Laden am Steg, Laternen vor den Häusern, Fledermäuse in der Nacht */
+  private syncFest(fr: Frame) {
+    const fest = fr.mode === 'play' ? fr.fest : null;
+    if (fest !== this.stallFest) {
+      this.stallFest = fest;
+      if (this.stall) this.scene.remove(this.stall);
+      this.stall = null;
+      if (fest) {
+        const sp = stallSpot(this.isl);
+        this.stall = festStall(fest);
+        this.pos(this.stall, sp.x, sp.y);
+        this.stall.rotation.y = 0.25;
+        this.scene.add(this.stall);
+      }
+    }
+    if (this.stall) this.stall.visible = fr.inside < 0;
+    // Kürbislaternen vor jedem Haus und jeder Hütte
+    const w = this.world;
+    const lk = fest === 'halloween' ? `${w.houses.map((h) => `${h.x},${h.y}`).join(';')}|${w.villagers.map((v) => `${v.x},${v.y}`).join(';')}` : '';
+    if (lk !== this.lanternKey) {
+      this.lanternKey = lk;
+      this.lanterns.clear();
+      if (lk)
+        for (const [x, y] of [...w.houses.map((h) => [h.x + 13, h.y + 5]), ...w.villagers.map((v) => [v.x + 9, v.y + 4])]) {
+          const o = M.deco('jackolantern');
+          o.scale.setScalar(0.62);
+          this.pos(o, x, y);
+          this.lanterns.add(o);
+        }
+    }
+    this.lanterns.visible = fr.inside < 0;
+    // Fledermäuse
+    const night = fest === 'halloween' && (fr.tod?.dark ?? 0) > 0.45 && fr.inside < 0;
+    if (night && !this.bats.length)
+      for (let k = 0; k < 5; k++) {
+        const b = bat();
+        this.scene.add(b.g);
+        this.bats.push({ ...b, ph: k * 1.3, r: 3 + (k % 3) * 1.4, h: 3 + (k % 2) * 1.2 });
+      }
+    for (const b of this.bats) {
+      b.g.visible = night;
+      if (!night) continue;
+      const a = fr.t * (0.6 + b.r * 0.05) + b.ph;
+      b.g.position.set(this.target.x + Math.cos(a) * b.r, this.target.y + b.h + Math.sin(fr.t * 2 + b.ph) * 0.3, this.target.z - 2 + Math.sin(a) * b.r * 0.7);
+      b.g.rotation.y = -a;
+      const f = Math.sin(fr.t * 18 + b.ph) * 0.8;
+      b.wings[0].rotation.z = f;
+      b.wings[1].rotation.z = -f;
+    }
+    // Gespenster schweben
+    for (const o of this.hovers) o.position.y = (o.userData.baseY as number) + 0.15 + Math.sin(fr.t * 1.6 + o.position.x) * 0.12;
+  }
   private syncKid(which: string, a: Actor | null, fr: Frame) {
     let s = this.kids.get(which);
     const visible = !!a && fr.mode === 'play' && (a.in === fr.inside);
@@ -960,6 +1114,9 @@ export class View {
     this.sun.intensity = (2.1 - dark * 1.6) * (1 - rain * 0.55);
     M.glowMats.window.emissiveIntensity = 0.2 + dark * 1.8;
     M.glowMats.lamp.emissiveIntensity = 0.25 + dark * 2.4;
+    M.glowMats.pumpkin.emissiveIntensity = 0.5 + dark * 2.6;
+    M.glowMats.potion.emissiveIntensity = 0.4 + dark * 1.6;
+    M.glowMats.bulbs.emissiveIntensity = 0.3 + dark * 1.8 + Math.sin(fr.t * 3) * 0.15 * dark;
     const wm = this.terrain.waterMat.uniforms;
     (wm.uTint.value as THREE.Color).setRGB(1, 1, 1).lerp(new THREE.Color('#5a6aa8'), dark * 0.8).lerp(new THREE.Color('#c8b0a0'), glow * 0.3);
     (wm.uFog.value as THREE.Color).copy(fog.color);
@@ -992,7 +1149,7 @@ export class View {
       f.glow.material.opacity = 0.25 + dark * 0.55;
     }
     // Regen und Glühwürmchen
-    this.rain.visible = !!rain && fr.inside < 0;
+    this.rain.visible = !!rain && fr.inside < 0 && this.season !== 'winter';
     if (this.rain.visible) {
       const p = this.rainPos;
       const c = this.target;
@@ -1009,6 +1166,25 @@ export class View {
         p[i + 5] = p[i + 2];
       }
       this.rain.geometry.attributes.position.needsUpdate = true;
+    }
+    if (this.snow) {
+      this.snow.visible = fr.inside < 0;
+      const p = this.snow.geometry.attributes.position as THREE.BufferAttribute;
+      const c = this.target;
+      const fall = rain ? 2.2 : 0.9;
+      for (let i = 0; i < p.count; i++) {
+        let x = p.getX(i);
+        let y = p.getY(i) - fr.dt * fall * (0.7 + (i % 5) * 0.12);
+        let z = p.getZ(i);
+        x += Math.sin(fr.t * 0.8 + i) * fr.dt * 0.4;
+        if (y < c.y - 1 || Math.abs(x - c.x) > 22 || Math.abs(z - c.z) > 20) {
+          x = c.x + (Math.random() - 0.5) * 40;
+          y = c.y + 6 + Math.random() * 12;
+          z = c.z + (Math.random() - 0.5) * 36;
+        }
+        p.setXYZ(i, x, y, z);
+      }
+      p.needsUpdate = true;
     }
     this.fireflies.visible = dark > 0.45 && fr.inside < 0;
     if (this.fireflies.visible) {
@@ -1149,6 +1325,8 @@ export class View {
     }
     this.syncHorses(fr);
     this.syncFolk(fr);
+    this.syncFinds(fr);
+    this.syncFest(fr);
     // Boot
     if (fr.boatOut !== null) {
       this.boat.visible = true;

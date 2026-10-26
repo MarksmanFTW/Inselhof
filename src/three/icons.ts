@@ -11,6 +11,9 @@ import * as M from './models';
 import { photo } from './portrait';
 import { fishById } from '../fish';
 import { hut, makeAnimal } from './folk';
+import { beachItem, festFind, festStall } from './festart';
+import { makeKid } from './kid';
+import { DEFAULT_LOOK } from '../character';
 
 const meshOf = (g: THREE.BufferGeometry) => new THREE.Mesh(g, vcMat(0.6));
 
@@ -195,6 +198,32 @@ function horseshoe() {
   }
   return meshOf(b.geometry());
 }
+/** Bonbon im Papier */
+function candy() {
+  const b = new Build();
+  b.add(sphere(0.32, 14), '#ff6a8a', { s: [1.25, 1, 1] });
+  for (let k = 0; k < 4; k++) b.add(rbox(0.06, 0.6, 0.05, 0.02), '#ffffff', { p: [-0.24 + k * 0.16, 0, 0.3], r: [0, 0, 0.5] });
+  for (const s2 of [-1, 1]) b.add(cone(0.22, 0.34, 8), '#ffb0c4', { p: [s2 * 0.5, 0, 0], r: [0, 0, s2 * Math.PI / 2] });
+  return meshOf(b.geometry());
+}
+/** Plätzchen mit Zuckerguss */
+function cookie() {
+  const b = new Build();
+  for (let k = 0; k < 5; k++) {
+    const a = (k / 5) * Math.PI * 2 + Math.PI / 2;
+    b.add(cone(0.22, 0.4, 3), '#d89a50', { p: [Math.cos(a) * 0.28, Math.sin(a) * 0.28, 0], r: [0, 0, a - Math.PI / 2], s: [1, 1, 0.35] });
+  }
+  b.add(cyl(0.3, 0.3, 0.12, 20), '#d89a50', { r: [Math.PI / 2, 0, 0] });
+  b.add(cyl(0.18, 0.18, 0.13, 16), '#fff4f8', { p: [0, 0, 0.01], r: [Math.PI / 2, 0, 0] });
+  for (const [x, y, c] of [[-0.06, 0.05, '#e0485a'], [0.07, -0.04, '#5fae4e'], [0.02, 0.09, '#4a8ad0']] as const) b.add(sphere(0.035, 6), c, { p: [x, y, 0.08] });
+  return meshOf(b.geometry());
+}
+/** Kopf der Figur mit einem Fest-Hut (fürs Album und den Laden) */
+function hatHead(hat: number) {
+  const k = makeKid({ ...DEFAULT_LOOK, hat });
+  k.pose({ walk: 0, moving: false, swing: 0, tool: '', ride: false, t: 0 });
+  return k.g;
+}
 /** Bestellbrett mit drei Zetteln */
 function boardIcon() {
   return M.orderBoard();
@@ -259,6 +288,13 @@ const MAKERS = {
   coach: () => photo('i:coach', M.coachStop, { yaw: -0.35, tilt: 0.4 }),
   shoes: () => photo('i:shoes', shoe, { yaw: 0.5, tilt: 0.2 }),
   hooves: () => photo('i:hooves', horseshoe, { yaw: 0, tilt: 0.1, fill: 0.5 }),
+  candy: () => photo('i:candy', candy, { yaw: 0, tilt: 0.1, fill: 0.5 }),
+  cookie: () => photo('i:cookie', cookie, { yaw: 0, tilt: 0.05, fill: 0.5 }),
+  pumpkin: () => photo('i:pumpkin', () => festFind('halloween'), { yaw: 0.2, tilt: 0.35 }),
+  gift: () => photo('i:gift', () => festFind('winter'), { yaw: 0.5, tilt: 0.4 }),
+  bottle: () => photo('i:bottle', () => beachItem('bottle'), { yaw: 0.3, tilt: 0.45, fill: 0.5 }),
+  stall: () => photo('i:stall', () => festStall('halloween'), { yaw: -0.3, tilt: 0.3 }),
+  stallWinter: () => photo('i:stallw', () => festStall('winter'), { yaw: -0.3, tilt: 0.3 }),
 } satisfies Record<string, () => string>;
 
 /** Symbole als Objekt mit Eigenschaften, die erst beim Lesen entstehen */
@@ -327,3 +363,8 @@ export function villagerPhoto(id: string) {
     { yaw: -0.3, tilt: 0.18, fill: 0.46 },
   );
 }
+
+/** Strandgut fürs Album, den Rucksack und den Händler */
+export const seaPhoto = (id: string) => photo(`sea:${id}`, () => beachItem(id), { yaw: 0.3, tilt: 0.9, fill: 0.5 });
+/** Figur mit Fest-Hut (5 Hexenhut, 6 Zipfelmütze) */
+export const hatPhoto = (hat: number) => photo(`hat:${hat}`, () => hatHead(hat), { yaw: -0.3, tilt: 0.15, fill: 0.5 });

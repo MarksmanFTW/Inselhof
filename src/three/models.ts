@@ -7,6 +7,7 @@
 import * as THREE from 'three';
 import { GATE, PADDOCK_FOOT } from '../horses';
 import { Build, U, cone, curve, cyl, dot, mat, rbox, seeded, sphere, strand, tint, vcMat } from './engine';
+import type { Season } from '../season';
 
 const cache = new Map<string, THREE.BufferGeometry>();
 function cached(key: string, make: () => THREE.BufferGeometry) {
@@ -27,10 +28,33 @@ export const glowMats = {
   lamp: curve(new THREE.MeshStandardMaterial({ color: '#fff2c0', emissive: '#ffc860', emissiveIntensity: 0.3, roughness: 0.4 })),
   flame: curve(new THREE.MeshBasicMaterial({ color: '#ffb02e' })),
   flame2: curve(new THREE.MeshBasicMaterial({ color: '#ffe680' })),
+  /** geschnitzter Kürbis von innen, Hexenkessel */
+  pumpkin: curve(new THREE.MeshStandardMaterial({ color: '#ffd060', emissive: '#ff9a20', emissiveIntensity: 0.4, roughness: 0.5 })),
+  potion: curve(new THREE.MeshStandardMaterial({ color: '#8ef06a', emissive: '#4ad02a', emissiveIntensity: 0.4, roughness: 0.3 })),
+  /** bunte Lichter am Festtagsbaum */
+  bulbs: curve(new THREE.MeshStandardMaterial({ vertexColors: true, emissive: '#ffffff', emissiveIntensity: 0.25, roughness: 0.4 })),
 };
+/** halb durchsichtig weiß (Gespenst) */
+const ghostMat = curve(new THREE.MeshStandardMaterial({ color: '#ffffff', transparent: true, opacity: 0.82, roughness: 0.6 }));
 
 // ---------- Natur ----------
 const GREENS = ['#5fb35a', '#6cc46a', '#58a85a', '#4fa04f'];
+/** Jahreszeit fürs Laub (vor dem Bauen der Insel setzen) */
+let SEASON: Season = 'summer';
+export function setSeason(s: Season) {
+  SEASON = s;
+}
+/** Laubfarben je Jahreszeit */
+const LEAVES: Record<Season, string[]> = {
+  spring: ['#6cc46a', '#7ad070', '#5fb35a', '#86d878'],
+  summer: GREENS,
+  autumn: ['#e8a03a', '#d8703a', '#f0c048', '#c85a3a', '#9ab84a', '#e88a3a'],
+  winter: ['#4f8a5a', '#5a9a62', '#47805a', '#5f9a6a'],
+};
+const leaf = (r: () => number) => {
+  const l = LEAVES[SEASON];
+  return l[Math.floor(r() * l.length)];
+};
 const FRUIT = ['#e0483e', '#ff9a3a', '#f4d04a'];
 
 /** Baum: Stamm und Krone getrennt (die Krone wiegt sich im Wind) */
@@ -52,7 +76,7 @@ export function tree(variant: number) {
   crown.position.y = 1.8;
   crown.add(
     meshOf(
-      cached(`crown${v}`, () => {
+      cached(`crown${v}-${SEASON}`, () => {
         const r = seeded(11 + v * 7);
         const b = new Build();
         const blobs: [number, number, number, number][] = [
@@ -63,7 +87,16 @@ export function tree(variant: number) {
           [-0.2, 0.55, 0.7, 0.8],
           [0.3, 0.6, -0.7, 0.78],
         ];
-        for (const [x, y, z, s] of blobs) b.add(sphere(s, 13), GREENS[Math.floor(r() * GREENS.length)], { p: [x, y, z] });
+        for (const [x, y, z, s] of blobs) b.add(sphere(s, 13), leaf(r), { p: [x, y, z] });
+        // Winter: Schnee obendrauf; Frühling: Blüten
+        // Schneehaube: oben etwas breiter als das Laub, damit sie sichtbar aufliegt
+        if (SEASON === 'winter') for (const [x, y, z, s] of blobs) b.add(sphere(s * 1.03, 13), '#f6f9fd', { p: [x, y + s * 0.5, z], s: [1, 0.6, 1] });
+        if (SEASON === 'spring' && v !== 1)
+          for (let k = 0; k < 16; k++) {
+            const a = r() * Math.PI * 2;
+            const y = 0.3 + r() * 1.3;
+            b.add(dot(0.11), k % 3 ? '#f8c0d8' : '#ffffff', { p: [Math.cos(a) * 1.05, y, Math.sin(a) * 1.05] });
+          }
         return b.geometry();
       }),
       0.92,
@@ -127,16 +160,17 @@ export function bush(variant: number) {
   const g = new THREE.Group();
   g.add(
     meshOf(
-      cached(`bush${variant % 2}`, () => {
+      cached(`bush${variant % 2}-${SEASON}`, () => {
         const r = seeded(31 + variant);
         const b = new Build();
-        for (const [x, z, s] of [
+        const parts = [
           [0, 0, 0.62],
           [0.5, 0.12, 0.48],
           [-0.48, 0.05, 0.46],
           [0.1, -0.3, 0.45],
-        ] as const)
-          b.add(sphere(s, 11), GREENS[Math.floor(r() * 4)], { p: [x, s * 0.72, z] });
+        ] as const;
+        for (const [x, z, s] of parts) b.add(sphere(s, 11), SEASON === 'autumn' && r() < 0.5 ? leaf(r) : SEASON === 'winter' ? LEAVES.winter[Math.floor(r() * 4)] : GREENS[Math.floor(r() * 4)], { p: [x, s * 0.72, z] });
+        if (SEASON === 'winter') for (const [x, z, s] of parts) b.add(sphere(s * 1.03, 11), '#f6f9fd', { p: [x, s * 0.72 + s * 0.5, z], s: [1, 0.6, 1] });
         return b.geometry();
       }),
       0.92,
@@ -596,8 +630,125 @@ export function deco(id: string) {
     b.add(cyl(0.04, 0.04, 1.2, 6), '#6a4428', { p: [0, 1.4, -0.25], r: [0, 0, Math.PI / 2] });
     b.add(cyl(0.12, 0.1, 0.18, 10), '#9a6a40', { p: [0, 0.95, -0.25] });
   }
+  else festDeco(id, b, g);
   if (!b.empty) g.add(meshOf(b.geometry(), 0.8));
   return g;
+}
+
+/** Kürbis mit Rippen (für Laterne und Fundstück); carved = Gesicht, leuchtet von innen */
+export function pumpkinInto(b: Build, g: THREE.Object3D, x: number, y: number, z: number, s: number, carved: boolean) {
+  for (let k = 0; k < 8; k++) {
+    const a = (k / 8) * Math.PI * 2;
+    b.add(sphere(0.2 * s, 10), k % 2 ? '#f0862a' : '#e8781e', { p: [x + Math.cos(a) * 0.17 * s, y + 0.27 * s, z + Math.sin(a) * 0.17 * s], s: [0.9, 1.2, 0.9] });
+  }
+  b.add(sphere(0.3 * s, 12), '#f08a30', { p: [x, y + 0.27 * s, z], s: [1, 0.85, 1] });
+  b.add(cyl(0.04 * s, 0.06 * s, 0.16 * s, 6), '#5a7a2a', { p: [x + 0.02 * s, y + 0.58 * s, z], r: [0, 0, -0.25] });
+  b.add(sphere(0.08 * s, 6), '#5fae4e', { p: [x - 0.1 * s, y + 0.55 * s, z + 0.04 * s], s: [1.6, 0.4, 1] });
+  if (!carved) return;
+  const face = new Build();
+  for (const sx of [-1, 1]) face.add(cone(0.075 * s, 0.1 * s, 3), '#ffffff', { p: [sx * 0.13 * s, y + 0.36 * s, 0.355 * s], r: [Math.PI / 2, 0, 0] });
+  face.add(rbox(0.3 * s, 0.07 * s, 0.05 * s, 0.02 * s), '#ffffff', { p: [0, y + 0.17 * s, 0.37 * s], r: [0, 0, 0] });
+  for (const sx of [-0.09, 0.03]) face.add(rbox(0.06 * s, 0.06 * s, 0.05 * s, 0.01 * s), '#ffffff', { p: [sx * s + 0.03 * s, y + 0.22 * s, 0.37 * s] });
+  const m = new THREE.Mesh(face.geometry(), glowMats.pumpkin);
+  m.position.set(x, 0, z);
+  g.add(m);
+}
+
+/** Deko aus den Festläden (Halloween, Winterfest) */
+function festDeco(id: string, b: Build, g: THREE.Group) {
+  if (id === 'jackolantern') {
+    pumpkinInto(b, g, 0, 0, -0.1, 1.5, true);
+  } else if (id === 'scarecrow') {
+    b.add(cyl(0.05, 0.06, 1.7, 6), '#8a5a32', { p: [0, 0.85, -0.2] });
+    b.add(cyl(0.04, 0.04, 1.1, 6), '#8a5a32', { p: [0, 1.25, -0.2], r: [0, 0, Math.PI / 2] });
+    b.add(rbox(0.6, 0.62, 0.3, 0.1), '#c85a48', { p: [0, 1.1, -0.2] });
+    for (const x of [-1, 1]) b.add(rbox(0.32, 0.2, 0.22, 0.07), '#c85a48', { p: [x * 0.42, 1.24, -0.2] });
+    for (const x of [-1, 1]) for (let k = 0; k < 3; k++) b.add(cone(0.035, 0.18, 4), '#e8c860', { p: [x * (0.62 + k * 0.02), 1.2 - k * 0.04, -0.2 + (k - 1) * 0.05], r: [0, 0, x * 1.4] });
+    b.add(sphere(0.24, 12), '#e8d0a0', { p: [0, 1.62, -0.2] });
+    b.add(cyl(0.36, 0.36, 0.04, 16), '#c89a4a', { p: [0, 1.82, -0.2], r: [-0.1, 0, 0] });
+    b.add(cyl(0.18, 0.22, 0.24, 12), '#c89a4a', { p: [0, 1.94, -0.22], r: [-0.1, 0, 0] });
+    for (const x of [-0.08, 0.08]) b.add(rbox(0.06, 0.06, 0.03, 0.01), '#3a2418', { p: [x, 1.66, 0.03] });
+    b.add(rbox(0.16, 0.025, 0.03, 0.01), '#3a2418', { p: [0, 1.55, 0.03] });
+    for (let k = 0; k < 5; k++) b.add(cone(0.03, 0.16, 4), '#e8c860', { p: [-0.12 + k * 0.06, 0.75, -0.08], r: [Math.PI, 0, (k - 2) * 0.15] });
+  } else if (id === 'cauldron') {
+    b.add(sphere(0.5, 16), '#2e2a36', { p: [0, 0.45, -0.2], s: [1, 0.8, 1] });
+    b.add(new THREE.TorusGeometry(0.4, 0.06, 8, 20), '#3e3a46', { p: [0, 0.75, -0.2], r: [Math.PI / 2, 0, 0] });
+    for (let k = 0; k < 3; k++) {
+      const a = (k / 3) * Math.PI * 2;
+      b.add(cyl(0.04, 0.05, 0.3, 6), '#2e2a36', { p: [Math.cos(a) * 0.32, 0.12, -0.2 + Math.sin(a) * 0.32], r: [Math.sin(a) * 0.3, 0, -Math.cos(a) * 0.3] });
+    }
+    for (let k = 0; k < 4; k++) b.add(cyl(0.05, 0.05, 0.36, 5), '#8a5a32', { p: [Math.cos(k * 1.6) * 0.2, 0.06, -0.2 + Math.sin(k * 1.6) * 0.2], r: [0, k * 1.6, Math.PI / 2] });
+    const brew = new THREE.Mesh(cyl(0.36, 0.36, 0.04, 18), glowMats.potion);
+    brew.position.set(0, 0.74, -0.2);
+    g.add(brew);
+    for (const [x, z, r] of [[0.1, 0.05, 0.09], [-0.12, -0.08, 0.07], [0.02, -0.15, 0.06]] as const) {
+      const bub = new THREE.Mesh(sphere(r, 8), glowMats.potion);
+      bub.position.set(x, 0.79, -0.2 + z);
+      g.add(bub);
+    }
+  } else if (id === 'ghost') {
+    const body = new Build();
+    body.add(sphere(0.38, 16), '#ffffff', { p: [0, 1.15, -0.15] });
+    body.add(cyl(0.38, 0.5, 0.7, 16, ), '#ffffff', { p: [0, 0.8, -0.15] });
+    for (let k = 0; k < 6; k++) {
+      const a = (k / 6) * Math.PI * 2;
+      body.add(sphere(0.12, 8), '#ffffff', { p: [Math.cos(a) * 0.42, 0.45, -0.15 + Math.sin(a) * 0.42] });
+    }
+    const m = new THREE.Mesh(body.geometry(), ghostMat);
+    m.castShadow = true;
+    g.add(m);
+    for (const x of [-0.13, 0.13]) b.add(sphere(0.06, 8), '#2a2238', { p: [x, 1.2, 0.2], s: [1, 1.3, 0.5] });
+    b.add(sphere(0.07, 8), '#2a2238', { p: [0, 1.02, 0.21], s: [1, 1.2, 0.4] });
+    b.add(sphere(0.05, 6), '#ff9aa8', { p: [-0.22, 1.08, 0.17], s: [1.3, 0.8, 0.5] });
+    b.add(sphere(0.05, 6), '#ff9aa8', { p: [0.22, 1.08, 0.17], s: [1.3, 0.8, 0.5] });
+    g.userData.hover = true;
+  } else if (id === 'snowman') {
+    b.add(sphere(0.48, 16), '#f8fbff', { p: [0, 0.45, -0.2] });
+    b.add(sphere(0.36, 16), '#f8fbff', { p: [0, 1.08, -0.2] });
+    b.add(sphere(0.27, 16), '#f8fbff', { p: [0, 1.56, -0.2] });
+    b.add(cone(0.05, 0.3, 8), '#ff8a2a', { p: [0, 1.56, 0.17], r: [Math.PI / 2, 0, 0] });
+    for (const x of [-0.09, 0.09]) b.add(sphere(0.035, 6), '#2a2a32', { p: [x, 1.64, 0.03] });
+    for (const y of [0.95, 1.1, 1.25]) b.add(sphere(0.04, 6), '#2a2a32', { p: [0, y, 0.14] });
+    b.add(new THREE.TorusGeometry(0.27, 0.07, 8, 18), '#e0485a', { p: [0, 1.36, -0.2], r: [Math.PI / 2, 0, 0] });
+    b.add(rbox(0.12, 0.34, 0.06, 0.03), '#e0485a', { p: [0.16, 1.2, 0.05], r: [0, 0, 0.2] });
+    b.add(cyl(0.2, 0.2, 0.04, 14), '#2a2a32', { p: [0, 1.8, -0.2] });
+    b.add(cyl(0.14, 0.15, 0.24, 14), '#2a2a32', { p: [0, 1.93, -0.2] });
+    for (const x of [-1, 1]) b.add(cyl(0.025, 0.02, 0.5, 5), '#7a4a2a', { p: [x * 0.5, 1.15, -0.2], r: [0, 0, x * -1.0] });
+  } else if (id === 'xmastree') {
+    b.add(cyl(0.1, 0.12, 0.35, 8), '#7a4a2a', { p: [0, 0.18, -0.2] });
+    b.add(cyl(0.26, 0.3, 0.2, 10), '#c8584a', { p: [0, 0.1, -0.2] });
+    for (const [y, r, h] of [[0.75, 0.75, 0.9], [1.25, 0.58, 0.8], [1.7, 0.4, 0.7]] as const) b.add(cone(r, h, 12), '#3a8a4a', { p: [0, y, -0.2] });
+    const lights = new Build();
+    const cols = ['#ff5a5a', '#ffd23f', '#6ad0ff', '#7cf08a', '#ff9fc4'];
+    for (let k = 0; k < 18; k++) {
+      const yy = 0.45 + (k / 18) * 1.4;
+      const rad = 0.72 - (k / 18) * 0.55;
+      const a = k * 2.3;
+      lights.add(sphere(0.055, 6), cols[k % cols.length], { p: [Math.cos(a) * rad, yy, -0.2 + Math.sin(a) * rad] });
+    }
+    const lm = new THREE.Mesh(lights.geometry(), glowMats.bulbs);
+    g.add(lm);
+    const star = new THREE.Mesh(sphere(0.12, 8), glowMats.lamp);
+    star.position.set(0, 2.12, -0.2);
+    star.scale.set(1, 1, 0.5);
+    g.add(star);
+  } else if (id === 'giftpile') {
+    for (const [x, z, w, h, c, r] of [[-0.3, -0.25, 0.5, 0.42, '#e0485a', '#ffd23f'], [0.28, -0.3, 0.42, 0.36, '#4a8ad0', '#ffffff'], [0.02, 0.05, 0.36, 0.3, '#5fae4e', '#e0485a'], [-0.05, -0.32, 0.3, 0.28, '#f2c14e', '#e0485a']] as const) {
+      const y = x === -0.05 ? 0.56 : h / 2;
+      b.add(rbox(w, h, w, 0.04), c, { p: [x, y, z] });
+      b.add(rbox(w + 0.02, h + 0.01, 0.06, 0.01), r, { p: [x, y, z] });
+      b.add(rbox(0.06, h + 0.01, w + 0.02, 0.01), r, { p: [x, y, z] });
+      for (const s of [-1, 1]) b.add(sphere(0.07, 8), r, { p: [x + s * 0.06, y + h / 2 + 0.04, z], s: [1.3, 0.7, 0.8] });
+    }
+  } else if (id === 'sled') {
+    for (const x of [-0.3, 0.3]) {
+      b.add(rbox(0.06, 0.05, 1.3, 0.02), '#9aa0b0', { p: [x, 0.05, -0.2] });
+      b.add(new THREE.TorusGeometry(0.15, 0.03, 6, 12, Math.PI), '#9aa0b0', { p: [x, 0.2, 0.45], r: [0, Math.PI / 2, 0] });
+      for (const z of [-0.6, 0, 0.35]) b.add(rbox(0.05, 0.22, 0.05, 0.01), '#8a5a32', { p: [x, 0.16, -0.2 + z] });
+    }
+    for (let k = 0; k < 5; k++) b.add(rbox(0.75, 0.05, 0.18, 0.02), '#c8584a', { p: [0, 0.3, -0.7 + k * 0.23] });
+    b.add(rbox(0.6, 0.34, 0.06, 0.02), '#c8584a', { p: [0, 0.48, -0.8] });
+  }
 }
 
 /** Bestellbrett am Steg: Holztafel auf zwei Pfosten mit drei Zetteln und Dach */

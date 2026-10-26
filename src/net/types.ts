@@ -14,7 +14,7 @@ export interface IslandState {
 
 /** eine Spiel-Aktion */
 export interface Action {
-  kind: 'axe' | 'hoe' | 'seeds' | 'water' | 'refill' | 'harvest' | 'build' | 'sleep' | 'eat' | 'cook' | 'furnish' | 'adopt' | 'feed' | 'brush' | 'foal' | 'mow' | 'rake' | 'sell' | 'buy' | 'dress' | 'pick' | 'craft' | 'tut' | 'shake' | 'fish' | 'donate' | 'order' | 'wish' | 'present' | 'upgrade' | 'enlarge';
+  kind: 'axe' | 'hoe' | 'seeds' | 'water' | 'refill' | 'harvest' | 'build' | 'sleep' | 'eat' | 'cook' | 'furnish' | 'adopt' | 'feed' | 'brush' | 'foal' | 'mow' | 'rake' | 'sell' | 'buy' | 'dress' | 'pick' | 'craft' | 'tut' | 'shake' | 'fish' | 'donate' | 'order' | 'wish' | 'present' | 'upgrade' | 'enlarge' | 'festfind' | 'festvisit' | 'festbuy' | 'beach' | 'daily';
   c?: number;
   r?: number;
   /** Baum (Axt) bzw. Stock/Stein (pick): Nummer */
@@ -36,11 +36,13 @@ export interface Action {
   horse?: number;
   /** Händler: Stückzahl; Axt: Stufe der Axt; Verbessern: neue Stufe */
   n?: number;
+  /** Feste: Bewohner (Besuch) bzw. was gekauft wird; Tagesgeschenk: Deko */
+  arg?: string;
 }
 
 /** Effekte (Splitter, „+4 Holz“) */
 export interface Fx {
-  k: 'chop' | 'fell' | 'till' | 'seed' | 'water' | 'refill' | 'harvest' | 'build' | 'can' | 'quest' | 'level' | 'sleep' | 'cook' | 'furnish' | 'horse' | 'feed' | 'brush' | 'foal' | 'mow' | 'rake' | 'trade' | 'pick' | 'craft' | 'fruit' | 'fish' | 'project' | 'order' | 'villager' | 'upgrade';
+  k: 'chop' | 'fell' | 'till' | 'seed' | 'water' | 'refill' | 'harvest' | 'build' | 'can' | 'quest' | 'level' | 'sleep' | 'cook' | 'furnish' | 'horse' | 'feed' | 'brush' | 'foal' | 'mow' | 'rake' | 'trade' | 'pick' | 'craft' | 'fruit' | 'fish' | 'project' | 'order' | 'villager' | 'upgrade' | 'fest' | 'beach';
   /** neue Stufe */
   n?: number;
   x: number;

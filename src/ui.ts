@@ -2,7 +2,7 @@
  * Menüs als HTML über dem Spielbild: Hauptmenü (Holzschild-Optik, Pixel-Schrift)
  * und der Aussehen-Editor mit großer, laufender Vorschau der Figur.
  */
-import { Dir, HAIR_COLORS, PANTS, PARTS, SHIRTS, SKINS, randomLook, type Look } from './character';
+import { Dir, FEST_HAT, HAIR_COLORS, PANTS, PARTS, SHIRTS, SKINS, randomLook, type Look } from './character';
 import { Stage3D } from './three/stage';
 import { prefs, setPrefs } from './audio';
 import { levelOf } from './progress';
@@ -351,7 +351,12 @@ export function showCustomize(save: Save, done: (s: Save) => void, opts: { first
     if (arrow) {
       const key = arrow.closest<HTMLElement>('.row')!.dataset.part as keyof Look;
       const part = PARTS.find((p) => p.key === key)!;
-      look[key] = (look[key] + Number(arrow.dataset.d) + part.count) % part.count;
+      // Fest-Hüte erst nach dem Kauf
+      const ok = (i: number) => key !== 'hat' || !FEST_HAT[i] || (save.hats ?? []).includes(FEST_HAT[i]);
+      let v = look[key];
+      do v = (v + Number(arrow.dataset.d) + part.count) % part.count;
+      while (!ok(v));
+      look[key] = v;
       refresh();
       return;
     }
@@ -397,6 +402,8 @@ export interface HudActions {
   project: () => void;
   /** Bestellbrett öffnen */
   orders: () => void;
+  /** Fest-Anzeige angetippt (Festladen) */
+  fest: () => void;
   confirm: () => void;
   cancel: () => void;
 }
@@ -466,6 +473,26 @@ export interface KitchenData {
   list: { id: string; name: string; text: string; img: string; energy: number; price: number; need: Need[]; known: boolean; have: number }[];
 }
 /** Bestellbrett */
+/** Tagesgeschenk: 7 Felder */
+export interface DailyData {
+  cells: { img: string; label: string; state: 'got' | 'today' | 'next' }[];
+  note: string;
+}
+/** Festladen */
+export interface FestShopData {
+  title: string;
+  text: string;
+  coin: { name: string; img: string; n: number };
+  items: { id: string; name: string; text: string; img: string; price: number; have: number; hat: boolean; owned: boolean }[];
+}
+/** Brief aus der Flaschenpost */
+export interface LetterData {
+  from: string;
+  text: string;
+  gift: string;
+  img: string;
+}
+
 /** Bewohner-Fenster */
 export interface VillagerData {
   name: string;
@@ -483,6 +510,8 @@ export interface VillagerData {
   present: { name: string; img: string; n: number; state: 'locked' | 'ready' | 'taken' };
   steps: { at: number; text: string; got: boolean }[];
   night: boolean;
+  /** Fest: Süßes oder Saures / Plätzchen (can = jetzt möglich, sonst Grund) */
+  fest?: { title: string; text: string; img: string; can: boolean; why: string };
 }
 
 export interface OrdersData {
@@ -608,7 +637,15 @@ export interface Hud {
   /** Bestellbrett; update() zeichnet neu, solange offen */
   openOrders(d: OrdersData, deliver: (i: number) => void): { update(d: OrdersData): void };
   /** Bewohner: Wunsch erfüllen, Geschenk abholen; update() zeichnet neu, solange offen */
-  openVillager(d: VillagerData, hearts: [string, string], on: { give: () => void; present: () => void }): { update(d: VillagerData): void };
+  openVillager(d: VillagerData, hearts: [string, string], on: { give: () => void; present: () => void; fest: () => void }): { update(d: VillagerData): void };
+  /** Fest-Anzeige (Währung) unter dem Projekt; null = kein Fest */
+  setFest(text: string | null, img?: string): void;
+  /** Tagesgeschenk abholen */
+  openDaily(d: DailyData, claim: () => void): void;
+  /** Festladen; update() zeichnet neu, solange offen */
+  openFestShop(d: FestShopData, buy: (id: string) => void): { update(d: FestShopData): void };
+  /** Brief aus der Flaschenpost */
+  openLetter(d: LetterData, done: () => void): void;
   /** Kutschenhalt: wohin fahren? */
   openTravel(d: { here: string; block: string | null; list: { id: number; name: string; sub: string }[] }, go: (id: number) => void): void;
   /** Bestellbrett-Knopf: so viele könnte man gerade liefern */
@@ -657,6 +694,7 @@ export function showHud(
     </div>
     <button class="goal" hidden aria-label="Aufgabe"></button>
     <button class="proj-chip" hidden aria-label="Insel-Projekt"><img src="${icons.craft}" alt="" /><span></span><i><b></b></i></button>
+    <button class="fest-chip" hidden aria-label="Fest"><img src="" alt="" /><span></span></button>
     <p class="coop-chip" hidden></p>
     <div class="hotbar panel">
       ${slot('axe', icons.axe)}${slot('hoe', icons.hoe)}${slot('seeds', icons.seeds)}${slot('water', icons.bucket)}${slot('scythe', icons.scythe)}
@@ -716,6 +754,7 @@ export function showHud(
   $('[data-act=craft]').addEventListener('click', on.craft);
   $('[data-act=bag]').addEventListener('click', on.bag);
   $('.proj-chip').addEventListener('click', on.project);
+  $('.fest-chip').addEventListener('click', on.fest);
   $('[data-act=orders]').addEventListener('click', on.orders);
   $('[data-act=call]').addEventListener('click', on.call);
   $('[data-act=cancel]').addEventListener('click', on.cancel);
@@ -959,6 +998,11 @@ export function showHud(
             </div>`
               : `<p class="mine">Heute schon erfüllt – ${esc(c.name)} freut sich! Morgen gibt es einen neuen Wunsch.</p>`
           }
+          ${
+            c.fest
+              ? `<div class="craft-row festrow${c.fest.can ? '' : ' locked'}"><img class="tool" src="${c.fest.img}" alt="" /><div class="what"><b>${esc(c.fest.title)}</b><small>${esc(c.fest.can ? c.fest.text : c.fest.why)}</small></div>${c.fest.can ? '<button class="pbtn green small" data-m="fest">Klopfen</button>' : ''}</div>`
+              : ''
+          }
           <div class="craft-row present${p.state === 'locked' ? ' locked' : ''}">
             <img class="tool" src="${p.img}" alt="" />
             <div class="what"><b>Geschenk: ${p.n} ${esc(p.name)}</b><small>${p.state === 'locked' ? 'Ab 6 Herzen schenkt dir ' + esc(c.name) + ' jeden Tag etwas.' : p.state === 'taken' ? 'Heute schon abgeholt – morgen wieder!' : 'Jeden Tag ein kleines Geschenk.'}</small></div>
@@ -980,6 +1024,7 @@ export function showHud(
         if (!b || b.disabled) return;
         if (b.dataset.m === 'give') act.give();
         if (b.dataset.m === 'present') act.present();
+        if (b.dataset.m === 'fest') act.fest();
       });
       return {
         update: (c: VillagerData) => {
@@ -991,6 +1036,100 @@ export function showHud(
           if (p2) p2.scrollTop = sc;
         },
       };
+    },
+    setFest(text, img) {
+      const c = $('.fest-chip');
+      c.hidden = !text;
+      if (!text) return;
+      const sp = c.querySelector('span')!;
+      if (sp.textContent !== text) sp.textContent = text;
+      const im = c.querySelector('img')!;
+      if (img && im.getAttribute('src') !== img) im.src = img;
+    },
+    openDaily(d, claim) {
+      const modal = document.createElement('div');
+      modal.className = 'modal';
+      modal.innerHTML = `<div class="panel build-panel daily-panel">
+          <h2>Tagesgeschenk</h2>
+          <p class="have">${esc(d.note)}</p>
+          <div class="daily-grid">${d.cells
+            .map((c, i) => `<div class="day ${c.state}${i === 6 ? ' big' : ''}"><small>Tag ${i + 1}</small><img src="${c.img}" alt="" /><b>${esc(c.label)}</b>${c.state === 'got' ? '<em>✓</em>' : ''}</div>`)
+            .join('')}</div>
+          <button class="pbtn green" data-m="claim">Abholen!</button>
+        </div>`;
+      ui.appendChild(modal);
+      modal.addEventListener('click', (e) => {
+        const t = e.target as HTMLElement;
+        if (t.closest('[data-m=claim]')) {
+          const today = modal.querySelector('.day.today');
+          today?.classList.add('pop');
+          (t.closest('button') as HTMLButtonElement).disabled = true;
+          claim();
+          setTimeout(() => modal.remove(), 900);
+        }
+      });
+    },
+    openFestShop(d0, buy) {
+      const modal = document.createElement('div');
+      modal.className = 'modal';
+      const draw = (d: FestShopData) => {
+        modal.innerHTML = `<div class="panel build-panel craft-panel fest-panel">
+          <h2>${esc(d.title)}</h2>
+          <p class="have">${esc(d.text)}</p>
+          <p class="purse"><img class="c" src="${d.coin.img}" alt="" /><b>${d.coin.n}</b> ${esc(d.coin.name)}</p>
+          <div class="craft-list">${d.items
+            .map((it) => {
+              const can = d.coin.n >= it.price && !(it.hat && it.owned);
+              return `<div class="craft-row${it.hat && it.owned ? ' owned' : ''}">
+                <img class="tool" src="${it.img}" alt="" />
+                <div class="what"><b>${esc(it.name)}${it.have ? ` <small class="cnt">(${it.have} da)</small>` : ''}</b><small>${esc(it.text)}</small>
+                  <div class="costs"><span class="cost${d.coin.n < it.price ? ' miss' : ''}"><img src="${d.coin.img}" alt="" />${it.price}</span></div>
+                </div>
+                ${it.hat && it.owned ? '<span class="done">Hast du ✓</span>' : `<button class="pbtn green small" data-b="${esc(it.id)}"${can ? '' : ' disabled'}>Kaufen</button>`}
+              </div>`;
+            })
+            .join('')}</div>
+          <p class="mine small">Deko stellst du über „Bauen“ auf. Gekaufte Deko bleibt auch nach dem Fest.</p>
+          <button class="pbtn small ghost" data-m="close">Zurück</button>
+        </div>`;
+      };
+      draw(d0);
+      ui.appendChild(modal);
+      modal.addEventListener('click', (e) => {
+        const t = e.target as HTMLElement;
+        if (e.target === modal || t.closest('[data-m=close]')) return modal.remove();
+        const b = t.closest<HTMLButtonElement>('[data-b]');
+        if (b && !b.disabled) buy(b.dataset.b!);
+      });
+      return {
+        update: (d: FestShopData) => {
+          if (!modal.isConnected) return;
+          const p = modal.querySelector('.fest-panel');
+          const sc = p?.scrollTop ?? 0;
+          draw(d);
+          const p2 = modal.querySelector('.fest-panel');
+          if (p2) p2.scrollTop = sc;
+        },
+      };
+    },
+    openLetter(d, done) {
+      const modal = document.createElement('div');
+      modal.className = 'modal';
+      modal.innerHTML = `<div class="letter">
+          <img class="bottle" src="${d.img}" alt="" />
+          <p class="lt">${esc(d.text)}</p>
+          <p class="from">– ${esc(d.from)}</p>
+          ${d.gift ? `<p class="gift">In der Flasche: <b>${esc(d.gift)}</b></p>` : ''}
+          <button class="pbtn green small" data-m="ok">Schön!</button>
+        </div>`;
+      ui.appendChild(modal);
+      modal.addEventListener('click', (e) => {
+        const t = e.target as HTMLElement;
+        if (e.target === modal || t.closest('[data-m=ok]')) {
+          modal.remove();
+          done();
+        }
+      });
     },
     setProject(text, progress) {
       const c = $('.proj-chip');
