@@ -125,6 +125,39 @@ describe('Gemeinsame Insel: Protokoll auf dem Server', () => {
     sameIsland(a, b);
   });
 
+  it('Server-Daten gelöscht: das Gerät schickt die Insel neu hinauf, der Freund findet sie wieder', async () => {
+    const srv = fakeServer();
+    const a = client('pa', true);
+    const b = client('pb');
+    await a.sync(srv.api);
+    await b.sync(srv.api);
+    for (const op of chop(trees[0], 1000)) a.act(op);
+    await a.sync(srv.api);
+    await b.sync(srv.api);
+    // auf dem Server ist alles weg (Ordner gelöscht)
+    srv.cur.state = null;
+    srv.cur.ops = [];
+    srv.cur.rev = srv.cur.srev = 0;
+    srv.cur.seen.clear();
+    // Marcel spielt weiter, bevor er merkt, dass etwas fehlt
+    for (const op of chop(trees[1], 2000)) a.act(op);
+    await a.sync(srv.api); // merkt: Server leer
+    expect(a.sh.base).toBeNull();
+    await a.sync(srv.api); // schickt die ganze Insel neu
+    expect(srv.cur.state).not.toBeNull();
+    expect(a.world.wood).toBe(8);
+    // die Freundin hängt sich wieder an und bekommt alles
+    await b.sync(srv.api);
+    await b.sync(srv.api);
+    sameIsland(a, b);
+    // und es geht normal weiter
+    b.act({ a: { kind: 'hoe', c: 22, r: 21 }, x: 100, y: 100, t: 3000 });
+    await b.sync(srv.api);
+    await a.sync(srv.api);
+    expect(a.farm.plots.size).toBe(1);
+    sameIsland(a, b);
+  });
+
   it('wer zuerst erntet, bekommt die Rübe – beide sind sich einig', async () => {
     const srv = fakeServer();
     const a = client('pa', true);

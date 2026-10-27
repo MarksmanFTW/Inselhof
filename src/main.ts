@@ -2303,6 +2303,8 @@ async function cloudSync() {
       sl.base = got.shared.base ?? undefined;
       sl.rev = got.shared.rev;
       sl.pending = got.shared.pending;
+      // Server hatte die Insel verloren: gleich neu hinaufschicken
+      if (got.lost) syncSoon = true;
       if (got.current) {
         const projBefore = world.proj.n;
         const folkBefore = world.villagers.length;

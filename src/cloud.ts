@@ -164,6 +164,12 @@ export interface Absorbed {
   remote: LoggedOp[];
   /** Insel ist noch nicht in der Cloud */
   empty: boolean;
+  /**
+   * Der Server kennt die Insel nicht mehr (Daten dort gelöscht), dieses Gerät aber schon:
+   * Stand zurückgesetzt – beim nächsten Abgleich schickt das Gerät seine Insel neu hinauf,
+   * dann finden alle Freunde sie wieder.
+   */
+  lost?: boolean;
 }
 
 /** Antwort des Servers einarbeiten (now: bis jetzt wachsen lassen) */
@@ -179,6 +185,12 @@ export function absorb(isl: Island, sh: Shared, res: SyncRes, pid: string, now =
       changed = true;
     }
   } else if (res.state === null && !base) return { shared: sh, remote: [], empty: true };
+  // Server leer, obwohl wir schon geteilt hatten: neu anlegen lassen (eigene Aktionen
+  // stecken schon im Stand auf dem Gerät, der hinaufgeschickt wird)
+  else if (res.state === null && base) return { shared: { base: null, rev: 0, pending: [] }, remote: [], empty: false, lost: true };
+  // Server wurde neu angelegt (Nummer kleiner als unsere): ganzen Stand neu holen, eigene
+  // noch nicht bestätigte Aktionen bleiben und kommen danach dazu
+  else if (!res.state && base && res.rev < rev) return { shared: { base: null, rev: 0, pending: sh.pending }, remote: [], empty: false, lost: true };
   const fresh = res.ops.filter((o) => o.r > rev).sort((a, b) => a.r - b.r);
   if (base && fresh.length) {
     base = replay(isl, base, fresh.map((o) => o.op));
