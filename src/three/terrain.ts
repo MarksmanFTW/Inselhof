@@ -255,11 +255,25 @@ export function buildTerrain(isl: Island, season: Season = 'summer'): Terrain {
     fragmentShader: `
       uniform float uTime; uniform sampler2D uShore; uniform vec2 uSize; uniform vec3 uTint; uniform vec3 uFog; uniform vec2 uFogR; uniform float uSpark;
       varying vec2 vXZ; varying float vDepth;
+      float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+      float noise(vec2 p) {
+        vec2 i = floor(p), f = fract(p);
+        f = f * f * (3.0 - 2.0 * f);
+        return mix(mix(hash(i), hash(i + vec2(1.0, 0.0)), f.x), mix(hash(i + vec2(0.0, 1.0)), hash(i + vec2(1.0, 1.0)), f.x), f.y);
+      }
       void main() {
         float d = texture2D(uShore, vXZ / uSize).r * 255.0 / 5.5; // Abstand zum Land (Welt-Pixel)
-        vec3 shallow = vec3(0.50, 0.90, 0.86), mid = vec3(0.30, 0.74, 0.86), deep = vec3(0.17, 0.55, 0.80);
+        vec3 shallow = vec3(0.52, 0.92, 0.86), mid = vec3(0.28, 0.76, 0.88), deep = vec3(0.14, 0.52, 0.80);
         vec3 col = mix(shallow, mid, smoothstep(2.0, 16.0, d));
         col = mix(col, deep, smoothstep(14.0, 44.0, d));
+        // große, langsame Farbflecken (tiefer/heller)
+        col *= 0.93 + 0.12 * noise(vXZ * 0.07 + vec2(uTime * 0.015, -uTime * 0.01));
+        // Lichtlinien wie bei Sonnenschein im Wasser: zwei Muster, die sich überlagern
+        float n1 = noise(vXZ * 0.85 + vec2(uTime * 0.22, uTime * 0.08));
+        float n2 = noise(vXZ * 0.95 + vec2(-uTime * 0.16, uTime * 0.2) + 5.3);
+        float lines = 1.0 - smoothstep(0.0, 0.055, abs(n1 - n2));
+        float near = 1.0 - smoothstep(3.0, 34.0, d);
+        col += vec3(0.9, 1.0, 1.0) * lines * mix(0.07, 0.24, near) * uSpark;
         // Schaum am Ufer: läuft in Wellen an
         float wave = sin(uTime * 1.3 + vXZ.x * 0.35 + vXZ.y * 0.22) * 1.3;
         float foam = smoothstep(2.4, 0.4, abs(d - 2.2 - wave)) * 0.8 + smoothstep(1.4, 0.0, d) * 0.9;

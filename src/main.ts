@@ -8,7 +8,7 @@ import { ACCESSORIES } from './horses';
 import { ALBUM_REWARDS, ALBUM_TOTAL, DECO, STAR_DECO, SEED_PACK, SELL, SELL_NAMES, albumCount, boatOut, decoById, horseOffers, merchantHere, type SellItem } from './shop';
 import { BREEDS, RARE_BREEDS, islandDay, STABLE_BREEDS, FOAL_GROW_MS, MAX_LOVE, PADDOCK_COST, STABLE_COST, STABLE_SPACE, TRUST, breedById, horsePose, isFoal, pasture, type HorsePose } from './horses';
 import { Ground, H, TILE, W, generate } from './island';
-import { setScene, sfx, unlockAudio } from './audio';
+import { audioInfo, setScene, sfx, unlockAudio } from './audio';
 import { FURNITURE } from './furniture';
 import { ROOM_H, doorOf, nearSpot, roomFree } from './interior';
 import { Player } from './player';
@@ -160,11 +160,15 @@ const FX_SOUND: Partial<Record<Fx['k'], Parameters<typeof sfx>[0]>> = {
   mow: 'mow',
   rake: 'harvest',
   trade: 'coin',
-  pick: 'seed',
+  pick: 'pick',
   craft: 'build',
   fruit: 'harvest',
-  fish: 'water',
+  fish: 'splash',
   project: 'level',
+  order: 'coin',
+  upgrade: 'build',
+  beach: 'pick',
+  fest: 'pick',
 };
 /** wie hoch der Text über dem Boden schwebt (Einheiten) */
 const FX_H: Partial<Record<Fx['k'], number>> = { fell: 3.6, build: 3, horse: 2.8, feed: 2.8, brush: 2.8, foal: 2.6, trade: 2.4, can: 2.6, cook: 2.2, pick: 1.2, craft: 2.6, fruit: 3.2 };
@@ -417,8 +421,25 @@ function doorAhead() {
   return world.houses.findIndex((h) => Math.abs(player.x - h.x) < 6 && player.y > h.y && player.y < h.y + 10);
 }
 // ---------- Händler-Boot ----------
+/** für die Geräusche: Untergrund unter der Figur und wie nah das Meer ist (alle halbe Sekunde neu) */
+let placeAt = 0;
+let place: { ground: 'grass' | 'sand' | 'wood'; sea: number } = { ground: 'grass', sea: 0.5 };
+function soundPlace() {
+  const now = performance.now();
+  if (now - placeAt < 500) return place;
+  placeAt = now;
+  const gAt = (x: number, y: number) => (x < 0 || y < 0 || x >= W || y >= H ? Ground.Water : island.ground[(y | 0) * W + (x | 0)]);
+  let water = 0;
+  for (let k = 0; k < 16; k++) {
+    const a = (k / 16) * Math.PI * 2;
+    if (gAt(player.x + Math.cos(a) * 45, player.y + Math.sin(a) * 45) === Ground.Water) water++;
+  }
+  const g = gAt(player.x, player.y);
+  place = { ground: inside >= 0 || onDock() ? 'wood' : g === Ground.Sand ? 'sand' : 'grass', sea: Math.min(1, water / 6) };
+  return place;
+}
 /** Liegeplatz rechts am Ende des Stegs */
-const BOAT = { x: island.dock.x + island.dock.w + 15, y: island.dock.y + island.dock.h - 2 };
+const BOAT = { x: island.dock.x + island.dock.w + 21, y: island.dock.y + island.dock.h - 2 };
 function boatNear() {
   return merchantHere(world.clock, Date.now()) && Math.abs(player.x - (island.dock.x + island.dock.w - 6)) < 12 && player.y > BOAT.y - 26 && player.y < BOAT.y + 4;
 }
@@ -633,7 +654,7 @@ function cropText(k: CropId) {
 /** Sorten, die man hat oder schon mal hatte */
 const seedKinds = () => CROPS.map((cd) => cd.id).filter((k) => k === 'turnip' || farm.seedsOf(k) > 0 || (world.album.crops ?? []).includes(k));
 function openSeeds() {
-  sfx('click');
+  sfx('open');
   hud?.openSeeds(
     seedKinds().map((k) => ({ id: k, name: cropById(k)!.seedName, img: seedImg(k), n: farm.seedsOf(k), text: k === 'turnip' ? 'Die gute alte Rübe.' : cropText(k), on: k === seedKind })),
     (id) => {
@@ -920,7 +941,7 @@ function invData(): InvData {
   };
 }
 function openInventory() {
-  sfx('click');
+  sfx('open');
   invUI = hud?.openInventory(invData(), (item, action) => {
     const [kind, id] = item.split(':');
     if (action === 'eat') eat(id);
@@ -963,7 +984,7 @@ function kitchenData(): KitchenData {
   };
 }
 function openKitchen() {
-  sfx('click');
+  sfx('open');
   kitchenUI =
     hud?.openKitchen(kitchenData(), (id) => {
       const err = doAction({ kind: 'cook', item: id });
@@ -985,7 +1006,7 @@ function ordersData(): OrdersData {
   };
 }
 function openOrders() {
-  sfx('click');
+  sfx('open');
   ordersUI =
     hud?.openOrders(ordersData(), (i) => {
       const o = ordersToday(world, Date.now()).list[i];
@@ -1403,7 +1424,7 @@ function coachName(i: number) {
   return Math.abs(dx) > Math.abs(dy) * 1.5 ? (dx > 0 ? 'im Osten' : 'im Westen') : dy > 0 ? 'im Süden' : 'im Norden';
 }
 function openCoach(i: number) {
-  sfx('click');
+  sfx('open');
   const others = world.coaches.map((c, k) => ({ k, c })).filter((o) => o.k !== i);
   const block = !world.horses.length ? 'Für die Kutsche brauchst du ein Pferd – bau einen Stall und nimm eins auf.' : !others.length ? 'Bau noch einen Kutschenhalt woanders auf der Insel, dann kannst du hinfahren.' : null;
   hud?.openTravel(
@@ -1501,7 +1522,7 @@ function projData(): ProjData {
   };
 }
 function openProject() {
-  sfx('click');
+  sfx('open');
   projUI =
     hud?.openProject(projData(), {
       give: giveProject,
@@ -1581,7 +1602,7 @@ function craftData(): CraftData {
   };
 }
 function openCraft() {
-  sfx('click');
+  sfx('open');
   craftUI = hud?.openCraft(craftData(), (id) => {
     const block = craftBlock(bag(), id, world.wood);
     if (block) return hud?.toast(block);
@@ -2531,6 +2552,8 @@ function frame(now: number) {
       if (stepT <= 0) {
         stepT = rb ? 0.17 : 0.3 / player.speedMul;
         sfx(rb ? 'hoof' : 'step');
+        // Sand staubt ein bisschen
+        if (inside < 0 && soundPlace().ground === 'sand') view.puff(player.x, player.y + 1, ['#f0dcae', '#e6cf9a', '#f8ead0'], rb ? 3 : 2);
       }
     }
     // Werkzeug benutzen
@@ -2594,7 +2617,7 @@ function frame(now: number) {
   tod = world.clock ? timeOf(world.clock, Date.now()) : null;
   {
     const fi = world.fires.length ? Math.min(...world.fires.map((f) => Math.hypot(f.x - player.x, f.y - player.y))) : 999;
-    setScene({ night: tod?.dark ?? 0, rain: !!tod?.rain, fire: mode === 'play' && inside < 0 ? Math.max(0, 1 - fi / 70) : 0, menu: mode !== 'play', inside: inside >= 0 });
+    setScene({ night: tod?.dark ?? 0, rain: !!tod?.rain, fire: mode === 'play' && inside < 0 ? Math.max(0, 1 - fi / 70) : 0, menu: mode !== 'play', inside: inside >= 0, hour: tod?.hour ?? 9, fest: curFest?.id ?? null, ...soundPlace() });
   }
   if (mode === 'play' && hud && tod) hud.setClock(`Tag ${tod.day} · ${tod.label}${tod.rain ? ' · Regen' : ''}`);
   for (const [i, v] of shake) {
@@ -3066,4 +3089,4 @@ function roomAction(kind: Intent, slot: number) {
     const day = islandDay(world.clock, Date.now());
     return { beach: beachToday(island, day), fest: curFest ? festFinds(island, curFest.id, day) : [] };
   },
-  doAction, get mode() { return mode; }, get mates() { return mates; }, cloudSync, pid, horsePos: (i: number) => horseAt(i), get riding() { return riding; } };
+  doAction, audioInfo, get mode() { return mode; }, get mates() { return mates; }, cloudSync, pid, horsePos: (i: number) => horseAt(i), get riding() { return riding; } };

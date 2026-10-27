@@ -1025,47 +1025,6 @@ export function constructionSite(id: string, foot: { left: number; right: number
   return g;
 }
 
-/** Händler-Boot (fährt waagrecht, Bug nach Osten) */
-export function boat() {
-  const g = new THREE.Group();
-  const b = new Build();
-  const hull = new THREE.SphereGeometry(1, 20, 10, 0, Math.PI * 2, Math.PI / 2, Math.PI / 2);
-  b.add(hull, '#9a5a32', { p: [0, 0.35, 0], s: [2.1, 0.75, 0.95] });
-  b.add(new THREE.TorusGeometry(1, 0.06, 6, 28), '#f4efe4', { p: [0, 0.33, 0], r: [Math.PI / 2, 0, 0], s: [2.1, 0.95, 1] });
-  b.add(rbox(3.6, 0.06, 1.4, 0.03), '#c8945a', { p: [0, 0.3, 0] });
-  b.add(cyl(0.06, 0.07, 2.6, 8), '#8a5a32', { p: [-0.2, 1.6, 0] });
-  // gestreiftes Segel
-  for (let k = 0; k < 4; k++) b.add(rbox(0.05, 0.42, 1.2 - k * 0.12, 0.02), k % 2 ? '#ffffff' : '#e0564a', { p: [0.1, 2.55 - k * 0.42, 0], s: [1, 1, 1] });
-  b.add(cone(0.1, 0.25, 4), '#f2c14e', { p: [-0.2, 3.0, 0] });
-  // Kisten und Fässchen
-  b.add(rbox(0.5, 0.45, 0.5, 0.05), '#c8945a', { p: [1.1, 0.55, 0.15] });
-  b.add(rbox(0.4, 0.35, 0.4, 0.05), '#b8844a', { p: [1.15, 0.95, 0.1] });
-  b.add(cyl(0.2, 0.2, 0.5, 12), '#9a6a40', { p: [-1.2, 0.55, -0.2] });
-  b.add(sphere(0.16, 10), '#ff9a3a', { p: [1.5, 0.5, -0.3] });
-  b.add(sphere(0.14, 10), '#e0483e', { p: [1.6, 0.5, 0.0] });
-  // Händlerin: Mantel, Kopf, Mütze, Schnauzbart
-  b.add(sphere(0.3, 12), '#4a6a9a', { p: [-0.75, 0.75, 0.2], s: [1, 1.2, 1] });
-  b.add(sphere(0.27, 14), '#f4c9a2', { p: [-0.75, 1.25, 0.2] });
-  b.add(cyl(0.2, 0.26, 0.2, 12), '#e0564a', { p: [-0.75, 1.5, 0.2] });
-  b.add(sphere(0.06, 8), '#ffffff', { p: [-0.75, 1.62, 0.2] });
-  b.add(sphere(0.09, 8), '#6a4a32', { p: [-0.75, 1.17, 0.45], s: [1.6, 0.5, 0.6] });
-  for (const z of [0.1, 0.3]) b.add(sphere(0.03, 6), '#2a1a16', { p: [-0.55, 1.3, z] });
-  g.add(meshOf(b.geometry(), 0.8));
-  // Wimpel mit Münze
-  const flag = meshOf(
-    cached('boatflag', () => {
-      const f = new Build();
-      f.add(cyl(0.02, 0.02, 0.6, 5), '#8a5a32', { p: [0, 0.3, 0] });
-      f.add(rbox(0.5, 0.3, 0.03, 0.02), '#f2c14e', { p: [0.27, 0.45, 0] });
-      f.add(cyl(0.08, 0.08, 0.04, 10), '#c8902a', { p: [0.27, 0.45, 0.02], r: [Math.PI / 2, 0, 0] });
-      return f.geometry();
-    }),
-  );
-  flag.position.set(1.6, 0.6, 0.4);
-  g.add(flag);
-  return g;
-}
-
 // ---------- Acker ----------
 /** Feld (Erde): weiß, Farbe kommt pro Feld (trocken/nass) */
 export const soilGeo = () =>

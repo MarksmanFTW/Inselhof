@@ -16,7 +16,7 @@ import type { TimeOfDay } from '../time';
 import { BEET_FOOT, COACH_FOOT, FIRE_FOOT, HOUSE_FOOT, HUT_FOOT, STABLE_FOOT, type BuildKind, type World } from '../world';
 import { PROJECTS, siteOf } from '../projects';
 import { boardSpot } from '../orders';
-import { Build, CURVE, FOCUS, U, curve, mat, rbox, sphere, vcMat } from './engine';
+import { Build, CURVE, FOCUS, U, cone, curve, cyl, mat, rbox, sphere, vcMat } from './engine';
 import { makeHorse, type HorseModel } from './horse';
 import { Interior } from './interior3d';
 import { makeKid, type Kid } from './kid';
@@ -26,7 +26,9 @@ import { BOTTLE, beachLeft, beachToday } from '../beach';
 import { festFindLeft, festFinds, stallSpot } from '../fest';
 import type { FestId, Season } from '../season';
 import * as M from './models';
-import { WATER_Y, buildTerrain, type Terrain } from './terrain';
+import { DOCK_Y, WATER_Y, buildTerrain, type Terrain } from './terrain';
+import { Sky } from './sky';
+import { merchantBoat } from './boat';
 
 export interface Actor {
   x: number;
@@ -101,6 +103,8 @@ interface DecorObj {
   fruit?: THREE.Object3D;
   state: string;
   phase: number;
+  /** Grasbüschel: wiegt sich im Wind */
+  sway?: THREE.Object3D;
 }
 interface HorseSlot {
   key: string;
@@ -168,7 +172,8 @@ export class View {
   /** Pflanzen je Sorte und Stufe (Stufe 0 = Samen, für alle Sorten gleich) */
   private crops = new Map<string, THREE.InstancedMesh>();
   private hay: Record<'fresh' | 'dry' | 'stubble', THREE.InstancedMesh>;
-  private boat = M.boat();
+  private boatM = merchantBoat();
+  private boat = this.boatM.g;
   private ghost: { key: string; o: THREE.Object3D; foot: THREE.Mesh; mat: THREE.MeshStandardMaterial } | null = null;
   private marker: THREE.Mesh;
   /** Stöcke und Steine zum Aufheben */
@@ -201,7 +206,13 @@ export class View {
   private insideNow = false;
   private menuT = 0;
   private coveredKey = '';
-  private sky = { day: new THREE.Color('#8fdcef'), dusk: new THREE.Color('#f4b48c'), night: new THREE.Color('#1c2850'), rain: new THREE.Color('#9ab4c4') };
+  private skyDome = new Sky();
+  private screenFx = document.createElement('div');
+  /** Lichtschein um Laternen (nachts) */
+  private lampGlows: THREE.Sprite[] = [];
+  private dockLamps: [number, number, number][] = [];
+  /** Blätter (Herbst), Blüten (Frühling) oder Pusteblumen-Samen (Sommer) in der Luft */
+  private drift: { m: THREE.InstancedMesh; p: Float32Array; fall: number; d: THREE.Object3D } | null = null;
 
   constructor(
     readonly isl: Island,
@@ -219,10 +230,14 @@ export class View {
     r.shadowMap.type = THREE.PCFShadowMap;
     r.domElement.className = 'world3d';
     host.prepend(r.domElement);
+    // Unschärfe zum Horizont hin (wie ein Miniatur-Foto) und weiche Bildränder
+    this.screenFx.className = 'screenfx';
+    r.domElement.after(this.screenFx);
     this.renderer = r;
     const s = this.scene;
-    s.background = this.sky.day.clone();
-    s.fog = new THREE.Fog('#a8e4f0', 40, 110);
+    s.background = new THREE.Color('#c4ecf6');
+    s.fog = new THREE.Fog('#c4ecf6', 40, 110);
+    s.add(this.skyDome.mesh);
     s.add(this.hemi);
     this.sun.castShadow = true;
     this.sun.shadow.bias = -0.0006;
@@ -250,6 +265,41 @@ export class View {
       board.position.set(bp.x * U, this.groundY(bp.x, bp.y), bp.y * U);
       board.rotation.y = -0.25;
       s.add(board);
+    }
+    // Steg: Laternen an Land und am Ende, Rettungsring, Taurolle, Kisten
+    {
+      const dk = isl.dock;
+      const g = new THREE.Group();
+      const b = new Build();
+      const x0 = dk.x * U;
+      const x1 = (dk.x + dk.w) * U;
+      const zEnd = (dk.y + dk.h) * U - 0.3;
+      const zStart = (dk.y - 2) * U;
+      const lampSpots: [number, number, number][] = [];
+      const lamps: [number, number, number][] = [
+        [x0 - 0.25, this.groundY(dk.x - 2, dk.y - 2), zStart],
+        [x1 + 0.25, this.groundY(dk.x + dk.w + 2, dk.y - 2), zStart],
+        [x1 + 0.12, DOCK_Y, zEnd],
+      ];
+      for (const [x, y, z] of lamps) {
+        b.add(cyl(0.06, 0.08, 1.6, 8), '#3a3a44', { p: [x, y + 0.8, z] });
+        b.add(cyl(0.16, 0.18, 0.08, 8), '#3a3a44', { p: [x, y + 0.04, z] });
+        b.add(cone(0.2, 0.16, 4), '#3a3a44', { p: [x, y + 1.98, z], r: [0, Math.PI / 4, 0] });
+        const lamp = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.26, 0.2), M.glowMats.lamp);
+        lamp.position.set(x, y + 1.74, z);
+        g.add(lamp);
+        lampSpots.push([x, y + 1.74, z]);
+      }
+      // Rettungsring an einem Pfosten, Taurolle, Kisten
+      b.add(new THREE.TorusGeometry(0.22, 0.065, 8, 20), (x, y, _z, out) => out.set(Math.floor((Math.atan2(y - (DOCK_Y + 0.55), x - (x0 - 0.05)) / Math.PI) * 4 + 8) % 2 ? '#ffffff' : '#e0483e'), { p: [x0 - 0.05, DOCK_Y + 0.55, zEnd - 1.6], r: [0, Math.PI / 2, 0] });
+      b.add(cyl(0.07, 0.08, 0.9, 8), '#8a5a32', { p: [x0 - 0.05, DOCK_Y + 0.3, zEnd - 1.6 - 0.05] });
+      for (let k = 0; k < 3; k++) b.add(new THREE.TorusGeometry(0.18 - k * 0.05, 0.045, 6, 16), '#d8c08a', { p: [x1 - 0.35, DOCK_Y + 0.05 + k * 0.05, zEnd - 0.4], r: [Math.PI / 2, 0, 0] });
+      b.add(rbox(0.42, 0.36, 0.42, 0.04), '#c8945a', { p: [x0 - 0.55, this.groundY(dk.x - 4, dk.y - 6) + 0.18, zStart - 0.5], r: [0, 0.3, 0] });
+      b.add(rbox(0.32, 0.28, 0.32, 0.04), '#b8844a', { p: [x0 - 0.55, this.groundY(dk.x - 4, dk.y - 6) + 0.5, zStart - 0.5], r: [0, -0.2, 0] });
+      b.add(cyl(0.18, 0.18, 0.44, 12), '#9a6a40', { p: [x0 - 0.95, this.groundY(dk.x - 7, dk.y - 6) + 0.22, zStart - 0.2] });
+      g.add(b.mesh(0.85));
+      s.add(g);
+      this.dockLamps = lampSpots;
     }
     {
       const b = new Build();
@@ -431,6 +481,14 @@ export class View {
       this.fireflies.frustumCulled = false;
       this.fireflies.visible = false;
       s.add(this.fireflies);
+      this.initDrift();
+      for (const [x, y, z] of this.dockLamps) {
+        const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: this.glowTex, color: '#ffd890', transparent: true, opacity: 0, depthWrite: false, blending: THREE.AdditiveBlending }));
+        sp.position.set(x, y, z);
+        sp.scale.setScalar(1.6);
+        s.add(sp);
+        this.lampGlows.push(sp);
+      }
     }
     this.resize();
   }
@@ -488,6 +546,7 @@ export class View {
     else if (kind === 'rock' || kind === 'boulder') root.add(M.rock(kind === 'boulder', variant)).rotation.y = yaw * 4;
     else if (kind === 'grass') {
       o.tree = M.tallGrass(variant);
+      o.sway = o.tree;
       root.add(o.tree);
     } else if (kind === 'stump') root.add(M.stump(true)).rotation.y = yaw * 5;
     this.scene.add(root);
@@ -1044,6 +1103,15 @@ export class View {
       this.bits.list.push({ p: base.clone(), v: new THREE.Vector3(Math.cos(a) * v, 2.5 + Math.random() * 3.5, Math.sin(a) * v * 0.8), life: 0.6 + Math.random() * 0.6, c: new THREE.Color(cols[i % cols.length]) });
     }
   }
+  /** kleine Staubwolke beim Laufen (Sand) */
+  puff(x: number, y: number, cols: string[], n = 2) {
+    const base = new THREE.Vector3(x * U, this.groundY(x, y) + 0.06, y * U);
+    for (let i = 0; i < n && this.bits.list.length < 320; i++) {
+      const a = Math.random() * Math.PI * 2;
+      const v = 0.5 + Math.random() * 0.5;
+      this.bits.list.push({ p: base.clone(), v: new THREE.Vector3(Math.cos(a) * v, 1.4 + Math.random() * 0.8, Math.sin(a) * v * 0.6), life: 0.22 + Math.random() * 0.15, c: new THREE.Color(cols[i % cols.length]) });
+    }
+  }
   /** Herzchen über einem Welt-Pixel (h = Höhe in Einheiten) */
   heartsAt(x: number, y: number, n: number, h = 2.2) {
     for (let k = 0; k < n; k++) {
@@ -1106,16 +1174,68 @@ export class View {
     }
   }
 
+  // ---------- Treibende Blätter und Blüten ----------
+  private initDrift() {
+    const season = this.season;
+    if (season === 'winter') return;
+    const n = season === 'summer' ? 26 : 40;
+    const geo = season === 'summer' ? new THREE.IcosahedronGeometry(0.03, 0) : new THREE.CircleGeometry(0.1, 5).scale(1, 0.55, 1);
+    const cols = season === 'autumn' ? ['#e8702a', '#f2a03a', '#d84a2a', '#f2c14e', '#c85a2a'] : season === 'spring' ? ['#f8c0d8', '#ffffff', '#f4a8c8', '#ffe0ec'] : ['#ffffff', '#fffbe8', '#f4f8ff'];
+    const m = new THREE.InstancedMesh(geo, curve(new THREE.MeshStandardMaterial({ roughness: 0.8, side: THREE.DoubleSide, emissive: season === 'summer' ? '#ffffff' : '#000000', emissiveIntensity: season === 'summer' ? 0.12 : 0 })), n);
+    m.frustumCulled = false;
+    const c = new THREE.Color();
+    for (let i = 0; i < n; i++) m.setColorAt(i, c.set(cols[i % cols.length]));
+    // x, y, z, Phase, Tempo je Stück
+    const p = new Float32Array(n * 5);
+    for (let i = 0; i < n; i++) {
+      p[i * 5 + 1] = -999;
+      p[i * 5 + 3] = i * 1.37;
+      p[i * 5 + 4] = 0.7 + ((i * 0.618) % 1) * 0.6;
+    }
+    this.drift = { m, p, fall: season === 'autumn' ? 0.75 : season === 'spring' ? 0.45 : 0.12, d: new THREE.Object3D() };
+    this.scene.add(m);
+  }
+  private stepDrift(fr: Frame, gust: number) {
+    const dr = this.drift;
+    if (!dr) return;
+    dr.m.visible = fr.inside < 0;
+    if (!dr.m.visible) return;
+    const c = this.target;
+    const p = dr.p;
+    const n = p.length / 5;
+    const dt = Math.min(0.1, fr.dt);
+    for (let i = 0; i < n; i++) {
+      const k = i * 5;
+      if (p[k + 1] < c.y - 0.5 || Math.abs(p[k] - c.x) > 16 || p[k + 2] < c.z - 18 || p[k + 2] > c.z + 8) {
+        // neu oben im Bild (eher links, der Wind weht nach rechts)
+        p[k] = c.x - 14 + Math.random() * 24;
+        p[k + 1] = c.y + 1 + Math.random() * (dr.fall < 0.2 ? 2.5 : 6);
+        p[k + 2] = c.z - 16 + Math.random() * 22;
+      }
+      const ph = p[k + 3];
+      const sp = p[k + 4];
+      p[k] += (0.55 * gust + Math.sin(fr.t * 0.9 + ph) * 0.35) * sp * dt;
+      p[k + 1] -= dr.fall * sp * dt * (1 + Math.sin(fr.t * 1.7 + ph) * 0.5);
+      p[k + 2] += Math.sin(fr.t * 0.6 + ph * 2) * 0.3 * dt;
+      dr.d.position.set(p[k], p[k + 1], p[k + 2]);
+      dr.d.rotation.set(fr.t * 1.9 * sp + ph, fr.t * 1.3 + ph, Math.sin(fr.t * 2.3 + ph) * 1.2);
+      dr.d.updateMatrix();
+      dr.m.setMatrixAt(i, dr.d.matrix);
+    }
+    dr.m.instanceMatrix.needsUpdate = true;
+  }
+
   // ---------- Licht, Tag & Nacht ----------
   private light(fr: Frame) {
     const T = fr.tod;
     const dark = T ? T.dark : 0;
     const glow = T ? T.glow : 0;
     const rain = T?.rain ? 1 : 0;
-    const sky = this.sky.day.clone().lerp(this.sky.rain, rain * 0.7).lerp(this.sky.dusk, glow * 0.75).lerp(this.sky.night, dark);
+    this.skyDome.update(this.camera.position, fr.t, dark, glow, rain, T?.hour ?? 12, this.season === 'winter');
+    const sky = this.skyDome.horizon;
     (this.scene.background as THREE.Color).copy(sky);
     const fog = this.scene.fog as THREE.Fog;
-    fog.color.copy(sky).lerp(new THREE.Color('#ffffff'), 0.12 * (1 - dark));
+    fog.color.copy(sky);
     this.hemi.color.set('#fff6e0').lerp(new THREE.Color('#ffd0b0'), glow * 0.6).lerp(new THREE.Color('#7080c8'), dark);
     this.hemi.groundColor.set('#6aa860').lerp(new THREE.Color('#283048'), dark);
     this.hemi.intensity = (1.25 - dark * 0.62) * (1 - rain * 0.12);
@@ -1123,6 +1243,7 @@ export class View {
     this.sun.intensity = (2.1 - dark * 1.6) * (1 - rain * 0.55);
     M.glowMats.window.emissiveIntensity = 0.2 + dark * 1.8;
     M.glowMats.lamp.emissiveIntensity = 0.25 + dark * 2.4;
+    for (const g of this.lampGlows) g.material.opacity = Math.max(0, dark - 0.2) * 0.75 * (0.95 + Math.sin(fr.t * 2.1) * 0.05);
     M.glowMats.pumpkin.emissiveIntensity = 0.5 + dark * 2.6;
     M.glowMats.potion.emissiveIntensity = 0.4 + dark * 1.6;
     M.glowMats.bulbs.emissiveIntensity = 0.3 + dark * 1.8 + Math.sin(fr.t * 3) * 0.15 * dark;
@@ -1270,6 +1391,8 @@ export class View {
   // ---------- Bild ----------
   setQuality(q: Quality) {
     const changed = q.shadows !== this.quality.shadows;
+    // Tiefenunschärfe kostet etwas – nur, wenn das Gerät auch Schatten schafft
+    this.screenFx.classList.toggle('dof', q.shadows > 0);
     this.quality = q;
     this.renderer.setPixelRatio(q.dpr);
     this.sun.castShadow = q.shadows > 0;
@@ -1320,12 +1443,21 @@ export class View {
     }
     this.fadeBlockers(fr);
     // Wind und getroffene Bäume
+    // Wind: kommt in sanften Böen, die über die Insel wandern
+    const gust = 0.6 + 0.4 * Math.sin(fr.t * 0.37) * Math.sin(fr.t * 0.23 + 1.3) + (fr.tod?.rain ? 0.5 : 0);
     for (const [i, o] of this.decor.entries()) {
+      if (o.sway) {
+        if (!o.sway.visible) continue;
+        o.sway.rotation.z = Math.sin(fr.t * 1.7 + o.phase * 2) * 0.07 * gust + 0.03 * gust;
+        o.sway.rotation.x = Math.cos(fr.t * 1.3 + o.phase) * 0.04 * gust;
+        continue;
+      }
       if (!o.crown) continue;
       const sh = fr.shake.get(i) ?? 0;
-      o.crown.rotation.z = Math.sin(fr.t * 0.9 + o.phase) * 0.025 + (sh ? Math.sin(fr.t * 50) * sh * 0.09 : 0);
-      o.crown.rotation.x = Math.cos(fr.t * 0.7 + o.phase) * 0.015;
+      o.crown.rotation.z = Math.sin(fr.t * 0.9 + o.phase) * 0.025 * gust + (sh ? Math.sin(fr.t * 50) * sh * 0.09 : 0);
+      o.crown.rotation.x = Math.cos(fr.t * 0.7 + o.phase) * 0.015 * gust;
     }
+    this.stepDrift(fr, gust);
     for (const s of this.smoke) {
       const p = (fr.t * 0.3 + s.ph) % 1;
       s.m.position.set(s.base.x + p * 0.7, s.base.y + p * 2.6, s.base.z - p * 0.3);
@@ -1339,9 +1471,23 @@ export class View {
     // Boot
     if (fr.boatOut !== null) {
       this.boat.visible = true;
-      const bx = fr.boat.x + fr.boatOut * 140;
+      const out = fr.boatOut;
+      const bx = fr.boat.x + out * 140;
+      // morgens kommt es mit dem Bug voran und dreht kurz vor dem Steg, abends fährt es hinaus
+      const arriving = (fr.tod?.hour ?? 12) < 12;
+      const turn = arriving ? Math.PI * Math.min(1, out / 0.18) : 0;
       this.boat.position.set(bx * U, WATER_Y + 0.02 + Math.sin(fr.t * 1.8) * 0.05, fr.boat.y * U);
-      this.boat.rotation.set(Math.sin(fr.t * 1.3) * 0.03, 0, Math.sin(fr.t * 1.1) * 0.02);
+      this.boat.rotation.set(Math.sin(fr.t * 1.3) * 0.03, turn, Math.sin(fr.t * 1.1) * 0.02 + (out > 0 && out < 1 ? 0.03 : 0));
+      const bm = this.boatM;
+      bm.flag.rotation.y = Math.sin(fr.t * 3.1) * 0.25 + 0.15;
+      bm.flag.rotation.z = Math.sin(fr.t * 4.3) * 0.05;
+      bm.pennants.rotation.x = Math.sin(fr.t * 2.2) * 0.04;
+      const fs = 1 + Math.sin(fr.t * 2.4) * 0.04 + (out > 0 && out < 1 ? 0.12 : 0);
+      bm.foam.scale.set(2.35 * fs, 0.95 * fs, 1);
+      (bm.foam.material as THREE.MeshBasicMaterial).opacity = 0.35 + Math.sin(fr.t * 2.4) * 0.12;
+      // Kapitänin winkt ab und zu (leichtes Wippen)
+      bm.captain.rotation.y = Math.sin(fr.t * 0.6) * 0.35;
+      bm.captain.position.y = 0.16 + Math.abs(Math.sin(fr.t * 2.2)) * 0.02;
     } else this.boat.visible = false;
     // Schmetterlinge & Möwen
     for (const f of this.flies) {
@@ -1406,6 +1552,7 @@ export class View {
         this.kids.delete(k);
       }
     this.insideNow = fr.inside >= 0 && !!this.interior;
+    if (this.screenFx.hidden !== this.insideNow) this.screenFx.hidden = this.insideNow;
     if (this.insideNow) {
       // drinnen ist nichts gewölbt
       CURVE.value = 0;

@@ -1,9 +1,13 @@
 /**
- * Töne und Musik – alles live erzeugt (Web Audio), keine Dateien.
- * Effekte für jede Aktion, ruhige Chiptune-Musik (nachts langsamer und sanfter),
- * Umgebung: Meeresrauschen, Vögel am Tag, Grillen in der Nacht, Regen, knisterndes Feuer.
+ * Töne und Musik. Alle Klänge werden beim Start einmal berechnet (sound/dsp.ts) und
+ * dann abgespielt: Geräusche mit leichten Abweichungen (klingt nie zweimal gleich),
+ * Umgebung (Meer, Wind, Vögel, Grillen, Regen, Feuer) je nach Ort und Tageszeit,
+ * und je Tageszeit ein eigenes Musikstück (sound/songs.ts), mit Raumhall.
  */
+import { SR, VARIANTS, drum, makeSfx, renderNote, reverbIR, rainLoop, seaLoop, cricketLoop, windLoop, fireLoop, rng, type Drum, type Inst, type Sfx as Snd } from './sound/dsp';
+import { SONGS, melodyMap, parseChord, parseMelody, songById, songEighths, stepEvents, type Song } from './sound/songs';
 
+/** Geräusche, die das Spiel auslösen kann */
 type Sfx =
   | 'nicker'
   | 'whistle'
@@ -18,7 +22,9 @@ type Sfx =
   | 'seed'
   | 'water'
   | 'refill'
+  | 'splash'
   | 'harvest'
+  | 'pick'
   | 'build'
   | 'level'
   | 'quest'
@@ -26,6 +32,7 @@ type Sfx =
   | 'cook'
   | 'step'
   | 'click'
+  | 'open'
   | 'sleep'
   | 'door'
   | 'nope';
@@ -51,16 +58,20 @@ export function setPrefs(p: Partial<typeof prefs>) {
 }
 /** Lautstärken (an/aus × Regler) auf die Kanäle */
 function applyVolumes() {
-  if (musicBus) musicBus.gain.value = prefs.music ? 0.4 * prefs.musicVol : 0;
-  if (sfxBus) sfxBus.gain.value = prefs.sound ? prefs.soundVol : 0;
-  if (ambBus) ambBus.gain.value = prefs.sound ? 0.7 * prefs.soundVol : 0;
+  if (!ac) return;
+  const t = ac.currentTime;
+  musicBus?.gain.setTargetAtTime(prefs.music ? 0.42 * prefs.musicVol : 0, t, 0.05);
+  sfxBus?.gain.setTargetAtTime(prefs.sound ? prefs.soundVol : 0, t, 0.05);
+  ambBus?.gain.setTargetAtTime(prefs.sound ? 0.8 * prefs.soundVol : 0, t, 0.05);
 }
 
 let ac: AudioContext | null = null;
 let sfxBus: GainNode | null = null;
 let musicBus: GainNode | null = null;
+let musicFade: GainNode | null = null;
 let ambBus: GainNode | null = null;
-let noiseBuf: AudioBuffer | null = null;
+let ambMuffle: BiquadFilterNode | null = null;
+let revIn: GainNode | null = null;
 
 /** beim ersten Tippen starten (Browser erlauben Ton erst nach einer Berührung) */
 export function unlockAudio() {
@@ -71,187 +82,182 @@ export function unlockAudio() {
   const AC = window.AudioContext ?? (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
   if (!AC) return;
   ac = new AC();
+  // Kette: alles → leichter Kompressor (klingt runder, nichts übersteuert) → Lautsprecher
+  const comp = ac.createDynamicsCompressor();
+  comp.threshold.value = -14;
+  comp.knee.value = 12;
+  comp.ratio.value = 3;
+  comp.attack.value = 0.01;
+  comp.release.value = 0.25;
   const master = ac.createGain();
-  master.gain.value = 0.9;
-  master.connect(ac.destination);
+  master.gain.value = 0.95;
+  master.connect(comp);
+  comp.connect(ac.destination);
   sfxBus = ac.createGain();
   musicBus = ac.createGain();
+  musicFade = ac.createGain();
   ambBus = ac.createGain();
-  for (const b of [sfxBus, musicBus, ambBus]) b.connect(master);
-  // sanftes Echo für die Musik
-  const delay = ac.createDelay();
-  delay.delayTime.value = 0.33;
-  const fb = ac.createGain();
-  fb.gain.value = 0.25;
-  const wet = ac.createGain();
-  wet.gain.value = 0.3;
-  musicIn = ac.createGain();
-  musicIn.connect(musicBus);
-  musicIn.connect(delay);
-  delay.connect(fb);
-  fb.connect(delay);
-  delay.connect(wet);
-  wet.connect(musicBus);
-  noiseBuf = ac.createBuffer(1, ac.sampleRate * 2, ac.sampleRate);
-  const d = noiseBuf.getChannelData(0);
-  for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
-  setPrefs({});
-  startAmbience();
-  musicTimer = window.setInterval(scheduleMusic, 100);
+  ambMuffle = ac.createBiquadFilter();
+  ambMuffle.type = 'lowpass';
+  ambMuffle.frequency.value = 18000;
+  sfxBus.connect(master);
+  musicFade.connect(musicBus);
+  musicBus.connect(master);
+  ambBus.connect(ambMuffle);
+  ambMuffle.connect(master);
+  // Raumhall (Musik und manche Geräusche schicken etwas davon hinein)
+  // (der Hall muss die Abtastrate des Geräts haben → umrechnen)
+  const k = ac.sampleRate / SR;
+  const irData = reverbIR(2.4);
+  const ir = ac.createBuffer(2, Math.round(irData[0].length * k), ac.sampleRate);
+  irData.forEach((ch, c) => {
+    const o = new Float32Array(ir.length);
+    for (let i = 0; i < o.length; i++) {
+      const p = i / k;
+      const j = Math.floor(p);
+      o[i] = (ch[j] ?? 0) + ((ch[j + 1] ?? 0) - (ch[j] ?? 0)) * (p - j);
+    }
+    ir.copyToChannel(o, c);
+  });
+  const conv = ac.createConvolver();
+  conv.buffer = ir;
+  revIn = ac.createGain();
+  const revOut = ac.createGain();
+  revOut.gain.value = 0.6;
+  revIn.connect(conv);
+  conv.connect(revOut);
+  revOut.connect(master);
+  applyVolumes();
   document.addEventListener('visibilitychange', () => {
     if (!ac) return;
     if (document.hidden) void ac.suspend();
     else void ac.resume();
   });
+  // Umgebung und Musik nach und nach vorbereiten (ruckelt nicht)
+  queue(startAmbience);
+  queue(() => prepare(songById(wantSong())));
+  musicTimer = window.setInterval(scheduleMusic, 60);
+  ambTimer = window.setInterval(ambience, 250);
+  // häufige Geräusche schon mal berechnen
+  for (const s of ['click', 'stepGrass', 'stepSand', 'chop', 'coin', 'harvest', 'water', 'hoe', 'seed', 'quest'] as Snd[]) queue(() => void sample(s, 0));
 }
-let musicIn: GainNode | null = null;
 
-// ---------- Bausteine ----------
-function tone(freq: number, dur: number, opts: { type?: OscillatorType; vol?: number; to?: number; at?: number; bus?: AudioNode; attack?: number } = {}) {
+// ---------- Vorbereiten in kleinen Häppchen ----------
+const jobs: (() => void)[] = [];
+let jobTimer = 0;
+function queue(job: () => void) {
+  jobs.push(job);
+  if (!jobTimer) jobTimer = window.setTimeout(runJobs, 0);
+}
+function runJobs() {
+  jobTimer = 0;
+  const end = performance.now() + 8;
+  while (jobs.length && performance.now() < end) jobs.shift()!();
+  if (jobs.length) jobTimer = window.setTimeout(runJobs, 16);
+}
+
+// ---------- Klänge ----------
+const bufs = new Map<string, AudioBuffer>();
+function toBuf(data: Float32Array) {
+  const b = ac!.createBuffer(1, data.length, SR);
+  b.copyToChannel(data as Float32Array<ArrayBuffer>, 0);
+  return b;
+}
+function sample(name: Snd, v: number) {
+  const k = `s:${name}:${v}`;
+  let b = bufs.get(k);
+  if (!b) bufs.set(k, (b = toBuf(makeSfx(name, v))));
+  return b;
+}
+/**
+ * Instrument-Ton: wie bei einem Sampler nur jeder dritte Halbton wird berechnet, die
+ * Töne dazwischen entstehen durch leicht schnelleres/langsameres Abspielen (spart Speicher).
+ */
+function instBuf(inst: Inst, midi: number, dur = 1): { buf: AudioBuffer; rate: number } {
+  const base = Math.round((midi - 1) / 3) * 3 + 1;
+  // gehaltene Klänge (Fläche, Okarina) gibt es in ein paar Längen
+  const db = inst === 'pad' || inst === 'ocarina' ? Math.max(1, Math.round(dur * 4)) / 4 : 1;
+  const k = `i:${inst}:${base}:${db}`;
+  let b = bufs.get(k);
+  if (!b) bufs.set(k, (b = toBuf(renderNote(inst, base, db))));
+  return { buf: b, rate: 2 ** ((midi - base) / 12) };
+}
+function drumBuf(d: Drum, v = 0) {
+  const k = `d:${d}:${v}`;
+  let b = bufs.get(k);
+  if (!b) bufs.set(k, (b = toBuf(drum(d, v + 1))));
+  return b;
+}
+function play(buf: AudioBuffer, o: { at?: number; gain?: number; rate?: number; pan?: number; bus?: AudioNode; rev?: number }) {
   if (!ac) return;
-  const t = opts.at ?? ac.currentTime;
-  const o = ac.createOscillator();
-  const g = ac.createGain();
-  o.type = opts.type ?? 'square';
-  o.frequency.setValueAtTime(freq, t);
-  if (opts.to) o.frequency.exponentialRampToValueAtTime(opts.to, t + dur);
-  const v = opts.vol ?? 0.2;
-  g.gain.setValueAtTime(0.0001, t);
-  g.gain.exponentialRampToValueAtTime(v, t + (opts.attack ?? 0.008));
-  g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
-  o.connect(g);
-  g.connect(opts.bus ?? sfxBus!);
-  o.start(t);
-  o.stop(t + dur + 0.02);
-}
-function noise(dur: number, opts: { freq?: number; type?: BiquadFilterType; vol?: number; at?: number; q?: number; bus?: AudioNode; attack?: number } = {}) {
-  if (!ac || !noiseBuf) return;
-  const t = opts.at ?? ac.currentTime;
   const src = ac.createBufferSource();
-  src.buffer = noiseBuf;
-  src.loop = true;
-  const f = ac.createBiquadFilter();
-  f.type = opts.type ?? 'lowpass';
-  f.frequency.value = opts.freq ?? 1500;
-  f.Q.value = opts.q ?? 0.8;
+  src.buffer = buf;
+  src.playbackRate.value = o.rate ?? 1;
   const g = ac.createGain();
-  g.gain.setValueAtTime(0.0001, t);
-  g.gain.exponentialRampToValueAtTime(opts.vol ?? 0.3, t + (opts.attack ?? 0.005));
-  g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
-  src.connect(f);
-  f.connect(g);
-  g.connect(opts.bus ?? sfxBus!);
-  src.start(t, Math.random() * 1.5);
-  src.stop(t + dur + 0.05);
+  g.gain.value = o.gain ?? 1;
+  src.connect(g);
+  let out: AudioNode = g;
+  if (o.pan && ac.createStereoPanner) {
+    const p = ac.createStereoPanner();
+    p.pan.value = Math.max(-1, Math.min(1, o.pan));
+    g.connect(p);
+    out = p;
+  }
+  out.connect(o.bus ?? sfxBus!);
+  if (o.rev && revIn) {
+    const s = ac.createGain();
+    s.gain.value = o.rev;
+    out.connect(s);
+    s.connect(revIn);
+  }
+  src.start(o.at ?? ac.currentTime);
 }
 
-let stepAlt = false;
+/** Grund-Lautstärke und Hall je Geräusch */
+const MIX: Partial<Record<Snd, { g: number; rev?: number; pitch?: number }>> = {
+  chop: { g: 0.75, rev: 0.12, pitch: 0.08 },
+  fell: { g: 0.85, rev: 0.15 },
+  hoe: { g: 0.6, pitch: 0.1 },
+  seed: { g: 0.5, pitch: 0.1 },
+  water: { g: 0.55, pitch: 0.06 },
+  refill: { g: 0.55 },
+  splash: { g: 0.6, rev: 0.1 },
+  harvest: { g: 0.6, rev: 0.1, pitch: 0.04 },
+  pick: { g: 0.5, pitch: 0.06 },
+  build: { g: 0.7, rev: 0.15 },
+  coin: { g: 0.45, rev: 0.15 },
+  click: { g: 0.45, pitch: 0.05 },
+  open: { g: 0.35 },
+  nope: { g: 0.5 },
+  quest: { g: 0.55, rev: 0.25 },
+  level: { g: 0.6, rev: 0.25 },
+  eat: { g: 0.55, pitch: 0.08 },
+  cook: { g: 0.5, rev: 0.1 },
+  stepGrass: { g: 0.22, pitch: 0.15 },
+  stepSand: { g: 0.2, pitch: 0.15 },
+  stepWood: { g: 0.28, pitch: 0.1 },
+  hoof: { g: 0.35, pitch: 0.08 },
+  nicker: { g: 0.5, rev: 0.1, pitch: 0.06 },
+  neigh: { g: 0.45, rev: 0.15, pitch: 0.06 },
+  whistle: { g: 0.45, rev: 0.15 },
+  brush: { g: 0.45 },
+  mow: { g: 0.5, pitch: 0.08 },
+  door: { g: 0.5, rev: 0.05 },
+  sleep: { g: 0.5, rev: 0.3 },
+};
+const rnd = rng(Date.now() % 100000);
+let stepFlip = 0;
+
 export function sfx(name: Sfx) {
   if (!ac || !prefs.sound) return;
-  const t = ac.currentTime;
-  switch (name) {
-    case 'chop':
-      noise(0.09, { freq: 1100, type: 'bandpass', vol: 0.5, q: 1.5 });
-      tone(150, 0.12, { to: 80, type: 'square', vol: 0.12 });
-      break;
-    case 'fell':
-      noise(0.18, { freq: 2500, type: 'highpass', vol: 0.4 });
-      noise(0.9, { freq: 2200, vol: 0.25, at: t + 0.1, attack: 0.2 });
-      tone(70, 0.4, { to: 40, type: 'sine', vol: 0.5, at: t + 0.45 });
-      break;
-    case 'hoe':
-      noise(0.12, { freq: 500, vol: 0.5 });
-      tone(120, 0.1, { to: 70, type: 'triangle', vol: 0.2 });
-      break;
-    case 'seed':
-      tone(900, 0.07, { to: 1300, type: 'sine', vol: 0.12 });
-      tone(1300, 0.06, { to: 1700, type: 'sine', vol: 0.08, at: t + 0.06 });
-      break;
-    case 'water':
-      noise(0.45, { freq: 2600, type: 'bandpass', vol: 0.25, q: 0.6, attack: 0.05 });
-      for (let i = 0; i < 4; i++) tone(500 + Math.random() * 500, 0.05, { type: 'sine', vol: 0.06, at: t + 0.08 + i * 0.08 });
-      break;
-    case 'refill':
-      for (let i = 0; i < 6; i++) tone(300 + i * 90 + Math.random() * 60, 0.06, { to: 600 + i * 90, type: 'sine', vol: 0.1, at: t + i * 0.06 });
-      break;
-    case 'harvest':
-      tone(280, 0.08, { to: 560, type: 'square', vol: 0.12 });
-      tone(1047, 0.18, { type: 'triangle', vol: 0.12, at: t + 0.07 });
-      tone(1319, 0.25, { type: 'triangle', vol: 0.1, at: t + 0.14 });
-      break;
-    case 'build':
-      for (let i = 0; i < 3; i++) {
-        noise(0.05, { freq: 1800, type: 'bandpass', vol: 0.45, at: t + i * 0.16 });
-        tone(200, 0.07, { to: 120, type: 'square', vol: 0.1, at: t + i * 0.16 });
-      }
-      break;
-    case 'level':
-      [523, 659, 784, 1047, 1319].forEach((f, i) => tone(f, 0.28, { type: 'square', vol: 0.09, at: t + i * 0.09 }));
-      tone(1568, 0.6, { type: 'triangle', vol: 0.1, at: t + 0.45 });
-      break;
-    case 'quest':
-      tone(784, 0.16, { type: 'triangle', vol: 0.14 });
-      tone(1175, 0.3, { type: 'triangle', vol: 0.12, at: t + 0.12 });
-      break;
-    case 'eat':
-      for (let i = 0; i < 3; i++) noise(0.06, { freq: 1600, type: 'bandpass', vol: 0.35, q: 2, at: t + i * 0.12 });
-      break;
-    case 'cook':
-      noise(0.8, { freq: 3500, type: 'highpass', vol: 0.18, attack: 0.1 });
-      tone(660, 0.12, { type: 'triangle', vol: 0.08, at: t + 0.5 });
-      break;
-    case 'step':
-      stepAlt = !stepAlt;
-      noise(0.04, { freq: stepAlt ? 700 : 550, vol: 0.06 });
-      break;
-    case 'nicker':
-      // leises, zufriedenes Schnauben
-      for (let i = 0; i < 6; i++) tone(180 + (i % 2) * 40, 0.06, { type: 'triangle', vol: 0.09, at: t + i * 0.05 });
-      noise(0.35, { freq: 700, vol: 0.12, at: t + 0.05, attack: 0.05 });
-      break;
-    case 'whistle':
-      tone(1400, 0.18, { to: 2100, type: 'sine', vol: 0.12 });
-      tone(2100, 0.25, { to: 1500, type: 'sine', vol: 0.11, at: t + 0.22 });
-      break;
-    case 'coin':
-      tone(1319, 0.08, { type: 'square', vol: 0.08 });
-      tone(1976, 0.22, { type: 'square', vol: 0.07, at: t + 0.07 });
-      break;
-    case 'mow':
-      // Sense: Schwung durchs Gras
-      noise(0.22, { freq: 4200, type: 'bandpass', vol: 0.35, q: 0.7, attack: 0.04 });
-      noise(0.12, { freq: 2600, type: 'highpass', vol: 0.12, at: t + 0.12 });
-      break;
-    case 'brush':
-      for (let i = 0; i < 3; i++) noise(0.12, { freq: 3000, type: 'bandpass', vol: 0.18, q: 1.2, at: t + i * 0.14, attack: 0.04 });
-      tone(1568, 0.2, { type: 'triangle', vol: 0.06, at: t + 0.4 });
-      break;
-    case 'neigh':
-      // Wiehern: hoher Ton mit schnellem Zittern, fällt ab
-      for (let i = 0; i < 9; i++) tone(900 - i * 55 + (i % 2) * 120, 0.07, { type: 'sawtooth', vol: 0.06, at: t + i * 0.055 });
-      noise(0.5, { freq: 1800, type: 'bandpass', vol: 0.08, q: 2, at: t + 0.05 });
-      tone(260, 0.25, { to: 180, type: 'square', vol: 0.05, at: t + 0.5 });
-      break;
-    case 'hoof':
-      // Klapp-klapp
-      stepAlt = !stepAlt;
-      tone(stepAlt ? 520 : 430, 0.035, { type: 'square', vol: 0.05 });
-      noise(0.03, { freq: stepAlt ? 1400 : 1100, type: 'bandpass', vol: 0.18, q: 3 });
-      break;
-    case 'click':
-      tone(700, 0.04, { type: 'square', vol: 0.06 });
-      break;
-    case 'sleep':
-      [784, 659, 523, 392].forEach((f, i) => tone(f, 0.5, { type: 'triangle', vol: 0.1, at: t + i * 0.35, attack: 0.05 }));
-      break;
-    case 'door':
-      tone(320, 0.35, { to: 210, type: 'sawtooth', vol: 0.04 });
-      noise(0.06, { freq: 900, type: 'bandpass', vol: 0.3, at: t + 0.3 });
-      break;
-    case 'nope':
-      tone(200, 0.12, { to: 150, type: 'square', vol: 0.08 });
-      break;
-  }
+  const s: Snd = name === 'step' ? (scene.ground === 'sand' ? 'stepSand' : scene.ground === 'wood' ? 'stepWood' : 'stepGrass') : name;
+  if (name === 'step' || name === 'hoof') stepFlip++;
+  const n = VARIANTS[s] ?? 1;
+  const v = Math.floor(rnd() * n);
+  const m = MIX[s] ?? { g: 0.5 };
+  const pitch = m.pitch ? 1 + (rnd() - 0.5) * m.pitch : 1;
+  const pan = name === 'step' || name === 'hoof' ? (stepFlip % 2 ? -0.12 : 0.12) : 0;
+  play(sample(s, v), { gain: m.g, rate: pitch, pan, rev: m.rev });
 }
 
 // ---------- Umgebung ----------
@@ -261,101 +267,158 @@ interface Scene {
   fire: number;
   inside: boolean;
   menu: boolean;
+  /** Uhrzeit 0..24 (für die Musik) */
+  hour: number;
+  /** wie nah das Meer ist 0..1 */
+  sea: number;
+  /** Untergrund für Schritte */
+  ground: 'grass' | 'sand' | 'wood';
+  /** Fest gerade (Winterfest: Schlittenglöckchen in der Musik) */
+  fest: 'halloween' | 'winter' | null;
 }
-const scene: Scene = { night: 0, rain: false, fire: 0, inside: false, menu: true };
-let rainGain: GainNode | null = null;
-let seaGain: GainNode | null = null;
-let ambTimer = 0;
-function loopNoise(freq: number, type: BiquadFilterType) {
-  const src = ac!.createBufferSource();
-  src.buffer = noiseBuf;
-  src.loop = true;
-  const f = ac!.createBiquadFilter();
-  f.type = type;
-  f.frequency.value = freq;
-  const g = ac!.createGain();
-  g.gain.value = 0;
-  src.connect(f);
-  f.connect(g);
-  g.connect(ambBus!);
-  src.start();
-  return g;
-}
-function startAmbience() {
-  rainGain = loopNoise(1300, 'lowpass');
-  seaGain = loopNoise(500, 'lowpass');
-  ambTimer = window.setInterval(() => {
-    if (!ac || !prefs.sound) return;
-    const t = ac.currentTime;
-    // Meer: langsames An- und Abschwellen
-    seaGain!.gain.setTargetAtTime((scene.inside ? 0.02 : 0.07) * (0.6 + 0.4 * Math.sin(t * 0.5)), t, 0.8);
-    rainGain!.gain.setTargetAtTime(scene.rain ? (scene.inside ? 0.12 : 0.3) : 0, t, 1);
-    if (scene.inside || scene.menu) return;
-    // Vögel am Tag, Grillen in der Nacht
-    if (scene.night < 0.4 && !scene.rain && Math.random() < 0.12) {
-      const base = 2200 + Math.random() * 1400;
-      for (let i = 0; i < 2 + Math.floor(Math.random() * 3); i++)
-        tone(base, 0.07, { to: base * 1.3, type: 'sine', vol: 0.04, at: t + i * 0.11, bus: ambBus! });
-    }
-    if (scene.night > 0.6 && Math.random() < 0.5)
-      for (let i = 0; i < 3; i++) tone(4300, 0.03, { type: 'sine', vol: 0.025, at: t + i * 0.06, bus: ambBus! });
-    // Feuer knistert
-    for (let i = 0; i < Math.round(scene.fire * 4); i++)
-      if (Math.random() < 0.6) noise(0.02, { freq: 3000 + Math.random() * 2000, type: 'bandpass', vol: 0.12 * scene.fire, at: t + Math.random() * 0.2, bus: ambBus! });
-  }, 250);
+const scene: Scene = { night: 0, rain: false, fire: 0, inside: false, menu: true, hour: 9, sea: 0.5, ground: 'grass', fest: null };
+export function setScene(s: Partial<Scene>) {
+  const wasInside = scene.inside;
+  Object.assign(scene, s);
+  if (ac && ambMuffle && wasInside !== scene.inside) ambMuffle.frequency.setTargetAtTime(scene.inside ? 700 : 18000, ac.currentTime, 0.15);
 }
 
-export function setScene(s: Partial<Scene>) {
-  Object.assign(scene, s);
+const loops: Record<'sea' | 'wind' | 'rain' | 'crickets' | 'fire', GainNode | null> = { sea: null, wind: null, rain: null, crickets: null, fire: null };
+let ambTimer = 0;
+function startAmbience() {
+  if (!ac) return;
+  const make = (key: keyof typeof loops, data: () => Float32Array) =>
+    queue(() => {
+      const src = ac!.createBufferSource();
+      src.buffer = toBuf(data());
+      src.loop = true;
+      const g = ac!.createGain();
+      g.gain.value = 0;
+      src.connect(g);
+      g.connect(ambBus!);
+      src.start(ac!.currentTime, Math.random() * 2);
+      loops[key] = g;
+    });
+  make('sea', () => seaLoop(16));
+  make('wind', () => windLoop(10));
+  make('crickets', () => cricketLoop(6));
+  make('rain', () => rainLoop(6));
+  make('fire', () => fireLoop(4));
+}
+function ambience() {
+  if (!ac || !prefs.sound || ac.state !== 'running') return;
+  const t = ac.currentTime;
+  const set = (k: keyof typeof loops, v: number) => loops[k]?.gain.setTargetAtTime(v, t, 0.6);
+  const out = !scene.menu;
+  set('sea', scene.menu ? 0.16 : 0.07 + scene.sea * 0.22);
+  set('wind', out ? 0.05 + (scene.rain ? 0.08 : 0) + (scene.inside ? 0 : 0.03) : 0.04);
+  set('rain', scene.rain ? 0.3 : 0);
+  set('crickets', out && !scene.inside && !scene.rain ? Math.max(0, scene.night - 0.4) * 0.22 : 0);
+  set('fire', out && !scene.inside ? scene.fire * 0.35 : 0);
+  if (scene.inside || scene.menu) return;
+  const day = scene.night < 0.4 && !scene.rain;
+  const pan = () => (rnd() - 0.5) * 1.4;
+  if (day && rnd() < 0.07) play(sample('bird', Math.floor(rnd() * 6)), { gain: 0.1 + rnd() * 0.1, pan: pan(), rate: 0.9 + rnd() * 0.25, bus: ambBus!, rev: 0.25 });
+  if (day && scene.hour < 11 && rnd() < 0.008) play(sample('dove', 0), { gain: 0.18, pan: pan(), bus: ambBus!, rev: 0.2 });
+  if (day && scene.sea > 0.35 && rnd() < 0.018) play(sample('gull', Math.floor(rnd() * 2)), { gain: 0.12, pan: pan(), rate: 0.95 + rnd() * 0.1, bus: ambBus!, rev: 0.3 });
+  if (scene.night > 0.7 && !scene.rain && rnd() < 0.006) play(sample('owl', 0), { gain: 0.14, pan: pan(), bus: ambBus!, rev: 0.35 });
+  if (scene.night > 0.6 && scene.sea > 0.2 && rnd() < 0.015) play(sample('frog', 0), { gain: 0.1, pan: pan(), rate: 0.9 + rnd() * 0.2, bus: ambBus!, rev: 0.15 });
 }
 
 // ---------- Musik ----------
 let musicTimer = 0;
-let nextBeat = 0;
-let beat = 0;
-const DAY_CHORDS = [
-  [48, 52, 55],
-  [45, 48, 52],
-  [41, 45, 48],
-  [43, 47, 50],
-]; // C Am F G
-const NIGHT_CHORDS = [
-  [45, 48, 52],
-  [41, 45, 48],
-  [48, 52, 55],
-  [43, 47, 50],
-]; // Am F C G
-const PENTA = [0, 2, 4, 7, 9];
-const mtof = (m: number) => 440 * 2 ** ((m - 69) / 12);
-let melodyNote = 2;
+let cur: Song | null = null;
+let melody: Map<number, [number, number]> = new Map();
+let step = 0;
+let loopN = 0;
+let nextAt = 0;
+let switchAt = 0;
+const ready = new Set<string>();
+const preparing = new Set<string>();
+
+function wantSong(): Song['id'] {
+  if (scene.menu) return 'morning';
+  if (scene.inside) return 'home';
+  const h = scene.hour;
+  return h >= 5 && h < 11 ? 'morning' : h >= 11 && h < 17 ? 'noon' : h >= 17 && h < 21 ? 'evening' : 'night';
+}
+/** alle Noten eines Lieds vorab berechnen (in Häppchen) */
+function prepare(s: Song) {
+  if (ready.has(s.id) || preparing.has(s.id)) return;
+  preparing.add(s.id);
+  const todo: (() => void)[] = [];
+  const mel = parseMelody(s.melody);
+  const e8 = 60 / s.bpm / 2;
+  for (const [m, d] of mel) if (m >= 0) for (const inst of [s.lead, s.lead2]) todo.push(() => void instBuf(inst, m, d * e8));
+  for (const c of s.chords) {
+    const { root, tones } = parseChord(c);
+    for (const tn of tones) {
+      todo.push(() => void instBuf(s.compInst, root + 12 + tn, s.beats * 2 * e8));
+      todo.push(() => void instBuf(s.compInst, root + 24 + tn, s.beats * 2 * e8));
+      if (s.pad) todo.push(() => void instBuf('pad', root + 12 + tn, s.beats * 2 * e8));
+    }
+    todo.push(() => void instBuf('bass', root - 12));
+    todo.push(() => void instBuf('bass', root - 5));
+  }
+  for (const d of ['shaker', 'kick', 'clave', 'jingle'] as Drum[]) todo.push(() => void drumBuf(d));
+  for (const j of todo) queue(j);
+  queue(() => {
+    preparing.delete(s.id);
+    ready.add(s.id);
+  });
+}
+function begin(s: Song) {
+  cur = s;
+  melody = melodyMap(s);
+  step = 0;
+  loopN = 0;
+  nextAt = ac!.currentTime + 0.15;
+  musicFade!.gain.cancelScheduledValues(ac!.currentTime);
+  musicFade!.gain.setTargetAtTime(1, ac!.currentTime, 0.4);
+}
 function scheduleMusic() {
-  if (!ac || !musicIn || !prefs.music) {
-    if (ac) nextBeat = ac.currentTime + 0.1;
+  if (!ac || !musicFade || ac.state !== 'running') return;
+  const now = ac.currentTime;
+  const want = songById(wantSong());
+  if (!ready.has(want.id)) prepare(want);
+  // anderes Lied: erst leise ausblenden, dann wechseln
+  if (cur?.id !== want.id) {
+    if (!cur) {
+      if (ready.has(want.id)) begin(want);
+      return;
+    }
+    if (!switchAt) {
+      switchAt = now + 2.2;
+      musicFade.gain.setTargetAtTime(0, now, 0.5);
+    }
+    if (now >= switchAt && ready.has(want.id)) {
+      switchAt = 0;
+      begin(want);
+    }
+    if (switchAt) return;
+  }
+  if (!prefs.music || !cur) {
+    nextAt = now + 0.1;
     return;
   }
-  const night = scene.night > 0.5;
-  const bpm = night ? 64 : 84;
-  const step = 60 / bpm / 2; // Achtel
-  if (nextBeat < ac.currentTime) nextBeat = ac.currentTime + 0.05;
-  while (nextBeat < ac.currentTime + 0.3) {
-    const bar = Math.floor(beat / 8);
-    const inBar = beat % 8;
-    const chords = night ? NIGHT_CHORDS : DAY_CHORDS;
-    const chord = chords[bar % 4];
-    const vol = scene.menu ? 0.8 : 1;
-    // Bass auf 1 und 5
-    if (inBar === 0 || inBar === 4) tone(mtof(chord[0] - 12), step * 3.5, { type: 'triangle', vol: 0.18 * vol, at: nextBeat, bus: musicIn, attack: 0.02 });
-    // weiche Akkord-Fläche am Taktanfang
-    if (inBar === 0) for (const n of chord) tone(mtof(n + 12), step * 7.5, { type: 'sine', vol: 0.035 * vol, at: nextBeat, bus: musicIn, attack: 0.3 });
-    // Melodie: Pentatonik, kleine Schritte, Pausen
-    const rest = night ? 0.55 : 0.35;
-    if (Math.random() > rest) {
-      melodyNote = Math.max(0, Math.min(9, melodyNote + Math.floor(Math.random() * 5) - 2));
-      const n = 72 + PENTA[melodyNote % 5] + 12 * Math.floor(melodyNote / 5) - (night ? 12 : 0);
-      tone(mtof(n), step * (night ? 1.8 : 1.2), { type: night ? 'triangle' : 'square', vol: (night ? 0.05 : 0.035) * vol, at: nextBeat, bus: musicIn, attack: 0.01 });
+  const s = cur;
+  const e8 = 60 / s.bpm / 2;
+  const total = songEighths(s);
+  if (nextAt < now) nextAt = now + 0.05;
+  while (nextAt < now + 0.3) {
+    playStep(s, step, nextAt);
+    nextAt += e8;
+    step++;
+    if (step >= total) {
+      step = 0;
+      loopN++;
     }
-    nextBeat += step;
-    beat++;
+  }
+}
+function playStep(s: Song, st: number, at: number) {
+  for (const e of stepEvents(s, melody, st, loopN, { rnd, rain: scene.rain, winter: scene.fest === 'winter' })) {
+    const { buf, rate } = e.drum ? { buf: drumBuf(e.drum), rate: 1 } : instBuf(e.inst!, e.midi!, e.len ?? 1);
+    play(buf, { at: at + e.dt, gain: e.gain, rate, pan: e.pan, rev: e.rev, bus: musicFade! });
   }
 }
 
@@ -366,3 +429,7 @@ export function stopAudio() {
   void ac?.close();
   ac = null;
 }
+/** zum Ausprobieren: alle Lieder */
+export const SONG_IDS = SONGS.map((s) => s.id);
+/** für Tests: Zustand der Ton-Engine */
+export const audioInfo = () => ({ state: ac?.state ?? 'none', buffers: bufs.size, song: cur?.id ?? null, ready: [...ready], loops: Object.entries(loops).filter(([, g]) => g).map(([k]) => k) });
