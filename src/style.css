@@ -2606,3 +2606,495 @@ img[src$='#foto'] {
   -webkit-mask-image: linear-gradient(#000 0%, rgba(0, 0, 0, 0.75) 35%, transparent 100%);
   mask-image: linear-gradient(#000 0%, rgba(0, 0, 0, 0.75) 35%, transparent 100%);
 }
+
+/* ======================= Spiel-Optik (angelehnt an große Spiele wie Hay Day) =======================
+   dicke, glänzende Knöpfe mit umrandeter Schrift; Fenster mit Holzrahmen, rotem Titelband und
+   rundem rotem X; Stufen-Abzeichen; Vorräte als Plaketten; Werkzeugleiste als Holztablett */
+:root {
+  --rim-wood: #9a6430;
+  --ol-brown: 0 -2px 0 #6b3a12, 2px 0 0 #6b3a12, 0 2px 0 #6b3a12, -2px 0 0 #6b3a12, 1.5px 1.5px 0 #6b3a12, -1.5px 1.5px 0 #6b3a12, 1.5px -1.5px 0 #6b3a12, -1.5px -1.5px 0 #6b3a12, 0 3.5px 0 #6b3a12;
+  --ol-orange: 0 -2px 0 #a4560f, 2px 0 0 #a4560f, 0 2px 0 #a4560f, -2px 0 0 #a4560f, 1.5px 1.5px 0 #a4560f, -1.5px 1.5px 0 #a4560f, 1.5px -1.5px 0 #a4560f, -1.5px -1.5px 0 #a4560f, 0 3.5px 0 #a4560f;
+  --ol-green: 0 -2px 0 #2f7a12, 2px 0 0 #2f7a12, 0 2px 0 #2f7a12, -2px 0 0 #2f7a12, 1.5px 1.5px 0 #2f7a12, -1.5px 1.5px 0 #2f7a12, 1.5px -1.5px 0 #2f7a12, -1.5px -1.5px 0 #2f7a12, 0 3.5px 0 #2f7a12;
+  --ol-red: 0 -2px 0 #9a2418, 2px 0 0 #9a2418, 0 2px 0 #9a2418, -2px 0 0 #9a2418, 1.5px 1.5px 0 #9a2418, -1.5px 1.5px 0 #9a2418, 1.5px -1.5px 0 #9a2418, -1.5px -1.5px 0 #9a2418, 0 3.5px 0 #9a2418;
+  --ol-blue: 0 -2px 0 #1d5490, 2px 0 0 #1d5490, 0 2px 0 #1d5490, -2px 0 0 #1d5490, 1.5px 1.5px 0 #1d5490, -1.5px 1.5px 0 #1d5490, 1.5px -1.5px 0 #1d5490, -1.5px -1.5px 0 #1d5490, 0 3.5px 0 #1d5490;
+  --ol-pink: 0 -2px 0 #a8326c, 2px 0 0 #a8326c, 0 2px 0 #a8326c, -2px 0 0 #a8326c, 1.5px 1.5px 0 #a8326c, -1.5px 1.5px 0 #a8326c, 1.5px -1.5px 0 #a8326c, -1.5px -1.5px 0 #a8326c, 0 3.5px 0 #a8326c;
+  --ol-purple: 0 -2px 0 #4a2a80, 2px 0 0 #4a2a80, 0 2px 0 #4a2a80, -2px 0 0 #4a2a80, 1.5px 1.5px 0 #4a2a80, -1.5px 1.5px 0 #4a2a80, 1.5px -1.5px 0 #4a2a80, -1.5px -1.5px 0 #4a2a80, 0 3px 0 #4a2a80;
+  --card: #fff9ea;
+  --card-line: #ecd29e;
+  /* Plakette: helles Pergament mit Holzrand */
+  --plaque: linear-gradient(#fffcee, #f7e6b8);
+  --plaque-rim: inset 0 0 0 2px #fff6dc, 0 0 0 2.5px var(--rim-wood), 0 3px 0 2.5px var(--rim-wood), 0 6px 10px rgba(40, 20, 0, 0.22);
+}
+
+/* ---------- Knöpfe ---------- */
+#ui .pbtn {
+  --c1: #ffd35e;
+  --c2: #f8a52a;
+  --c3: #ee8f19;
+  --rim: #a4560f;
+  --ol: var(--ol-orange);
+  position: relative;
+  isolation: isolate;
+  border-radius: 18px;
+  background: linear-gradient(var(--c1), var(--c2) 55%, var(--c3));
+  box-shadow:
+    inset 0 -3px 0 rgba(0, 0, 0, 0.1),
+    0 0 0 2.5px var(--rim),
+    0 5px 0 2.5px var(--rim),
+    0 9px 16px rgba(50, 25, 0, 0.28);
+  color: #fff;
+  font-weight: 700;
+  text-shadow: var(--ol);
+}
+/* Glanz oben */
+#ui .pbtn::before {
+  content: '';
+  position: absolute;
+  z-index: -1;
+  left: 8%;
+  right: 8%;
+  top: 3px;
+  height: 42%;
+  border-radius: 14px 14px 50% 50% / 14px 14px 100% 100%;
+  background: linear-gradient(rgba(255, 255, 255, 0.72), rgba(255, 255, 255, 0.1));
+  pointer-events: none;
+}
+#ui .pbtn:active {
+  transform: translateY(3px);
+  box-shadow:
+    inset 0 -3px 0 rgba(0, 0, 0, 0.1),
+    0 0 0 2.5px var(--rim),
+    0 2px 0 2.5px var(--rim),
+    0 4px 8px rgba(50, 25, 0, 0.22);
+}
+#ui .pbtn.green {
+  --c1: #b0ec62;
+  --c2: #74cf38;
+  --c3: #58b526;
+  --rim: #2f7a12;
+  --ol: var(--ol-green);
+}
+#ui .pbtn.blue {
+  --c1: #96d8ff;
+  --c2: #4aaaf0;
+  --c3: #3191da;
+  --rim: #1d5490;
+  --ol: var(--ol-blue);
+}
+#ui .pbtn.pink {
+  --c1: #ffc0e0;
+  --c2: #f48ac2;
+  --c3: #e872b0;
+  --rim: #a8326c;
+  --ol: var(--ol-pink);
+}
+#ui .pbtn.ghost {
+  --c1: #fffcf2;
+  --c2: #f8ead0;
+  --c3: #f0deb6;
+  --rim: #b88a54;
+  color: #6b3a12;
+  text-shadow: none;
+}
+#ui .pbtn.fav-on {
+  --c1: #fff3b0;
+  --c2: #ffd84a;
+  --c3: #f4c22a;
+  --rim: #b8860b;
+}
+#ui .pbtn:disabled {
+  filter: grayscale(0.85);
+  opacity: 0.7;
+  transform: none;
+}
+#ui .pbtn.nudge {
+  box-shadow:
+    0 0 0 2.5px var(--rim),
+    0 0 0 6px #ffd23f,
+    0 5px 0 6px #e8a82a;
+}
+/* großer runder Aktions-Knopf */
+#ui .pbtn.use {
+  --c1: #b8f06a;
+  --c2: #74cf38;
+  --c3: #56b324;
+  --rim: #2f7a12;
+  border-radius: 50%;
+  box-shadow:
+    inset 0 -4px 0 rgba(0, 0, 0, 0.1),
+    0 0 0 4px #fff,
+    0 0 0 7px var(--rim),
+    0 6px 0 7px var(--rim),
+    0 12px 18px rgba(30, 50, 10, 0.35);
+}
+#ui .pbtn.use::before {
+  left: 18%;
+  right: 18%;
+  top: 7%;
+  height: 36%;
+  border-radius: 50% 50% 46% 46% / 60% 60% 40% 40%;
+}
+#ui .pbtn.use:active {
+  box-shadow:
+    0 0 0 4px #fff,
+    0 0 0 7px var(--rim),
+    0 3px 0 7px var(--rim);
+}
+#ui .pbtn.use.bite {
+  box-shadow:
+    0 0 0 4px #fff,
+    0 0 0 10px #ffd23f,
+    0 6px 0 10px #e8a82a;
+}
+/* Menü-Knopf: drei weiße Striche mit Rand */
+#ui .pbtn.icon i {
+  background: #fff;
+  box-shadow: 0 2px 0 #a4560f;
+}
+/* Basteln, Album, Bauen */
+#ui .act-row .pbtn span {
+  font-weight: 700;
+}
+
+/* ---------- Fenster: Pergament mit Holzrahmen ---------- */
+#ui .modal > .panel,
+#ui .modal > .inv-wrap > .panel,
+#ui .menu-panel,
+#ui .coop-panel,
+#ui .custom-panel,
+.levelup .panel {
+  background: linear-gradient(#fffaea, #fbeec8);
+  border-radius: 24px;
+  box-shadow:
+    inset 0 0 0 3px #fff3d0,
+    0 0 0 5px #d39a5c,
+    0 0 0 8px #8d5529,
+    0 6px 0 8px #6b3d18,
+    0 18px 34px rgba(30, 15, 0, 0.45);
+}
+/* Titel auf einem roten Band (bleibt beim Blättern oben) */
+#ui .modal > .panel > h2,
+#ui .modal > .inv-wrap > .panel > h2,
+#ui .coop-panel > h2,
+#ui .custom-panel > h2,
+.levelup .panel > h2 {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  box-sizing: border-box;
+  width: fit-content;
+  min-width: 60%;
+  max-width: 100%;
+  margin: -4px auto 12px;
+  padding: 9px 32px 12px;
+  background: linear-gradient(#ff8a70, #f05c46 55%, #dc4433);
+  clip-path: polygon(0 0, 100% 0, calc(100% - 15px) 50%, 100% 100%, 0 100%, 15px 50%);
+  color: #fff;
+  font-size: calc(24px * var(--fs));
+  line-height: 1.1;
+  text-align: center;
+  text-shadow: var(--ol-red);
+}
+/* rundes rotes X oben rechts */
+#ui .x-close {
+  position: fixed;
+  z-index: 6;
+  width: 42px;
+  height: 42px;
+  margin: 0;
+  padding: 0;
+  border: 3px solid #fff;
+  border-radius: 50%;
+  background: radial-gradient(circle at 50% 32%, #ff9078, #ec4a3a 58%, #c8322a);
+  box-shadow:
+    0 0 0 2.5px #8e2418,
+    0 4px 0 2.5px #8e2418,
+    0 8px 12px rgba(40, 10, 0, 0.35);
+  cursor: pointer;
+}
+#ui .x-close::before,
+#ui .x-close::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 20px;
+  height: 5px;
+  border-radius: 3px;
+  background: #fff;
+  box-shadow: 0 1.5px 0 rgba(120, 20, 10, 0.6);
+  transform: translate(-50%, -50%) rotate(45deg);
+}
+#ui .x-close::after {
+  transform: translate(-50%, -50%) rotate(-45deg);
+}
+#ui .x-close:active {
+  transform: translateY(2px);
+}
+/* Karten in den Fenstern: etwas plastischer */
+#ui .build-card,
+#ui .trade-row,
+#ui .slot-card,
+#ui .furn,
+#ui .craft-row,
+#ui .ach-row,
+#ui .chest-list div {
+  box-shadow:
+    inset 0 0 0 2px var(--card-line),
+    0 3px 0 #e3c88f;
+}
+
+/* ---------- Anzeige oben links: Abzeichen mit Stufe, Balken ---------- */
+#ui .panel.lvl {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  width: auto;
+  min-width: 172px;
+  padding: 5px 10px 6px 6px;
+  border-radius: 18px;
+  background: var(--plaque);
+  box-shadow: var(--plaque-rim);
+}
+.lvl-badge {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 42px;
+  height: 42px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 50% 30%, #8ad6ff, #3196e6 62%, #2272c4);
+  box-shadow:
+    inset 0 0 0 3px #fff,
+    0 0 0 2.5px #1d5490,
+    0 3px 0 2.5px #1d5490;
+}
+.lvl-badge b {
+  color: #fff;
+  font: 700 calc(20px * var(--fs)) / 1 'Fredoka', system-ui, sans-serif;
+  text-shadow: var(--ol-blue);
+}
+.lvl-badge.pop {
+  animation: pop 0.45s ease-out;
+}
+.lvl-main {
+  flex: 1;
+  min-width: 0;
+}
+#ui .lvl .st-row b {
+  display: none;
+}
+#ui .lvl .st-bar {
+  margin-top: 3px;
+}
+#ui .lvl .st-bar small {
+  width: calc(30px * var(--fs));
+  font-weight: 700;
+  color: #7a4a1e;
+}
+#ui .lvl .st-bar .xpbar,
+#ui .lvl .st-bar .enbar {
+  height: 9px;
+}
+#ui .xpbar,
+#ui .enbar {
+  background: #e3cc98;
+  box-shadow: inset 0 2px 2px rgba(80, 40, 0, 0.22);
+}
+#ui .xpbar i {
+  background: linear-gradient(#fff2a0, #ffd23a 50%, #f2b218);
+  box-shadow: inset 0 -2px 0 rgba(160, 90, 0, 0.25);
+}
+#ui .enbar i {
+  background: linear-gradient(#c6f48a, #7fd23f 50%, #5bb52a);
+  box-shadow: inset 0 -2px 0 rgba(30, 90, 10, 0.25);
+}
+#ui .stars-btn {
+  box-shadow: inset 0 0 0 1.5px #e8c46a;
+}
+
+/* ---------- Vorräte als einzelne Plaketten ---------- */
+#ui .panel.res {
+  gap: 6px;
+  padding: 0;
+  background: none;
+  box-shadow: none;
+}
+#ui .res .r {
+  gap: 4px;
+  padding: 3px 9px 4px 5px;
+  border-radius: 999px;
+  border-left: 0;
+  background: var(--plaque);
+  box-shadow: inset 0 0 0 2px #fff6dc, 0 0 0 2.5px var(--rim-wood), 0 3px 0 2.5px var(--rim-wood);
+  color: #5a3410;
+}
+#ui .res .r + .r {
+  border-left: 0;
+}
+#ui .res .r[title='Münzen'] {
+  background: linear-gradient(#fff6c8, #ffde6a);
+}
+#ui .res .bagbtn {
+  margin-left: 2px;
+  padding: 3px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 50% 35%, #fffbe8, #f6dc9a) !important;
+  box-shadow: inset 0 0 0 2px #fff6dc, 0 0 0 2.5px var(--rim-wood), 0 3px 0 2.5px var(--rim-wood);
+}
+#ui .boardbtn em {
+  top: -9px;
+  right: -9px;
+  min-width: 21px;
+  height: 21px;
+  border-radius: 11px;
+  background: radial-gradient(circle at 50% 35%, #ff8068, #e23b2c);
+  font: 700 13px/21px 'Fredoka', system-ui, sans-serif;
+  text-shadow: 0 1px 0 #8e2418;
+  box-shadow: 0 0 0 2px #fff, 0 2px 0 2px #8e2418;
+}
+
+/* ---------- Aufgabe, Projekt, Fest: Schildchen ---------- */
+#ui .goal {
+  padding: 5px 11px 6px 30px;
+  border-radius: 14px;
+  background: var(--plaque);
+  box-shadow: var(--plaque-rim);
+  color: #5a3410;
+  font-weight: 600;
+}
+#ui .goal::before {
+  content: '!';
+  left: 6px;
+  top: 50%;
+  width: 18px;
+  height: 18px;
+  margin-top: -9px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 50% 35%, #ffe680, #f5b51e);
+  box-shadow: 0 0 0 1.5px #b07810;
+  color: #fff;
+  font: 700 13px/18px 'Fredoka', system-ui, sans-serif;
+  text-align: center;
+  text-shadow: 0 1px 0 #a06a00;
+}
+#ui .proj-chip {
+  background: var(--plaque);
+  box-shadow: var(--plaque-rim);
+  color: #5a3410;
+  font-weight: 600;
+}
+#ui .proj-chip i {
+  height: 8px;
+  background: #e3cc98;
+  box-shadow: inset 0 1px 2px rgba(80, 40, 0, 0.25);
+}
+#ui .proj-chip i b {
+  background: linear-gradient(#c6f48a, #6fcb35);
+}
+#ui .fest-chip {
+  background: linear-gradient(#b48af0, #8a5ad8);
+  box-shadow: inset 0 2px 0 rgba(255, 255, 255, 0.35), 0 0 0 2.5px #4a2a80, 0 3px 0 2.5px #4a2a80;
+  font-weight: 700;
+  text-shadow: var(--ol-purple);
+}
+
+/* ---------- Werkzeugleiste: Holztablett ---------- */
+#ui .hotbar.panel {
+  gap: 6px;
+  padding: 7px;
+  border-radius: 20px;
+  background: linear-gradient(#dba066, #bf7f43);
+  box-shadow:
+    inset 0 2px 0 rgba(255, 230, 190, 0.6),
+    inset 0 -3px 0 rgba(80, 40, 10, 0.25),
+    0 0 0 2.5px #6b3d18,
+    0 5px 0 2.5px #6b3d18,
+    0 10px 16px rgba(40, 20, 0, 0.3);
+}
+#ui .slot {
+  border-radius: 13px;
+  background: linear-gradient(#fffbf0, #f2e0b8);
+  box-shadow: inset 0 0 0 2px #fff6dc, 0 3px 0 #7a4a20;
+}
+#ui .slot.on {
+  background: linear-gradient(#fff8c0, #ffd65a);
+  box-shadow:
+    inset 0 0 0 2px #fffbe0,
+    0 0 0 3px #fff,
+    0 0 0 5.5px #f0a020,
+    0 0 16px 5px rgba(255, 214, 70, 0.75);
+  transform: translateY(-2px);
+}
+#ui .slot small {
+  right: 3px;
+  bottom: 1px;
+  color: #fff;
+  text-shadow: var(--ol-brown);
+}
+#ui .slot.locked {
+  background: #e8dbbe;
+}
+
+/* ---------- Hinweise und Meldungen ---------- */
+#ui .toast {
+  padding: 9px 16px 10px;
+  border-radius: 18px;
+  background: rgba(78, 44, 14, 0.92);
+  box-shadow: 0 0 0 2.5px #f3d590, 0 4px 0 2.5px #b88a3e, 0 10px 18px rgba(30, 15, 0, 0.35);
+  font-weight: 600;
+}
+.hint {
+  background: rgba(78, 44, 14, 0.82);
+  box-shadow: 0 0 0 2px #f3d590;
+}
+
+/* ---------- Stufe aufgestiegen ---------- */
+.levelup .panel {
+  padding: 16px 24px 20px;
+}
+.levelup .panel > h2 {
+  position: static;
+}
+.levelup .lvl-badge {
+  width: 92px;
+  height: 92px;
+  margin: 4px auto 8px;
+  box-shadow:
+    inset 0 0 0 5px #fff,
+    0 0 0 3.5px #1d5490,
+    0 5px 0 3.5px #1d5490,
+    0 0 26px 8px rgba(255, 220, 90, 0.75);
+}
+.levelup .lvl-badge b {
+  font-size: calc(46px * var(--fs));
+  text-shadow: 0 -3px 0 #1d5490, 3px 0 0 #1d5490, 0 3px 0 #1d5490, -3px 0 0 #1d5490, 2px 2px 0 #1d5490, -2px 2px 0 #1d5490, 2px -2px 0 #1d5490, -2px -2px 0 #1d5490, 0 5px 0 #1d5490;
+}
+/* Reiter: Platz für den dicken Rand */
+#ui .tabs {
+  margin-bottom: 16px;
+  padding-top: 2px;
+}
+/* schmale Handys: Werkzeugleiste und Aktions-Knopf etwas kleiner, damit nichts überlappt */
+@media (max-width: 389px) {
+  #ui .hotbar.panel {
+    gap: 4px;
+    padding: 6px;
+  }
+  #ui .slot {
+    width: 44px;
+    height: 44px;
+  }
+  #ui .slot img {
+    width: 30px;
+    height: 30px;
+  }
+  #ui .pbtn.use {
+    width: 74px;
+    height: 74px;
+  }
+  #ui .pbtn.use img {
+    width: 44px;
+    height: 44px;
+  }
+}

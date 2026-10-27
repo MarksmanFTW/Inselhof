@@ -10,6 +10,48 @@ import { MAX_SLOTS, activeSlot, type Save, type Slot } from './save';
 
 const ui = document.querySelector<HTMLElement>('#ui')!;
 
+// ---------- rundes rotes X oben rechts an jedem Fenster (wie in großen Spielen) ----------
+const sized = new WeakSet<HTMLElement>();
+const panelSize = new ResizeObserver(() => placeAllX());
+function placeAllX() {
+  for (const modal of ui.querySelectorAll<HTMLElement>('.modal')) {
+    const x = modal.querySelector<HTMLElement>(':scope > .x-close');
+    const panel = modal.querySelector<HTMLElement>('.panel');
+    if (!x || !panel) continue;
+    const r = panel.getBoundingClientRect();
+    x.style.left = `${Math.min(innerWidth - 46, r.right - 30)}px`;
+    x.style.top = `${Math.max(4, r.top - 14)}px`;
+  }
+}
+function addCloseX() {
+  for (const modal of ui.querySelectorAll<HTMLElement>('.modal')) {
+    const close = modal.querySelector<HTMLElement>('[data-m=close]');
+    const panel = modal.querySelector<HTMLElement>('.panel');
+    let x = modal.querySelector<HTMLButtonElement>(':scope > .x-close');
+    if (!close || !panel) {
+      x?.remove();
+      continue;
+    }
+    if (!x) {
+      x = document.createElement('button');
+      x.className = 'x-close';
+      x.setAttribute('aria-label', 'Schließen');
+      x.addEventListener('click', (e) => {
+        e.stopPropagation();
+        modal.querySelector<HTMLElement>('[data-m=close]')?.click();
+      });
+      modal.appendChild(x);
+    }
+    if (!sized.has(panel)) {
+      sized.add(panel);
+      panelSize.observe(panel);
+    }
+  }
+  placeAllX();
+}
+new MutationObserver(() => requestAnimationFrame(addCloseX)).observe(ui, { childList: true, subtree: true });
+addEventListener('resize', placeAllX);
+
 // ---------- Textgröße (Einstellungen) ----------
 const TEXT_KEY = 'cozyisland.text';
 export const TEXT_SIZES = [
@@ -692,9 +734,12 @@ export function showHud(
   ui.innerHTML = `
     <button class="pbtn icon" data-act="menu" aria-label="Menü"><i></i><i></i><i></i></button>
     <div class="panel lvl">
-      <div class="st-row"><b>Stufe 1</b><button class="stars-btn" data-act="stars" aria-label="Insel-Sterne"><i>★</i><span>0</span></button><small class="clock"></small></div>
-      <div class="st-bar"><small>EP</small><div class="xpbar"><i></i></div></div>
-      <div class="st-bar"><small>Kraft</small><div class="enbar" title="Energie"><i></i></div></div>
+      <span class="lvl-badge" aria-hidden="true"><b>1</b></span>
+      <div class="lvl-main">
+        <div class="st-row"><b>Stufe 1</b><button class="stars-btn" data-act="stars" aria-label="Insel-Sterne"><i>★</i><span>0</span></button><small class="clock"></small></div>
+        <div class="st-bar"><small>EP</small><div class="xpbar"><i></i></div></div>
+        <div class="st-bar"><small>Kraft</small><div class="enbar" title="Energie"><i></i></div></div>
+      </div>
     </div>
     <div class="panel res">
       <span class="r" title="Holz"><img src="${icons.log}" alt="" /><b class="n-wood">0</b></span>
@@ -843,9 +888,12 @@ export function showHud(
       drawGoal();
     },
     setLevel(level, progress) {
-      const b = $('.lvl b');
+      const b = $('.lvl .st-row b');
       const t = `Stufe ${level}`;
-      if (b.textContent !== t) b.textContent = t;
+      if (b.textContent !== t) {
+        b.textContent = t;
+        bump($('.lvl-badge b'), String(level));
+      }
       $('.xpbar i').style.width = `${Math.round(Math.max(0, Math.min(1, progress)) * 100)}%`;
     },
     setInside(onI) {
@@ -1547,7 +1595,7 @@ export function showHud(
     levelUp(level, perk) {
       const el = document.createElement('div');
       el.className = 'levelup';
-      el.innerHTML = `<div class="panel"><small>Insel-Stufe</small><b>${level}</b>${perk ? `<p>Neu: ${esc(perk)}</p>` : ''}<p class="gift">+3 Samen</p></div>`;
+      el.innerHTML = `<div class="panel"><h2>Neue Stufe!</h2><span class="lvl-badge"><b>${level}</b></span>${perk ? `<p>Neu: ${esc(perk)}</p>` : ''}<p class="gift">+3 Samen</p></div>`;
       ui.appendChild(el);
       setTimeout(() => el.classList.add('out'), 3000);
       setTimeout(() => el.remove(), 3500);
